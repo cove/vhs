@@ -31,7 +31,7 @@ for %%I in ("%IN%") do set "BN=%%~nI"
 
 REM ffprobe and mediainfo must be on PATH
 echo Generating info for "%IN%"
-ffprobe -v quiet -print_format json -show_format -show_streams "%IN%" > "%BN% info.json"
+REM ffprobe -v quiet -print_format json -show_format -show_streams "%IN%" > "%BN% info.json"
 ffprobe -v quiet -show_format -show_streams "%IN%" > "%BN% info.txt"
 
 REM Blake3: if missing, write notice
