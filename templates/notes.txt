@@ -2,6 +2,5 @@ VHS Label: <orignal label>
 Label: <updated label>
 Orginal Recording Date: <date>
 Scanned Date: <date>
-Software: VirtualDubMod 1.9.11, FFV1 codec from ffdshow_rev4533_20140929_clsid_x64.exe, ffmpeg 8.0-essentials_build-www.gyan.dev
-Hardware: Panasonic AG-1970p VCR, Ospery 260e Analog capture card, Ospery Windows 11 driver 64bit 5.0.7.32, Microsoft Windows 11 Version 25H2 (OS Build 26200.7019)
-
+Software: VirtualDubMod 1.9.11, FFV1 codec from ffdshow_rev4533_20140929_clsid_x64.exe, ffmpeg 8.0-essentials_build-www.gyan.dev, Ospery Windows 11 driver 64bit 5.0.7.32, Microsoft Windows 11 Version 25H2 (OS Build 26200.7019)
+Hardware: Panasonic AG-1970p VCR, Ospery 260e Analog capture card, HP Pavilion Desktop AMD Ryzen 7 16GB Memory 1TB SSD Model TP01-2234/318G6AA#ABA
