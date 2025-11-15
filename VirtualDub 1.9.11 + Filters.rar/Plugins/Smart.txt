@@ -1,0 +1,108 @@
+Smart Deinterlacing Filter for Virtual Dub
+
+[Place this text file in the VirtualDub plugins directory to make
+it available via the Help button on the filter configuration dialog
+box. The computer must have a program called Notepad available in
+its search path.]
+
+This filter provides a smart, motion-based deinterlacing capability. In static
+picture areas, interlacing artifacts do not appear, so data from both fields is
+used to provide full detail. In moving areas, deinterlacing is performed.
+Details on the algorithm used are available below.
+
+The following options are available:
+
+Motion Processing
+
+Show motion areas only: When selected, only the moving areas of the image
+are displayed; static areas are black. This option can be used to assess the
+suitability of the choice of threshold (see below).
+
+Blend instead of interpolate in motion areas: If this checkbox is not selected,
+then, in motion areas, the filter will discard one field's data and recreate it
+by interpolating new lines from the retained field's lines. In static areas, both
+field's data is used. If this checkbox is checked, then, in motion areas, instead
+of interpolating, the filter blends each line with the lines above and below. This
+has the effect of blending the fields, which tends to blur out the interlacing
+artifacts. The choice of interpolation versus blending depends on the nature of
+the input video and your own esthetic preferences. The interpolate mode avoids
+the halos you can get with the blend mode, but it introduces some small amount
+of stairstepping, and may tend to emphasize any video noise that is present. Try
+both ways and see which you prefer for a given video clip.
+
+Threshold: This value determines the difference between a pixel and its corresponding
+value in the previous frame that must be exceeded for the pixel to be considered moving.
+The threshold should be chosen to be as high as possible while still removing the
+interlacing artifacts. The default threshold (20) is fine for most applications, but may
+need to be adjusted for different input video. You can view its effect on motion detection
+by selecting the "Show motion areas only" checkbox.
+
+Advanced Processing
+
+Phase shift by one field: Consider a frame/field sequence of progressive video
+AA BB CC DD EE... This is correct because each frame contains the correct field data
+from the original progressive frame. Suppose, as often happens, the stream is
+encoded and broadcasted for display on today's interlaced TVs, but the encoding is
+off by one field. Then we receive ...A AB BC CD DE E... The picture will look fine on
+the interlaced display, but it will appear to be strangely interlaced when captured
+to a computer and displayed progressively. Apparently, this is a common problem in the
+PAL world when films are digitized. This option, when enabled, simply shifts the field
+phase by one and recreates the correct progressive frames. Because correct progressive
+frames are the result, the full motion detection deinterlacing described above is not required
+and is disabled. If you see strange interlacing for PAL video, it is worth trying this option
+before resorting to full deinterlacing, because it may allow the full resolution of the
+video to be retained for each entire frame. Please note that, due to the way that this
+filter buffers frames internally, it may appear to not work corrctly when scrubbing the
+time line or when single stepping backward. But single stepping forward will always work
+and, of course, saved processed video will always be correct.
+
+Note on 3:2 Pulldown, Etc.
+
+Some video streams are created from progressive video by a process called pulldown.
+This results in a mixture of progressive and interlaced frames, from which it is theoretically
+possible to recreate the original progressive frames without doing deinterlacing.
+However, it is technically very challenging to write a filter that will recreate the original
+frames for all types of pulldown and in the presence of video edits, etc. While my goal
+is to eventually make available such processing via options, the technology is not yet
+ready. In the meantime, the normal deinterlacing will function quite acceptably for the
+majority of these video streams. 
+
+Technical details on the algorithm follow:
+
+We really should place the word motion as used in this context in quotes,
+because real motion detection algorithms as you might find in, say, MPEG
+encoding are not used as they would be too slow. Instead, "motion"
+is estimated by comparing a pixel's value to its value in the previous frame.
+If the difference exceeds a configurable threshold, the pixel is considered to
+be in a moving area. Here is a description of the full process:
+
+1. The frame is scanned and for each pixel, it is determined whether it is
+moving or not based on a thresholded color difference calculation.
+The difference calculation goes as follows: If the difference between the
+blue components exceeds threshold, or the difference between the red
+components exceeds threshold, or the difference between the green
+components exceeds threshold, then the pixel is considered to be in a
+moving area.
+
+2. To eliminate combing at the edge of the motion areas, the following
+heuristic is used: For each pixel in the frame calculated to be non-moving,
+promote it to moving if it has moving pixels immediately above it or below it.
+
+3. Pass non-moving pixels directly through to the output. If the blend checkbox
+is not checked: Pass even lines directly through. For odd lines, recreate each
+pixel by taking the average of the pixel above and the pixel below (this amounts to
+line interpolation). If the blend checkbox is checked: Make each pixel by taking a
+weighted average of the source pixel (0.5 weight) and the above and below pixels
+(0.25 weight each). So it can be seen that in the moving areas, the interpolate
+mode throws away information from one field, while the blend mode retains
+some of it.
+
+For additional information, version updates, and other filters, please
+go to the following web site:
+
+Filters for VirtualDub
+http://www.geocities.com/Colosseum/Pressbox/8699/index.html
+
+Donald Graft
+March 24, 2000
+(C) Copyright 2000, All Rights Reserved
