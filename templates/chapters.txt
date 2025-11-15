@@ -1,0 +1,11 @@
+;FFMETADATA1
+[CHAPTER]
+TIMEBASE=1/1
+START=0
+END=<seconds>
+title=<description>
+[CHAPTER]
+TIMEBASE=1/1
+START=<seconds>
+END=<seconds>
+title=<description>
