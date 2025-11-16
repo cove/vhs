@@ -21,14 +21,14 @@ REM remove any existing combined file
 if exist "%OUTBLAKE%" del /f /q "%OUTBLAKE%"
 
 set "FOUND=0"
-for %%F in (*.mp4 *.mkv) do (
+for %%F in (*.mp4 *.mkv *mediainfo.txt) do (
     if exist "%%F" (
         set "FOUND=1"
         echo.
         echo Processing: %%F
 
         REM append blake3 hash (full path preserved by b3sum output)
-        "%B3%" "%%~fF" >> "%OUTBLAKE%"
+        "%B3%" "%%F" >> "%OUTBLAKE%"
         if errorlevel 1 (
             echo Error generating blake3 for "%%F"
             exit /b 1
