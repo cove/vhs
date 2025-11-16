@@ -42,20 +42,20 @@ for f in *.mp4 *.mkv; do
       exit 1
     fi
 
-    # generate ffprobe-based media info (text)
+    # generate ffprobe-based media mediainfo (text)
     bn="${f%.*}"
-    info_txt="${bn} info.txt"
-    echo "Generating info for \"$f\" -> \"$info_txt\""
-    ffprobe -v quiet -show_format -show_streams "$f" > "$info_txt"
+    mediainfo_txt="${bn} mediainfo.txt"
+    echo "Generating mediainfo for \"$f\" -> \"$mediainfo_txt\""
+    ffprobe -v quiet -show_format -show_streams "$f" > "$mediainfo_txt"
     if [[ $? -ne 0 ]]; then
-      echo "Error generating ffprobe info for \"$f\""
+      echo "Error generating ffprobe mediainfo for \"$f\""
       exit 1
     fi
 
-    # append blake3 line for the generated media info file
-    "$B3" "$info_txt" >> "$OUTBLAKE"
+    # append blake3 line for the generated media mediainfo file
+    "$B3" "$mediainfo_txt" >> "$OUTBLAKE"
     if [[ $? -ne 0 ]]; then
-      echo "Error generating blake3 for \"$info_txt\""
+      echo "Error generating blake3 for \"$mediainfo_txt\""
       exit 1
     fi
   fi
