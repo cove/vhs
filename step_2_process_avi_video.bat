@@ -12,27 +12,8 @@ for %%I in ("%INPUT%") do set "BASENAME=%%~nI"
 
 echo Generating videos from "%INPUT%"...
 
-ffmpeg -i "%INPUT%" -map 0:v:0 -c:v ffv1 -level 3 -g 1 -coder 1 -context 1 -slicecrc 1 -timecode 00:00:00:00 -map 0:a:0 -c:a flac -segment_time_metadata 1 "%BASENAME%.mkv"
-call :vhs_info "%BASENAME%.mkv"
+REM If the input is FFV1 then use copy, else use re-encode to FFV1
+REM ffmpeg -i "%INPUT%" -pix_fmt yuv422p -map 0:v:0 -c:v ffv1 -level 3 -g 1 -coder 1 -context 1 -slicecrc 1 -timecode 00:00:00:00 -map 0:a:0 -c:a flac -segment_time_metadata 1 "%BASENAME%.mkv"
+ffmpeg -i "%INPUT%" -map 0:v:0 -c:v copy -map 0:a:0 -c:a copy "%BASENAME%.mkv"
 
 exit /b 0
-
-:vhs_info
-setlocal
-set "IN=%~1"
-for %%I in ("%IN%") do set "BN=%%~nI"
-
-REM ffprobe and mediainfo must be on PATH
-echo Generating info for "%IN%"
-REM ffprobe -v quiet -print_format json -show_format -show_streams "%IN%" > "%BN% info.json"
-ffprobe -v quiet -show_format -show_streams "%IN%" > "%BN% info.txt"
-
-REM Blake3: if missing, write notice
-echo Generating blake3 hash for "%IN%"
-b3sum_windows_x64_bin.exe "%IN%" > "%BN% blake3.txt"
-if %errorlevel% neq 0 (
-    exit /b 1
-)
-
-endlocal
-goto :eof
