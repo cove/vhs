@@ -21,7 +21,7 @@ REM remove any existing combined file
 if exist "%OUTBLAKE%" del /f /q "%OUTBLAKE%"
 
 set "FOUND=0"
-for %%F in (*.mp4 *.mkv *mediainfo.txt) do (
+for %%F in (*.mp4 *.mkv) do (
     if exist "%%F" (
         set "FOUND=1"
         echo.
