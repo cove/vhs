@@ -1,0 +1,76 @@
+Unfortunately scripting in VirtualDub is limited, so the capture process is manual. 
+
+Setting up VirtualDub from the software/ directory:
+1. Install the FFV1 driver included in software/drivers/ffdshow_rev4533_20140929_clsid_x64.exe, because doing the capture as that uncompressed codecs might strain the computer's disk IO. If that doesn't happen then uncompressed should work fine.
+2. Set capture frame rate to 29.97 fps (NTSC standard) in the lower right of the screen.
+3. Set Audio -> Compression to PCM format using 48.000 kHz 16-bit stereo.
+4. Set Video -> Compression "ffdshow Video Codec", and then click on the Configure button, set Encoder: FFV1, Color Space: 422P, Color Type: AC, Context Model: Large, Keyframe Distance: 1
+5. Set Capture -> Settings... -> Abort options -> Abort on left mouse button to be unchecked since it's causes erant recording stops, just press the ESC key to stop recording.
+6. Set Capture -> Timing... -> Internal capture mode synchronization -> no correction
+6. Set Capture -> Stop conditions ... -> Capture time exceeds to 1860 seconds for the maximum of a VHS-C tape or how ever long you think the tape should run for. Also, the VCR tape counters are just aproximates, they're not down to the second accurate!
+7. Set File -> Set Capture File... to the output file every time, as that it automatically overwrites the last file by default.
+
+See the screenshots/ directory for what the above settings look like.
+
+Note:
+VirtualDub is finicky, there's multiple versions floating around the internet and it's not maintained, but as of the time of this writting is the best option. There is OBS, however as the VHS community points out its not frame by frame accurate, its effectivly resampling rather than recording faithfully what is captured by the capture card. The frame drops counter in OBS is also just recording frame encoding lag, not actual frame drops. There's also the vhs-decode project (https://github.com/oyvindln/vhs-decode), which requires modifing a VCR by attaching probes to the raw output test points from the VCR head to record the raw signal, which does look surpsingly clearer, but the capture card is a DYI card and sourcing the parts from Aliexpress, or buying a card from the main guy on the project when he makes some more, or spending serious money on a HackRF One card. 
+
+The VirtualDub software included is from here:
+https://www.digitalfaq.com/guides/video/capture-avi-virtualdub.htm
+https://www.digitalfaq.com/forum/video-conversion/1727-virtualdub-filters-pre.html
+
+
+Here is the tutorial from the link above that this was based off of as of November 18, 2025:
+
+How to Capture AVI Video in VirtualDub
+The following guide is for capturing AVI with virtually any capture card. It requires the use of the freeware (no-cost) software VirtualDub. (You can download a pre-loaded version of VirtualDub in our forum.)
+
+When using Windows XP-Vista-Win7, VirtualDub should support both VFW and WDM cards. Most video hardware developed after 2000 uses WDM drivers. Detecting whether you have a WDM card is normally pretty easy. Aside from when the card was made, the letters “WDM” will often be in the driver name, seen in the Windows device manager. This guide was tested with an AVerMedia BT8x8 chipset video capture card, and an ATI All In Wonder Rage Theatre chipset video capture card.
+
+If this article is helpful, please share it with others, using these links:
+		
+And if you've found our site to be as helpful as a magazine, book or class, then consider a small donation to support what we do here. Or sign up as a Premium Member for only $20. Thanks!
+Using VirtualDub to Capture AVI
+Before we begin, understand that not all cards will work with VirtualDub. Many cards based on the BT8x8 chipset, a very popular and cheap WDM-based card, will not cooperate with a VFW-to-WDM bridge or VFW software. Not all new video cards come with backwards compatibility. Simply try it to see if it works.
+
+Open VirtualDub and go to File > Capture AVI. It will launch the VirtualDub capturing interface.
+
+Capture settings. The main window of the capturing console shows preview in the main window, and information on the right-hand side. At the bottom of the screen are the audio and video settings. VirtualDub comes with very low quality default settings, so most settings need tweaking. Change from 15.00 fps to 29.97 fps (full NTSC). The audio setting is also too low, but it will be changed somewhere else.
+
+
+
+Audio settings. Go to the Audio menu, and go down to Compression. A new will open with the audio settings. Change it to PCM format using 48.000 kHz 16-bit stereo. Click Save As and give the new settings a name. I choose “DVD 48k” for mine. Click OK. You should now notice the audio level is 48K/16/s in the lower-right corner of the capture console.
+
+Go back to the Audio menu. This time go down to Volume Meter. The Balance should be in the middle, meaning both the left and right stereo get the same amount. The Volume control bar should be at about 50 to 75 percent. Never put volume at 100 percent, as it will often lead to distorted, cracking audio. The left side of the slider bar is 0 percent, the right side is 100 percent. Click the X when done.
+
+One last time, go the Audio menu. Go to Windows Mixer. It will launch the Windows volume controls (you can also get here by double-clicking on the speaker icon in the system tray). Select the soundcard input. For most people this will be either LINE IN for an external soundcard input or AUX for an internal connection.
+
+Standard video settings. VirtualDub has an extensive list of video capture options. This hack will help you with the basic settings and give some brief information on the more advanced optional settings. Go to Video and set it for Overlay mode if it is not already set. Overlay is the area of the graphics cards that plays live video data.
+
+
+
+Go to Video, and then Format. Set this resolution to an appropriate number, preferably 640×480 or 720×480. Set the compression mode to YUY2 if available. Click OK to return to the capture console.
+
+Next go to Video, and then Source. This is where you select the video capture card to work with VirtualDub. On the Capture Source tab, select the video card and the input (coax tv tuner, s-video, or composite). If using a TV tuner, click on the TV Tuner button to change the channel and select the signal format. In the USA, the signal is NTSC_M. On the Device Settings tab, alter as needed to make color corrections to the video. Realize the PC and TV may not look the same, so never alter color, contrast, brightness, etc., without running test captures and playing the results on a TV set first.
+
+Now go to Video, and then Compression. This is where you select the AVI codec used at capture. For high quality captures meant for DVD, it is suggested to stay with uncompressed or low compression codecs like HuffYUV or MJPEG (Morgan, PicVideo and MainConcept all make MJPEG codecs). However, for computer-only viewing, formats like DivX and Xvid may be used. Codecs must be installed separately, they do not come with the computer. Some are free (example: most lossless codecs), some cost money (example: MPEG-2, MPEG-4, MJPEG). If capturing for DVD, be sure the codec supports interlace (MJPEG and HuffYUV do). Click on the Configure button to tweak the codec settings, normally just to verify interlace fields being captured and raise the quality to higher levels. Click OK and go back to the capture console. Go to Video, and then Compression Compatibility. Match this settings to the one you made in the Compression settings.
+
+Optional Video Settings. Anything below Compression Compatibility on the Video menu is optional. These are advanced features for improving video quality.
+
+Go to Video, and then Cropping. First, enable it (OPTIONAL). Then go to Set Bounds. This will allow you to only capture a certain portion of the video. Just be aware that you cut off pixels doing this. If you trim off 5 pixels from each side on a 640×480 capture, the final file will be 630×470 in size. This is a filter for advanced work only.
+
+Go to Video, and then Noise Reduction to enable noise reduction (OPTIONAL). This setting can remove noise on the video capture, but it will increase system CPU usage, and may result in dropped frames depending on the compression.
+
+Go to Video, and then Filters (OPTIONAL). This will launch the filters console. VirtualDub filters use a plug-in method, so many filters exist, made by many people. VirtualDub comes with 25 or more filters, and more can be added.
+
+
+
+READY TO CAPTURE!
+
+Go to File, and then Set Capture File. Type in the name and select the location for your capture file. AVI files can be rather large, so be sure the hard drive selected has plenty of space, at least 10 GB or more, preferably 20-30GB minimum for full-length movies.
+
+Finally, go to Capture, and Capture Video. F6 on the keyboard is a shortcut for this command. Press Capture again (or F6 again) to stop the capturing. While the video is capturing, pay attention to the information in the info box of capture console. Dropped frames are not good. If you are dropping frames, see the dropped frames guide.
+
+If this article is helpful, please share it with others, using these links:
+		
+And if you've found our site to be as helpful as a magazine, book or class, then consider a small donation to support what we do here. Or sign up as a Premium Member for only $20. Thanks!
