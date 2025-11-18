@@ -1,4 +1,5 @@
 #!/bin/bash
+# Verify BLAKE3 hashes the directory
 
 shopt -s nullglob
 

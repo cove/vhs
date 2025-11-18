@@ -108,7 +108,7 @@ fi
 
 # run ffmpeg and replace original on success
 if ffmpeg "${args[@]}" -f matroska "$TMP" -y; then
-  mv -f "$TMP" "${MKV%.*}_updated.mkv"
+  mv -f "$TMP" "${MKV%.*}_extras.mkv"
   trap - EXIT
   echo "Done."
 else

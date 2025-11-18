@@ -1,6 +1,5 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 set -euo pipefail
-setopt NULL_GLOB
 
 # script directory
 SCRIPT_DIR="$(cd "$(dirname -- "$0")" && pwd)"
@@ -19,9 +18,9 @@ else
   exit 1
 fi
 
-# ffprobe required
-if ! command -v ffprobe >/dev/null 2>&1; then
-  echo "Error: ffprobe not found in PATH. Please install ffmpeg."
+# mediainfo required
+if ! command -v mediainfo >/dev/null 2>&1; then
+  echo "Error: mediainfo not found in PATH. Please install the MediaInfo CLI."
   exit 1
 fi
 
@@ -29,7 +28,7 @@ OUTBLAKE="00-manifest-blake3sums.txt"
 rm -f -- "$OUTBLAKE"
 
 found=false
-for f in *.mp4 *.mkv *mediainfo.txt; do
+for f in *.mp4 *.mkv; do
   if [[ -f "$f" ]]; then
     found=true
     echo
@@ -42,20 +41,14 @@ for f in *.mp4 *.mkv *mediainfo.txt; do
       exit 1
     fi
 
-    # generate ffprobe-based media mediainfo (text)
+    # generate mediainfo text dump
     bn="${f%.*}"
     mediainfo_txt="${bn} mediainfo.txt"
     echo "Generating mediainfo for \"$f\" -> \"$mediainfo_txt\""
-    ffprobe -v quiet -show_format -show_streams "$f" > "$mediainfo_txt"
-    if [[ $? -ne 0 ]]; then
-      echo "Error generating ffprobe mediainfo for \"$f\""
-      exit 1
-    fi
 
-    # append blake3 line for the generated media mediainfo file
-    "$B3" "$mediainfo_txt" >> "$OUTBLAKE"
+    mediainfo --Output=Text "$f" > "$mediainfo_txt"
     if [[ $? -ne 0 ]]; then
-      echo "Error generating blake3 for \"$mediainfo_txt\""
+      echo "Error generating mediainfo for \"$f\""
       exit 1
     fi
   fi

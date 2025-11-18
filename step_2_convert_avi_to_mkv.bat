@@ -1,8 +1,8 @@
 @echo off
-REM Usage: process_videos.bat input_file.mkv
+REM Usage: step_2_convert_avi_to_mkv.bat captured.avi
 
 if "%~1"=="" (
-    echo Usage: %~nx0 input_file.avi
+    echo Usage: %~nx0 captured.avi
     exit /b 1
 )
 

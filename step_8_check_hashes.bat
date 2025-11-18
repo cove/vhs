@@ -1,5 +1,5 @@
 @echo off
-REM check_hashes_b3.bat - Verify BLAKE3 hashes the directory
+REM Verify BLAKE3 hashes the directory
 
 setlocal enabledelayedexpansion
 set "B3=%~dp0b3sum_windows_x64_bin.exe"
