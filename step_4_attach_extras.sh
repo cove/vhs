@@ -2,20 +2,19 @@
 set -euo pipefail
 
 if [[ $# -ne 7 ]]; then
-  echo "Usage: attach_extras.sh \"video.mkv\" \"cover.jpg\" \"label.jpg\" \"notes.txt\" \"title.txt\" \"comment.txt\" \"chapters.ffmetadata\""
+  echo "Usage: attach_extras.sh \"video.mkv\" \"cover.jpg\" \"label.jpg\" \"title.txt\" \"comment.txt\" \"chapters.ffmetadata\""
   exit 1
 fi
 
 MKV="$1"
 COVER="$2"
 LABEL="$3"
-NOTES="$4"
 TITLE_FILE="$5"
 COMMENT_FILE="$6"
 CHAPTERS="$7"
 
 # validate inputs
-for f in "$MKV" "$COVER" "$LABEL" "$NOTES" "$TITLE_FILE" "$COMMENT_FILE" "$CHAPTERS"; do
+for f in "$MKV" "$COVER" "$LABEL" "$TITLE_FILE" "$COMMENT_FILE" "$CHAPTERS"; do
   [[ ! -f "$f" ]] && echo "ERROR: $f not found." && exit 1
 done
 
@@ -59,12 +58,6 @@ idx=$((idx+1))
 label_ext=$(ext_lower "$LABEL")
 label_stored="label.${label_ext}"
 args+=(-attach "$LABEL" -metadata:s:t:$idx mimetype=image/jpeg -metadata:s:t:$idx filename="$label_stored")
-idx=$((idx+1))
-
-notes_ext=$(ext_lower "$NOTES")
-[[ -z "$notes_ext" ]] && notes_ext="txt"
-notes_stored="notes.${notes_ext}"
-args+=(-attach "$NOTES" -metadata:s:t:$idx mimetype=text/plain -metadata:s:t:$idx filename="$notes_stored")
 idx=$((idx+1))
 
 # run ffmpeg
