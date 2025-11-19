@@ -1,0 +1,24 @@
+;FFMETADATA1
+[CHAPTER]
+TIMEBASE=1/1
+START=0
+END=10
+title=Capture Start
+
+[CHAPTER]
+TIMEBASE=1/1
+START=11
+END=282
+title=Meteor Crater Natural Landmark (Auguest 23, 1992)
+
+[CHAPTER]
+TIMEBASE=1/1
+START=284
+END=343
+title=Flintstone's Bedrock City (Auguest 25, 1992)
+
+[CHAPTER]
+TIMEBASE=1/1
+START=344
+END=349
+title=Capture End

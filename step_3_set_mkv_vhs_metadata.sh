@@ -11,7 +11,7 @@ INPUT="$1"
 FILENAME="${INPUT##*/}"
 BASENAME="${FILENAME%.*}"
 
-echo "Updating colorspace metadata for \"$INPUT\"..."
+echo "Updating metadata for \"$INPUT\"..."
 
 # Update MKV metadata (no re-encoding)
 # For standard-definition BT.601 / SMPTE 170M, the correct numeric IDs are:
@@ -21,17 +21,16 @@ echo "Updating colorspace metadata for \"$INPUT\"..."
 #  - interlaced_frame: 1 (indicates interlaced video)
 #  - aspect ratio: 4:3
 #  - Remove encoder metadata from video and audio streams so they can be compared fairly
-#  - --flags +ilme+ildct -vf "setfield=bff" Bottom Field First for interlaced video (BFF)
+#  - Set field order to BFF (Bottom Field First) for VHS tapes recorded in BFF mode, this is just metadata and for documentation
 ffmpeg -i "$INPUT" \
   -c copy \
   -color_primaries:v 6 \
   -color_trc:v 6 \
   -colorspace:v 5 \
-  -interlaced_frame 1 \
   -aspect 4:3 \
   -metadata:s:v:0 encoder="" \
   -metadata:s:a:0 encoder="" \
-  -flags +ilme+ildct -vf "setfield=bff" \
+  -metadata:s:v:0 field_order="BFF" \
   "${BASENAME}_metadata.mkv"
 
 echo "Done! Output: ${BASENAME}_metadata.mkv"

@@ -20,16 +20,15 @@ REM  - colorspace: 5 (SMPTE 170M)
 REM  - interlaced_frame: 1 (true)
 REM  - aspect ratio: 4:3
 REM  - Remove encoder metadata from video and audio streams so they can be compared fairly
-REM  - -flags +ilme+ildct -top 0 Bottom Field First for interlaced video (BFF)
+REM  - Set field order to BFF (Bottom Field First) for VHS tapes recorded in BFF mode, this is just metadata and for documentation
 ffmpeg -i "%INPUT%" -c copy ^
   -color_primaries:v 6 ^
   -color_trc:v 6 ^
   -colorspace:v 5 ^
-  -interlaced_frame 1 ^
   -aspect 4:3 ^
   -metadata:s:v:0 encoder="" ^
   -metadata:s:a:0 encoder="" ^
-  -flags +ilme+ildct -vf "setfield=bff" ^
+  -metadata:s:v:0 field_order="BFF" ^
   "%BASENAME%_metadata.mkv"
 
 echo Done! Output: "%BASENAME%_metadata.mkv"
