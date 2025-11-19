@@ -21,7 +21,7 @@ REM  - interlaced_frame: 1 (true)
 REM  - aspect ratio: 4:3
 REM  - Remove encoder metadata from video and audio streams so they can be compared fairly
 REM  - Set field order to BFF (Bottom Field First) for VHS tapes recorded in BFF mode, this is just metadata and for documentation
-ffmpeg -i "%INPUT%" -c copy ^
+ffmpeg -nostdin -v error -i "%INPUT%" -c copy ^
   -color_primaries:v 6 ^
   -color_trc:v 6 ^
   -colorspace:v 5 ^

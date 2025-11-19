@@ -1,24 +1,33 @@
-#!/usr/bin/env zsh
+#!/usr/bin/env bash
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-if [[ $# -ne 7 ]]; then
-  echo "Usage: attach_extras.sh \"video.mkv\" \"cover.jpg\" \"label.jpg\" \"title.txt\" \"comment.txt\" \"chapters.ffmetadata\""
+if [[ $# -ne 1 ]]; then
+  echo "Usage: attach_extras.sh video.mkv"
   exit 1
 fi
 
 MKV="$1"
-COVER="$2"
-LABEL="$3"
-TITLE_FILE="$5"
-COMMENT_FILE="$6"
-CHAPTERS="$7"
+[[ ! -f "$MKV" ]] && echo "ERROR: $MKV not found." && exit 1
 
-# validate inputs
-for f in "$MKV" "$COVER" "$LABEL" "$TITLE_FILE" "$COMMENT_FILE" "$CHAPTERS"; do
-  [[ ! -f "$f" ]] && echo "ERROR: $f not found." && exit 1
+VIDEO_BASE="$(basename "$MKV")"
+VIDEO_BASE="${VIDEO_BASE%.*}"
+
+VIDEO_NAME="$(printf '%s' "$VIDEO_BASE" | sed -E 's/^([^0-9]*[0-9]+).*/\1/')"
+
+META_DIR="$SCRIPT_DIR/media_metadata/$VIDEO_NAME"
+
+COVER="$META_DIR/cover.jpg"
+LABEL="$META_DIR/label.jpg"
+TITLE_FILE="$META_DIR/title.txt"
+COMMENT_FILE="$META_DIR/comment.txt"
+CHAPTERS="$META_DIR/chapters.ffmetadata"
+
+# validate metadata dir + required files
+for f in "$COVER" "$LABEL" "$TITLE_FILE" "$COMMENT_FILE" "$CHAPTERS"; do
+  [[ ! -f "$f" ]] && echo "ERROR: Missing expected metadata file: $f" && exit 1
 done
 
-# read title/comment from files
 TITLE=$(<"$TITLE_FILE")
 COMMENT=$(<"$COMMENT_FILE")
 
@@ -30,44 +39,38 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# helper to get lowercase extension (without dot)
 ext_lower() {
   local f="$1"
   local e="${f##*.}"
-  printf '%s' "${e}" | tr '[:upper:]' '[:lower:]'
+  printf '%s' "$e" | tr '[:upper:]' '[:lower:]'
 }
 
-# Build ffmpeg args
 args=()
 args+=(-i "$MKV")
-args+=(-i "$CHAPTERS")  # always use chapters
-
-# map streams
+args+=(-i "$CHAPTERS")
 args+=(-map 0 -c copy -map_metadata 1)
-
-# global metadata
 args+=(-metadata "title=$TITLE" -metadata "comment=$COMMENT")
 
-# attachments
 idx=0
 cover_ext=$(ext_lower "$COVER")
-cover_stored="cover.${cover_ext}"
-args+=(-attach "$COVER" -metadata:s:t:$idx mimetype=image/jpeg -metadata:s:t:$idx filename="$cover_stored")
+args+=(-attach "$COVER" \
+       -metadata:s:t:$idx mimetype=image/jpeg \
+       -metadata:s:t:$idx filename="cover.$cover_ext")
 idx=$((idx+1))
 
 label_ext=$(ext_lower "$LABEL")
-label_stored="label.${label_ext}"
-args+=(-attach "$LABEL" -metadata:s:t:$idx mimetype=image/jpeg -metadata:s:t:$idx filename="$label_stored")
+args+=(-attach "$LABEL" \
+       -metadata:s:t:$idx mimetype=image/jpeg \
+       -metadata:s:t:$idx filename="label.$label_ext")
 idx=$((idx+1))
 
-# run ffmpeg
-if ffmpeg "${args[@]}" -f matroska "$TMP" -y; then
-  mv -f "$TMP" "${MKV%.*}_extras.mkv"
+if ffmpeg -nostdin -v error "${args[@]}" -f matroska "$TMP" -y; then
+  OUT="${MKV%.*}_extras.mkv"
+  mv -f "$TMP" "$OUT"
   trap - EXIT
   echo "Done."
+  echo "Output: $OUT"
 else
   echo "ERROR: ffmpeg failed."
   exit 1
 fi
-
-echo "Output: ${MKV%.*}_extras.mkv"

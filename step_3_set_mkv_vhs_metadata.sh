@@ -22,7 +22,7 @@ echo "Updating metadata for \"$INPUT\"..."
 #  - aspect ratio: 4:3
 #  - Remove encoder metadata from video and audio streams so they can be compared fairly
 #  - Set field order to BFF (Bottom Field First) for VHS tapes recorded in BFF mode, this is just metadata and for documentation
-ffmpeg -i "$INPUT" \
+ffmpeg -nostdin -v error -i "$INPUT" \
   -c copy \
   -color_primaries:v 6 \
   -color_trc:v 6 \

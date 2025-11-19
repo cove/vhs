@@ -3,12 +3,23 @@
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-    echo "Usage: ./extract_chapters.sh input.mp4"
+    echo "Usage: ./make_chapter_mp4s.sh input.mp4"
     exit 1
 fi
 
 IN="$1"
 BASE="${IN%.*}"
+
+# get the directory of this script
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# load filter file from script dir
+FILTER_FILE="$SCRIPT_DIR/video_filters.txt"
+if [[ ! -f "$FILTER_FILE" ]]; then
+    echo "Error: video filter file not found: $FILTER_FILE"
+    exit 1
+fi
+FILTER_CHAIN=$(grep -v '^\s*#' "$FILTER_FILE" | tr -d '\n' | sed 's/,$//')
 
 echo "Extracting chapters from ${IN}..."
 
@@ -39,7 +50,7 @@ process_chapter() {
 
     ffmpeg -nostdin -v error -i "$IN" \
       -ss "$start_sec" -to "$end_sec" \
-      -vf "setfield=bff,yadif=0,zscale=matrixin=6:matrix=1:transferin=6:transfer=1:primariesin=6:primaries=1:rangein=0:range=0,eq=saturation=0.90:gamma=1.0,crop=in_w-2:in_h-6:0:0,scale=640:480,setsar=1" \
+      -vf "$FILTER_CHAIN" \
       -pix_fmt yuv420p \
       -metadata "title=$title" \
       -c:v libx264 -preset slow -crf 20 -profile:v main \

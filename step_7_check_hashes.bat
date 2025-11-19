@@ -10,9 +10,6 @@ if not exist "%B3%" (
   exit /b 1
 )
 
-echo Using: "%B3%"
-echo.
-
 "%B3%" -c "00-manifest-blake3sums.txt"
 
 exit /b 0
