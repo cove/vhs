@@ -3,7 +3,7 @@
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-    echo "Usage: ./make_chapter_mp4s.sh input.mp4 [chapter_name]"
+    echo "Usage: ./extract_chapters.sh input.mp4 [chapter_name]"
     exit 1
 fi
 
@@ -55,6 +55,7 @@ process_chapter() {
       -vf "$FILTER_CHAIN" \
       -pix_fmt yuv420p \
       -metadata "title=$title" \
+      -metadata "comment=Extracted chapter from $IN" \
       -c:v libx264 -preset slow -crf 20 -profile:v main \
       -c:a aac -b:a 41.1k -ac 1 -ar 44100 \
       -movflags +faststart \
