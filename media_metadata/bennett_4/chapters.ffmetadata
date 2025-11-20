@@ -1,0 +1,30 @@
+;FFMETADATA1
+[CHAPTER]
+TIMEBASE=1/1
+START=0
+END=8
+title=Capture Start
+
+[CHAPTER]
+TIMEBASE=1/1
+START=12
+END=404
+title=Christmas Morning (December 25, 1992)
+
+[CHAPTER]
+TIMEBASE=1/1
+START=410
+END=469
+title=Kids exploring a waterfountin
+
+[CHAPTER]
+TIMEBASE=1/1
+START=478
+END=1743
+title=Glenda's 38th Birthday Party (March 28, 1993)
+
+[CHAPTER]
+TIMEBASE=1/1
+START=1744
+END=1756
+title=Capture End
