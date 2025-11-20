@@ -1,5 +1,5 @@
 @echo off
-REM Usage: trim_video.bat input.mp4 output.mp4 01:04:28
+REM Usage: truncate_video.bat input.mp4 output.mp4 01:04:28
 
 if "%~3"=="" (
     echo Usage: %0 input_file output_file duration
@@ -11,6 +11,6 @@ set INPUT=%~1
 set OUTPUT=%~2
 set DURATION=%~3
 
-ffmpeg -i "%INPUT%" -t %DURATION% -c copy "%OUTPUT%"
+ffmpeg -nostdin -v error -i "%INPUT%" -t %DURATION% -c copy "%OUTPUT%"
 echo Trim complete: %OUTPUT%
 pause
