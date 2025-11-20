@@ -3,12 +3,13 @@
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-    echo "Usage: ./make_chapter_mp4s.sh input.mp4"
+    echo "Usage: ./make_chapter_mp4s.sh input.mp4 [chapter_name]"
     exit 1
 fi
 
 IN="$1"
 BASE="${IN%.*}"
+CHAPTER_FILTER="${2:-}"  # Optional: only export this chapter
 
 # get the directory of this script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,6 +34,7 @@ process_chapter() {
 
     [[ ! -n "$start_ns" || ! -n "$end_ns" || ! -n "$title" ]] && return
     [[ "$title" == *"Capture Start"* ]] || [[ "$title" == *"Capture End"* ]] && return
+    [[ -n "$CHAPTER_FILTER" && "$title" != "$CHAPTER_FILTER" ]] && return
 
     # Convert nanoseconds → seconds
     local start_sec
@@ -91,5 +93,4 @@ done < /tmp/chapters_ffmeta.txt
 # Process last chapter
 process_chapter "$START" "$END" "$TITLE"
 
-echo "All chapters extracted."
-
+echo "Chapter extraction complete."
