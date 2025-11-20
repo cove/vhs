@@ -1,27 +1,42 @@
-# Convert color matrix and range 
-zscale=matrixin=5:matrix=1:rangein=limited:range=full,
-#lut3d="/Users/cove/vhs/vhs/media_metadata/bennett_8/lut.cube",
+# Lut
+#lut3d=/Users/cove/vhs/vhs/media_metadata/bennett_8/lut2.cube
 
-# Adjust gamma per channel
-eq=gamma_r=0.95:gamma_g=0.95:gamma_b=0.95:saturation=0.85,
-#curves=luma='0/0 0.6/0.62 0.8/0.86 1/0.94',eq=saturation=0.9,
-#curves=lum='0/0 0.6/0.62 0.8/0.86 1/0.94',eq=saturation=0.9
-#curves=all='0/0 0.6/0.62 0.8/0.86 1/0.94',
-#libplacebo=tonemapping=bt.2390:range=tv,
-#curves=master='0/0 0.90/0.96 1/1',
-#cnr2='0.05:0.08:0.08',
+# Looks ok
+#zscale=matrix=5:rangein=limited:range=limited
+#eq=gamma_r=0.95:gamma_g=0.95:gamma_b=0.95:saturation=0.85
+#setfield=bff
+#yadif=0
+#crop=in_w-2:in_h-6:0:0
+#scale=640:480
+#setsar=1
 
-# Set field order
-setfield=bff,
+# Alternate 1
+#zscale=matrix=5:rangein=limited:range=limited,
+#hqdn3d=luma_spatial=2:chroma_spatial=1:luma_tmp=2:chroma_tmp=1,
+#crop=in_w-2:in_h-6:0:0,
+#scale=640:480
+#setsar=1,
+#eq=gamma_r=0.95:gamma_g=0.95:gamma_b=0.95:saturation=0.85,
+#unsharp=5:5:0.5:5:5:0,
+#setfield=bff
+#yadif=0
 
-# Deinterlace
-yadif=0,
+# Alternate 2
+#zscale=matrix=5:rangein=limited:range=limited,
+#hqdn3d=luma_spatial=2:chroma_spatial=1:luma_tmp=2:chroma_tmp=1,
+#crop=in_w-2:in_h-6:0:0,
+#scale=640:480:flags=lanczos,
+#setsar=1,
+#eq=gamma_r=0.95:gamma_g=0.95:gamma_b=0.95:saturation=0.85,
+#unsharp=5:5:0.5:5:5:0,
+#setfield=bff
 
-# Crop edges
+# Alternate 3
+zscale=matrix=5:rangein=limited:range=limited,
+hqdn3d=luma_spatial=2:chroma_spatial=1:luma_tmp=2:chroma_tmp=1,
 crop=in_w-2:in_h-6:0:0,
-
-# Scale
-scale=640:480,
-
-# Sample aspect ratio
-setsar=1
+scale=640:480
+setsar=1,
+eq=gamma_r=0.95:gamma_g=0.95:gamma_b=0.95:saturation=0.85,
+setfield=bff
+yadif=0

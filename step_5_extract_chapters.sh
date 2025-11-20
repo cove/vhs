@@ -20,7 +20,8 @@ if [[ ! -f "$FILTER_FILE" ]]; then
     echo "Error: video filter file not found: $FILTER_FILE"
     exit 1
 fi
-FILTER_CHAIN=$(grep -v '^\s*#' "$FILTER_FILE" | tr -d '\n' | sed 's/,$//')
+FILTER_CHAIN=$(grep -v '^\s*#' "$FILTER_FILE" | sed '/^\s*$/d' | paste -sd, -| tr -s ',')
+echo "Using filter chain: $FILTER_CHAIN"
 
 echo "Extracting chapters from ${IN}..."
 
@@ -49,16 +50,16 @@ process_chapter() {
     local out_file="${safe_title}.mp4"
 
     echo "Extracting chapter to file: $out_file"
-
     ffmpeg -nostdin -v error -i "$IN" \
       -ss "$start_sec" -to "$end_sec" \
-      -vf "$FILTER_CHAIN" \
       -pix_fmt yuv420p \
-      -metadata "title=$title" \
-      -metadata "comment=Extracted chapter from $IN" \
+      -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -color_range:v 1 \
+      -vf "$FILTER_CHAIN" \
       -c:v libx264 -preset slow -crf 20 -profile:v main \
       -c:a aac -b:a 41.1k -ac 1 -ar 44100 \
       -movflags +faststart \
+      -metadata "title=$title" \
+      -metadata "comment=Extracted chapter from $IN" \
       "$out_file"
 }
 
