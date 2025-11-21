@@ -26,15 +26,15 @@ echo Converting "%INPUT%" to "%BASENAME%.mkv"...
     -movflags +faststart ^
     -map 0:v:0 -c:v copy -map 0:a:0 -c:a copy "%BASENAME%.mkv"
 
-echo Creating proxy "%BASENAME%_proxy.mp4"...
+echo Creating "%INPUT%" proxy "%BASENAME%_proxy.mkv"...
 %FFMPEG% -nostdin -v error -i "%BASENAME%.mkv" ^
     -pix_fmt yuv420p ^
     -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -color_range:v 1 ^
     -movflags +faststart ^
     -c:v libx264 -preset veryfast -crf 20 -profile:v baseline ^
     -c:a aac -b:a 41.1k -ac 1 -ar 44100 ^
-    -metadata "title=Proxy for %BASENAME%.mkv" ^
-    "%BASENAME%_proxy.mp4"
+    -metadata "title=Proxy for %BASENAME%.mkv Proxy" ^
+    "%BASENAME%_proxy.mkv"
 
 echo Done.
 
