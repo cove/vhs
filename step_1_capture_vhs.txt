@@ -1,10 +1,10 @@
 Unfortunately scripting in VirtualDub is limited, so the capture process is manual. 
 
 Setting up VirtualDub from the software/ directory:
-1. Install the FFV1 driver included in software/drivers/ffdshow_rev4533_20140929_clsid_x64.exe, because doing the capture as that uncompressed codecs might strain the computer's disk IO. If that doesn't happen then uncompressed should work fine.
-2. Set capture frame rate to 29.97 fps (NTSC standard) in the lower right of the screen.
-3. Set Audio -> Compression to PCM format using 48.000 kHz 16-bit stereo.
-4. Set Video -> Compression "ffdshow Video Codec", and then click on the Configure button, set Encoder: FFV1, Color Space: 422P, Color Type: AC, Context Model: Large, Keyframe Distance: 1
+1. Install the UT Video driver included in software/drivers.
+2. Set capture frame rate to 29.97 FPS (NTSC standard) in the lower right of the screen.
+3. Set Audio -> Compression to PCM format using 48.000 kHz 16-bit mono if its a home video.
+4. Set Video -> Compression "UtVideo T2 YUV422 BT.601.VCM" (If you don't see this option Ut Video's codec wasn't installed correctly).
 5. Set Capture -> Settings... -> Abort options -> Abort on left mouse button to be unchecked since it's causes erant recording stops, just press the ESC key to stop recording.
 6. Set Capture -> Timing... -> Internal capture mode synchronization -> no correction
 6. Set Capture -> Stop conditions ... -> Capture time exceeds to 1860 seconds for the maximum of a VHS-C tape or how ever long you think the tape should run for. Also, the VCR tape counters are just aproximates, they're not down to the second accurate!
