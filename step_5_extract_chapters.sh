@@ -68,7 +68,7 @@ process_chapter() {
       -pix_fmt yuv420p \
       -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -color_range:v 1 \
       -vf "$VIDEO_FILTER_CHAIN" \
-      -c:v libx264 -preset slow -crf 20 -profile:v main \
+      -c:v libx265 -preset slow -crf 20 -profile:v main \
       -af "$AUDIO_FILTER_CHAIN" \
       -c:a aac -b:a 41.1k -ac 1 -ar 44100 \
       -movflags +faststart \
