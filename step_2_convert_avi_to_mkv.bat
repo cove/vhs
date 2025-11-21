@@ -19,7 +19,7 @@ if not exist "%FFMPEG%" (
     exit /b 1
 )
 
-echo Creating "%INPUT%" to "%BASENAME%.mkv"...
+echo Converting "%INPUT%" to "%BASENAME%.mkv"...
 %FFMPEG% -nostdin -v error -i "%INPUT%" ^
     -pix_fmt yuv420p ^
     -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -color_range:v 1 ^
