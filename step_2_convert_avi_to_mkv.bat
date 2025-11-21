@@ -10,10 +10,35 @@ set "INPUT=%~1"
 for %%I in ("%INPUT%") do set "FILENAME=%%~nxI"
 for %%I in ("%INPUT%") do set "BASENAME=%%~nI"
 
-echo Generating videos from "%INPUT%"...
+set "SCRIPT_DIR=%~dp0"
+set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+set "FFMPEG=%SCRIPT_DIR%\bin\ffmpeg.exe"
+if not exist "%FFMPEG%" (
+    echo [ERROR] ffmpeg.exe not found at "%FFMPEG%"
+    pause
+    exit /b 1
+)
 
-REM If the input is FFV1 then use copy, else use re-encode to FFV1
-REM ffmpeg -i "%INPUT%" -pix_fmt yuv422p -map 0:v:0 -c:v ffv1 -level 3 -g 1 -coder 1 -context 1 -slicecrc 1 -timecode 00:00:00:00 -map 0:a:0 -c:a flac -segment_time_metadata 1 "%BASENAME%.mkv"
-ffmpeg -nostdin -v error -i "%INPUT%" -map 0:v:0 -c:v copy -map 0:a:0 -c:a copy "%BASENAME%.mkv"
+echo Converting "%INPUT%" to mkv container and creating proxy...
+
+REM Switch to mkv container, copying streams without re-encoding
+%FFMPEG% -nostdin -v error -i "%INPUT%" ^
+    -pix_fmt yuv420p ^
+    -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -color_range:v 1 ^
+    -movflags +faststart ^
+    -map 0:v:0 -c:v copy -map 0:a:0 -c:a copy "%BASENAME%.mkv"
+
+REM Make a proxy version for viewing
+%FFMPEG% -nostdin -v error -i "%INPUT%" ^
+    -pix_fmt yuv420p ^
+    -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -color_range:v 1 ^
+    -c:v libx264 -preset fast -crf 20 -profile:v baseline ^
+    -c:a aac -b:a 41.1k -ac 1 -ar 44100 ^
+    -movflags +faststart ^
+    -metadata "title=%INPUT% Proxy" ^
+    "%BASENAME%_proxy.mkv"
+
+echo Conversion complete.
+echo "%BASENAME%.mkv" and "%BASENAME%_proxy.mkv" created.
 
 exit /b 0
