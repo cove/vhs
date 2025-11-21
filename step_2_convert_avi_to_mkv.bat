@@ -19,26 +19,23 @@ if not exist "%FFMPEG%" (
     exit /b 1
 )
 
-echo Converting "%INPUT%" to mkv container and creating proxy...
-
-REM Switch to mkv container, copying streams without re-encoding
+echo Creating "%INPUT%" to "%BASENAME%.mkv"...
 %FFMPEG% -nostdin -v error -i "%INPUT%" ^
     -pix_fmt yuv420p ^
     -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -color_range:v 1 ^
     -movflags +faststart ^
     -map 0:v:0 -c:v copy -map 0:a:0 -c:a copy "%BASENAME%.mkv"
 
-REM Make a proxy version for viewing
-%FFMPEG% -nostdin -v error -i "%INPUT%" ^
+echo Creating proxy "%BASENAME%_proxy.mkv"...
+%FFMPEG% -nostdin -v error -i "%BASENAME%.mkv" ^
     -pix_fmt yuv420p ^
     -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -color_range:v 1 ^
-    -c:v libx264 -preset fast -crf 20 -profile:v baseline ^
-    -c:a aac -b:a 41.1k -ac 1 -ar 44100 ^
     -movflags +faststart ^
-    -metadata "title=%INPUT% Proxy" ^
+    -c:v libx264 -preset veryfast -crf 20 -profile:v baseline ^
+    -c:a aac -b:a 41.1k -ac 1 -ar 44100 ^
+    -metadata "title=Proxy for %BASENAME%.mkv" ^
     "%BASENAME%_proxy.mkv"
 
-echo Conversion complete.
-echo "%BASENAME%.mkv" and "%BASENAME%_proxy.mkv" created.
+echo Done.
 
 exit /b 0
