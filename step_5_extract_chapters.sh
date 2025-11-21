@@ -13,20 +13,33 @@ CHAPTER_FILTER="${2:-}"  # Optional: only export this chapter
 
 # get the directory of this script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FFMPEG=${SCRIPT_DIR}/bin/ffmpeg
+
+[[ ! -f "$IN" ]] && echo "ERROR: Input file not found: $IN" && exit 1
+[[ ! -x "$FFMPEG" ]] && echo "ERROR: ffmpeg not found or not executable: $FFMPEG" && exit 1
+
 
 # load filter file from script dir
-FILTER_FILE="$SCRIPT_DIR/video_filters.txt"
-if [[ ! -f "$FILTER_FILE" ]]; then
-    echo "Error: video filter file not found: $FILTER_FILE"
+filters_video="$SCRIPT_DIR/filters_video.cfg"
+if [[ ! -f "$filters_video" ]]; then
+    echo "Error: video filter file not found: $filters_video"
     exit 1
 fi
-FILTER_CHAIN=$(grep -v '^\s*#' "$FILTER_FILE" | sed '/^\s*$/d' | paste -sd, -| tr -s ',')
-echo "Using filter chain: $FILTER_CHAIN"
+VIDEO_FILTER_CHAIN=$(grep -v '^\s*#' "$filters_video" | sed '/^\s*$/d' | paste -sd, -| tr -s ',')
+echo "Using video filter chain: $VIDEO_FILTER_CHAIN"
+
+filters_audio="$SCRIPT_DIR/filters_audio.cfg"
+if [[ ! -f "$filters_audio" ]]; then
+    echo "Error: audio filter file not found: $filters_audio"
+    exit 1
+fi
+AUDIO_FILTER_CHAIN=$(grep -v '^\s*#' "$filters_audio" | sed '/^\s*$/d' | paste -sd, -| tr -s ',')
+echo "Using audio filter chain: $AUDIO_FILTER_CHAIN"
 
 echo "Extracting chapters from ${IN}..."
 
 # Export chapters to ffmetadata format
-ffmpeg -nostdin -v error -i "$IN" -f ffmetadata -y /tmp/chapters_ffmeta.txt
+$FFMPEG -nostdin -v error -i "$IN" -f ffmetadata -y /tmp/chapters_ffmeta.txt
 
 process_chapter() {
     local start_ns="$1"
@@ -50,16 +63,17 @@ process_chapter() {
     local out_file="${safe_title}.mp4"
 
     echo "Extracting chapter to file: $out_file"
-    ffmpeg -nostdin -v error -i "$IN" \
+    $FFMPEG -nostdin -v error -i "$IN" \
       -ss "$start_sec" -to "$end_sec" \
       -pix_fmt yuv420p \
       -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -color_range:v 1 \
-      -vf "$FILTER_CHAIN" \
+      -vf "$VIDEO_FILTER_CHAIN" \
       -c:v libx264 -preset slow -crf 20 -profile:v main \
+      -af "$AUDIO_FILTER_CHAIN" \
       -c:a aac -b:a 41.1k -ac 1 -ar 44100 \
       -movflags +faststart \
       -metadata "title=$title" \
-      -metadata "comment=Extracted chapter from $IN" \
+      -metadata "comment=Extracted chapter from $IN (video_filter_chain=$VIDEO_FILTER_CHAIN, audio_filter_chain=$AUDIO_FILTER_CHAIN)" -y \
       "$out_file"
 }
 
