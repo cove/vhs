@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Extract chapters from an MP4 to separate files, skipping "Start Capture" / "End Capture"
+# Extract chapters to separate files, skipping "Start Capture" / "End Capture"
 set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
-    echo "Usage: ./extract_chapters.sh input.mp4 [chapter_name]"
+    echo "Usage: ./extract_chapters.sh input.mkv [chapter_name]"
     exit 1
 fi
 
@@ -17,7 +17,6 @@ FFMPEG=${SCRIPT_DIR}/bin/ffmpeg
 
 [[ ! -f "$IN" ]] && echo "ERROR: Input file not found: $IN" && exit 1
 [[ ! -x "$FFMPEG" ]] && echo "ERROR: ffmpeg not found or not executable: $FFMPEG" && exit 1
-
 
 # load filter file from script dir
 filters_video="$SCRIPT_DIR/filters_video.cfg"
