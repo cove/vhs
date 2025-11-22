@@ -1,20 +1,20 @@
-Unfortunately scripting in VirtualDub is limited, so the capture process is manual. 
-
 Setting up VirtualDub from the software/ directory:
 1. Install the UT Video driver included in software/drivers.
-2. Set capture frame rate to 29.97 FPS (NTSC standard) in the lower right of the screen.
-3. Set Audio -> Compression to PCM format using 48.000 kHz 16-bit mono if its a home video.
-4. Set Video -> Compression "UtVideo T2 YUV422 BT.601.VCM" (If you don't see this option Ut Video's codec wasn't installed correctly).
+2. Set capture frame rate to 29.97 FPS in the lower right of the screen.
+3. Set Audio -> Compression to PCM 48.000 kHz 16-bit mono if it's a home video.
+4. Set Video -> Compression "UtVideo YUV422 BT.601.VCM"
 5. Set Capture -> Settings... -> Abort options -> Abort on left mouse button to be unchecked since it's causes erant recording stops, just press the ESC key to stop recording.
 6. Set Capture -> Timing... -> Internal capture mode synchronization -> no correction
-6. Set Capture -> Stop conditions ... -> Capture time exceeds to 1890 seconds for the maximum of a VHS-C tape or how ever long you think the tape should run for. Also, the VCR tape counters are just aproximates, they're not down to the second accurate!
-7. Set File -> Set Capture File... to the output file every time, as that it automatically overwrites the last file by default.
+7. Set Capture -> Stop conditions ... -> Capture time exceeds to 3600 seconds for the maximum of a VHS-C tape. (Also, note VCR counters are aproximates, you can't use them for accuratly determining how long a tape will run for)
+8. Set File -> Set Capture File... to the output file every time, as that it automatically overwrites the last file by default.
 
 See the screenshots/ directory for what the above settings look like.
 
 Notes:
 
-Osprey-260e Video Proc Amp settings to help whites rolling off:
+VirtualDub included in the software/ and encoding with UT Video is the only way I was able to get a reliable correct capture. Specifically it did not write video faster to storage than it could handle, and UT Video kept the color in VHS ranges. Addtionaly it didn't crash. See screenshots/ for an example where there's a color missmatch that only shows up under bright white light that turns tan.
+
+Osprey-260e Video Proc Amp settings to help prevent whites rolling off in poor quality recordings:
     - brightness 107
     - contrast 156 to 108
     - hue 0
@@ -22,14 +22,11 @@ Osprey-260e Video Proc Amp settings to help whites rolling off:
     - sharpness 1
     - gamma 102
 
-If the VCR automatically stops playing thr VHS-C tape in its VHS cassette adapter, this can be due to the battery being low.
-
-VirtualDub is finicky, there's multiple versions floating around the internet and it's not maintained, but as of the time of this writting it's the best option. There is OBS, however as the VHS community points out, it's not frame by frame accurate. Rather it's probablly resampling rather than recording faithfully what is captured by the capture card or at least dropping frames and not reporting it correctly. The frame drops counter in OBS is also just recording frame encoding lag, not actual frame drops. There's also the vhs-decode project (https://github.com/oyvindln/vhs-decode), which requires modifing a VCR by attaching probes to the raw output test points from the VCR head to record the raw signal, which does look surpsingly clearer, but the capture card is a DYI card and sourcing the parts from Aliexpress, or buying a card from the main guy on the project when he makes some more, or spending serious money on a HackRF One card. I'll leave this as an exercise to the reader if they're so inclied.
+If the VCR automatically stops playing the VHS-C tape in its VHS cassette adapter, this can be due to the battery being low.
 
 The VirtualDub software included is from here:
 https://www.digitalfaq.com/guides/video/capture-avi-virtualdub.htm
 https://www.digitalfaq.com/forum/video-conversion/1727-virtualdub-filters-pre.html
-
 
 Here is the tutorial from the link above that this was based off of as of November 18, 2025:
 
@@ -48,8 +45,6 @@ Open VirtualDub and go to File > Capture AVI. It will launch the VirtualDub capt
 
 Capture settings. The main window of the capturing console shows preview in the main window, and information on the right-hand side. At the bottom of the screen are the audio and video settings. VirtualDub comes with very low quality default settings, so most settings need tweaking. Change from 15.00 fps to 29.97 fps (full NTSC). The audio setting is also too low, but it will be changed somewhere else.
 
-
-
 Audio settings. Go to the Audio menu, and go down to Compression. A new will open with the audio settings. Change it to PCM format using 48.000 kHz 16-bit stereo. Click Save As and give the new settings a name. I choose “DVD 48k” for mine. Click OK. You should now notice the audio level is 48K/16/s in the lower-right corner of the capture console.
 
 Go back to the Audio menu. This time go down to Volume Meter. The Balance should be in the middle, meaning both the left and right stereo get the same amount. The Volume control bar should be at about 50 to 75 percent. Never put volume at 100 percent, as it will often lead to distorted, cracking audio. The left side of the slider bar is 0 percent, the right side is 100 percent. Click the X when done.
@@ -57,8 +52,6 @@ Go back to the Audio menu. This time go down to Volume Meter. The Balance should
 One last time, go the Audio menu. Go to Windows Mixer. It will launch the Windows volume controls (you can also get here by double-clicking on the speaker icon in the system tray). Select the soundcard input. For most people this will be either LINE IN for an external soundcard input or AUX for an internal connection.
 
 Standard video settings. VirtualDub has an extensive list of video capture options. This hack will help you with the basic settings and give some brief information on the more advanced optional settings. Go to Video and set it for Overlay mode if it is not already set. Overlay is the area of the graphics cards that plays live video data.
-
-
 
 Go to Video, and then Format. Set this resolution to an appropriate number, preferably 640×480 or 720×480. Set the compression mode to YUY2 if available. Click OK to return to the capture console.
 
@@ -73,7 +66,6 @@ Go to Video, and then Cropping. First, enable it (OPTIONAL). Then go to Set Boun
 Go to Video, and then Noise Reduction to enable noise reduction (OPTIONAL). This setting can remove noise on the video capture, but it will increase system CPU usage, and may result in dropped frames depending on the compression.
 
 Go to Video, and then Filters (OPTIONAL). This will launch the filters console. VirtualDub filters use a plug-in method, so many filters exist, made by many people. VirtualDub comes with 25 or more filters, and more can be added.
-
 
 
 READY TO CAPTURE!

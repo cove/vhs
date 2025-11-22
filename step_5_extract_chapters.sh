@@ -46,7 +46,6 @@ process_chapter() {
     local title="$3"
 
     [[ ! -n "$start_ns" || ! -n "$end_ns" || ! -n "$title" ]] && return
-    [[ "$title" == *"Capture Start"* ]] || [[ "$title" == *"Capture End"* ]] && return
     [[ -n "$CHAPTER_FILTER" && "$title" != "$CHAPTER_FILTER" ]] && return
 
     # Convert nanoseconds → seconds
