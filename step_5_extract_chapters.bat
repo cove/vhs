@@ -1,143 +1,84 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: --- Argument check ---
 if "%~1"=="" (
-    echo Usage: extract_chapters.bat input.mkv [chapter_name]
+    echo Usage: process_mkv_all_fix.bat video.mkv
     exit /b 1
 )
 
-set "IN=%~1"
-set "CHAPTER_FILTER=%~2"
+set "INPUT=%~1"
+if not exist "%INPUT%" (
+    echo ERROR: %INPUT% not found.
+    exit /b 1
+)
 
-:: --- Script directory & ffmpeg path ---
+for %%F in ("%INPUT%") do set "FILENAME=%%~nxF"
+for %%F in ("%INPUT%") do set "BASENAME=%%~nF"
+set "OUTPUT=%BASENAME%_metadata.mkv"
+
 set "SCRIPT_DIR=%~dp0"
 set "FFMPEG=%SCRIPT_DIR%bin\ffmpeg.exe"
 
-if not exist "%IN%" (
-    echo ERROR: Input file not found: %IN%
-    exit /b 1
-)
+:: Extract VIDEO_NAME prefix up to first number (PowerShell)
+for /f %%V in ('powershell -noprofile -command ^
+    "$b='%BASENAME%'; if($b -match '^([^0-9]*[0-9]+)'){ $matches[1] } else { $b }"') do set "VIDEO_NAME=%%V"
 
-if not exist "%FFMPEG%" (
-    echo ERROR: ffmpeg not found or not executable: %FFMPEG%
-    exit /b 1
-)
+set "META_DIR=%SCRIPT_DIR%media_metadata\%VIDEO_NAME%"
 
-:: --- Load video filter chain ---
-set "VIDEO_FILTER_CHAIN="
-set "filters_video=%SCRIPT_DIR%filters_video.cfg"
-if not exist "%filters_video%" (
-    echo ERROR: video filter file not found: %filters_video%
-    exit /b 1
-)
+set "COVER=%META_DIR%\cover.jpg"
+set "TITLE_FILE=%META_DIR%\title.txt"
+set "COMMENT_FILE=%META_DIR%\comment.txt"
+set "CHAPTERS=%META_DIR%\chapters.ffmetadata"
 
-for /f "usebackq tokens=* delims=" %%A in (`findstr /r /v "^[ ]*#" "%filters_video%"`) do (
-    if not "%%A"=="" (
-        if defined VIDEO_FILTER_CHAIN (
-            set "VIDEO_FILTER_CHAIN=!VIDEO_FILTER_CHAIN!,%%A"
-        ) else (
-            set "VIDEO_FILTER_CHAIN=%%A"
-        )
+:: Validate required metadata files
+for %%F in ("%COVER%" "%TITLE_FILE%" "%COMMENT_FILE%" "%CHAPTERS%") do (
+    if not exist %%~F (
+        echo ERROR: Missing expected metadata file: %%~F
+        exit /b 1
     )
 )
 
-echo Using video filter chain: %VIDEO_FILTER_CHAIN%
-
-:: --- Load audio filter chain ---
-set "AUDIO_FILTER_CHAIN="
-set "filters_audio=%SCRIPT_DIR%filters_audio.cfg"
-if not exist "%filters_audio%" (
-    echo ERROR: audio filter file not found: %filters_audio%
-    exit /b 1
-)
-
-for /f "usebackq tokens=* delims=" %%A in (`findstr /r /v "^[ ]*#" "%filters_audio%"`) do (
-    if not "%%A"=="" (
-        if defined AUDIO_FILTER_CHAIN (
-            set "AUDIO_FILTER_CHAIN=!AUDIO_FILTER_CHAIN!,%%A"
-        ) else (
-            set "AUDIO_FILTER_CHAIN=%%A"
-        )
-    )
-)
-
-echo Using audio filter chain: %AUDIO_FILTER_CHAIN%
-echo Extracting chapters from %IN%...
-
-:: --- Export chapters metadata ---
-set "META=%TEMP%\chapters_ffmeta.txt"
-"%FFMPEG%" -nostdin -v error -i "%IN%" -f ffmetadata -y "%META%"
-
-set "START="
-set "END="
+:: Read first line (keeps spaces). If your title is multi-line, change this.
 set "TITLE="
+set /p TITLE=<"%TITLE_FILE%"
 
-for /f "usebackq tokens=* delims=" %%L in ("%META%") do (
-    set "LINE=%%L"
+set "COMMENT="
+set /p COMMENT=<"%COMMENT_FILE%"
 
-    if "!LINE!"=="[CHAPTER]" (
-        call :process_chapter
-        set "START="
-        set "END="
-        set "TITLE="
-    )
-
-    echo !LINE! | findstr /b "START=" >nul && (
-        set "START=!LINE:START=!"
-    )
-
-    echo !LINE! | findstr /b "END=" >nul && (
-        set "END=!LINE:END=!"
-    )
-
-    echo !LINE! | findstr /b "title=" >nul && (
-        set "TITLE=!LINE:title=!"
+:: Remove a possible UTF-8 BOM (optional)
+if defined TITLE (
+    rem remove BOM bytes if present (UTF-8 BOM -> 0xEF 0xBB 0xBF)
+    if "!TITLE:~0,1!"=="ï" (
+        set "TITLE=!TITLE:~1!"
     )
 )
 
-:: Process last chapter
-call :process_chapter
+:: Replace double quotes with single quotes to avoid breaking ffmpeg -metadata quoting
+set "TITLE_ESC=!TITLE:"='!"
+set "COMMENT_ESC=!COMMENT:"='!"
 
-echo Chapter extraction complete.
+echo Processing "%INPUT%" -> "%OUTPUT%"...
+echo Applying VHS tags and attachments...
+
+:: Cover extension lowercase (powershell)
+for /f %%E in ('powershell -noprofile -command "(Get-Item -LiteralPath ''%COVER%'').Extension.ToLower().TrimStart('.')"' ) do set "EXT=%%E"
+
+:: Use delayed expansion variables in ffmpeg command
+"%FFMPEG%" -nostdin -v error -i "%INPUT%" ^
+    -f ffmetadata -i "%CHAPTERS%" ^
+    -map 0:v:0 -map 0:a ^
+    -map_metadata 0 ^
+    -map_chapters -1 ^
+    -map_chapters 1 ^
+    -c copy ^
+    -metadata title="!TITLE_ESC!" ^
+    -metadata comment="!COMMENT_ESC!" ^
+    -attach "%COVER%" ^
+    -metadata:s:t:0 mimetype=image/jpeg ^
+    -metadata:s:t:0 filename="cover.%EXT%" ^
+    -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -aspect 4:3 ^
+    -f matroska "%OUTPUT%" -y
+
+echo Done.
+echo Output: %OUTPUT%
 exit /b 0
-
-
-:: --- Chapter handler ---
-:process_chapter
-if "%START%"=="" goto :eof
-if "%END%"=="" goto :eof
-if "%TITLE%"=="" goto :eof
-
-echo %TITLE% | findstr /i "Capture Start Capture End" >nul && goto :eof
-
-if defined CHAPTER_FILTER (
-    if /i not "%TITLE%"=="%CHAPTER_FILTER%" goto :eof
-)
-
-:: Convert ns ➜ seconds (PowerShell handles decimals cleanly)
-for /f %%S in ('powershell -noprofile -command "%START%/1000000000"') do set START_SEC=%%S
-for /f %%S in ('powershell -noprofile -command "%END%/1000000000"') do set END_SEC=%%S
-
-:: Safe filename
-set "SAFE_TITLE=%TITLE%"
-for %%C in (\,/,:,*,?,",<,>,|) do set "SAFE_TITLE=!SAFE_TITLE:%%C=_!"
-
-set "OUT=%SAFE_TITLE%.mp4"
-
-echo Extracting chapter to: %OUT%
-
-"%FFMPEG%" -nostdin -v error -i "%IN%" ^
-    -ss "%START_SEC%" -to "%END_SEC%" ^
-    -pix_fmt yuv420p ^
-    -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -color_range:v 1 ^
-    -vf "%VIDEO_FILTER_CHAIN%" ^
-    -c:v libx265 -preset slow -crf 20 -profile:v main ^
-    -af "%AUDIO_FILTER_CHAIN%" ^
-    -c:a aac -b:a 41.1k -ac 1 -ar 44100 ^
-    -movflags +faststart ^
-    -metadata "title=%TITLE%" ^
-    -metadata "comment=Extracted chapter from %IN% (video_filter_chain=%VIDEO_FILTER_CHAIN%, audio_filter_chain=%AUDIO_FILTER_CHAIN%)" -y ^
-    "%OUT%"
-
-goto :eof
