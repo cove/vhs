@@ -66,6 +66,7 @@ process_chapter() {
       -ss "$start_sec" -to "$end_sec" \
       -pix_fmt yuv420p \
       -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -color_range:v 1 \
+      -tag:v hvc1 \
       -vf "$VIDEO_FILTER_CHAIN" \
       -c:v libx265 -preset slow -crf 20 -profile:v main \
       -af "$AUDIO_FILTER_CHAIN" \

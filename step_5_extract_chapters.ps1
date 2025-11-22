@@ -49,9 +49,10 @@ function Process-Chapter {
         -ss $StartSec -to $EndSec `
         -pix_fmt yuv420p `
         -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -color_range:v 1 `
-        -vf $VideoFilterChain `
+        -tag:v hvc1 `
+        -vf "$VideoFilterChain" `
         -c:v libx265 -preset slow -crf 20 -profile:v main `
-        -af $AudioFilterChain `
+        -af "$AudioFilterChain" `
         -c:a aac -b:a 41.1k -ac 1 -ar 44100 `
         -movflags +faststart `
         -metadata "title=$Title" `
