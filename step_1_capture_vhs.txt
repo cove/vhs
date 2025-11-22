@@ -7,7 +7,7 @@ Setting up VirtualDub from the software/ directory:
 4. Set Video -> Compression "UtVideo T2 YUV422 BT.601.VCM" (If you don't see this option Ut Video's codec wasn't installed correctly).
 5. Set Capture -> Settings... -> Abort options -> Abort on left mouse button to be unchecked since it's causes erant recording stops, just press the ESC key to stop recording.
 6. Set Capture -> Timing... -> Internal capture mode synchronization -> no correction
-6. Set Capture -> Stop conditions ... -> Capture time exceeds to 1860 seconds for the maximum of a VHS-C tape or how ever long you think the tape should run for. Also, the VCR tape counters are just aproximates, they're not down to the second accurate!
+6. Set Capture -> Stop conditions ... -> Capture time exceeds to 1890 seconds for the maximum of a VHS-C tape or how ever long you think the tape should run for. Also, the VCR tape counters are just aproximates, they're not down to the second accurate!
 7. Set File -> Set Capture File... to the output file every time, as that it automatically overwrites the last file by default.
 
 See the screenshots/ directory for what the above settings look like.

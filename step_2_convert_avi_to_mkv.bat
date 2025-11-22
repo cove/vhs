@@ -19,15 +19,16 @@ if not exist "%FFMPEG%" (
     exit /b 1
 )
 
-echo Creating "%BASENAME%_raw_archive.mkv"...
+echo Converting "%INPUT%" to "%BASENAME%_raw_archive.mkv"...
 %FFMPEG% -nostdin -v error -i "%INPUT%" ^
     -pix_fmt yuv420p ^
     -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -color_range:v 1 ^
     -movflags +faststart ^
-    -map 0:v:0 -c:v copy -map 0:a:0 -c:a copy "%BASENAME%_raw_archive.mkv"
+    -map 0:v:0 -c:v copy -map 0:a:0 -c:a copy ^
+    -y "%BASENAME%_raw_archive.mkv"
 
-echo Creating "%BASENAME%_archive.mkv"...
-%FFMPEG% -nostdin -v error -i "%INPUT%" ^
+echo Creating FFv1 archive "%BASENAME%_archive.mkv"...
+%FFMPEG% -nostdin -v error -i "%BASENAME%_raw_archive.mkv" ^
     -pix_fmt yuv420p ^
     -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -color_range:v 1 ^
     -map 0:v:0 -c:v ffv1 ^
@@ -38,17 +39,17 @@ echo Creating "%BASENAME%_archive.mkv"...
         -slices 24 ^
         -slicecrc 1 ^
     -map 0:a:0 -c:a pcm_s16le ^
-    "%BASENAME%_archive.mkv"
+    -y "%BASENAME%_archive.mkv"
 
-echo Creating "%BASENAME%_proxy.mp4"...
-%FFMPEG% -nostdin -v error -i "%BASENAME%_proxy.mkv" ^
+echo Creating mp4 proxy "%BASENAME%_proxy.mp4"...
+%FFMPEG% -nostdin -v error -i "%BASENAME%_archive.mkv" ^
     -pix_fmt yuv420p ^
     -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -color_range:v 1 ^
     -movflags +faststart ^
     -c:v libx265 -preset veryfast -crf 28 ^
     -c:a aac -b:a 41.1k -ac 1 -ar 44100 ^
-    -metadata "title=Proxy for %BASENAME%.mkv Proxy" ^
-    "%BASENAME%_proxy.mp4"
+    -metadata "title=Proxy for %BASENAME%_archive.mkv" ^
+    -y "%BASENAME%_proxy.mp4"
 
 echo Done.
 
