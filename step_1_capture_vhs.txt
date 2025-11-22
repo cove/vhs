@@ -22,6 +22,8 @@ Osprey-260e Video Proc Amp settings to help whites rolling off:
     - sharpness 1
     - gamma 102
 
+If the VCR automatically stops playing thr VHS-C tape in its VHS cassette adapter, this can be due to the battery being low.
+
 VirtualDub is finicky, there's multiple versions floating around the internet and it's not maintained, but as of the time of this writting it's the best option. There is OBS, however as the VHS community points out, it's not frame by frame accurate. Rather it's probablly resampling rather than recording faithfully what is captured by the capture card or at least dropping frames and not reporting it correctly. The frame drops counter in OBS is also just recording frame encoding lag, not actual frame drops. There's also the vhs-decode project (https://github.com/oyvindln/vhs-decode), which requires modifing a VCR by attaching probes to the raw output test points from the VCR head to record the raw signal, which does look surpsingly clearer, but the capture card is a DYI card and sourcing the parts from Aliexpress, or buying a card from the main guy on the project when he makes some more, or spending serious money on a HackRF One card. I'll leave this as an exercise to the reader if they're so inclied.
 
 The VirtualDub software included is from here:
