@@ -35,7 +35,6 @@ function Process-Chapter {
     param([double]$StartNs, [double]$EndNs, [string]$Title)
 
     if (-not $StartNs -or -not $EndNs -or -not $Title) { return }
-    if ($Title -match "Capture Start|Capture End") { return }
     if ($ChapterFilter -and $Title -ne $ChapterFilter) { return }
 
     $StartSec = [math]::Round($StartNs / 1e9, 3)

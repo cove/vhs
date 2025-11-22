@@ -1,12 +1,6 @@
 ;FFMETADATA1
 [CHAPTER]
 TIMEBASE=1/1
-START=0
-END=10
-title=Capture Start
-
-[CHAPTER]
-TIMEBASE=1/1
 START=13
 END=58
 title=Christmas (December 25, 1994)
@@ -28,9 +22,3 @@ TIMEBASE=1/1
 START=431
 END=3085
 title=Jonny Appleseed (November 20, 1996)
-
-[CHAPTER]
-TIMEBASE=1/1
-START=3086
-END=3087
-title=Capture End

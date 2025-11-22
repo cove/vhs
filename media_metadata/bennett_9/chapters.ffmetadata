@@ -1,12 +1,6 @@
 ;FFMETADATA1
 [CHAPTER]
 TIMEBASE=1/1
-START=0
-END=7
-title=Capture Start
-
-[CHAPTER]
-TIMEBASE=1/1
 START=10
 END=3632
 title=Dennis The Menace Playground (1992)
@@ -34,9 +28,3 @@ TIMEBASE=1/1
 START=1481
 END=1759
 title=Swimming at Gerrish Swim & Tennis Club (1992)
-
-[CHAPTER]
-TIMEBASE=1/1
-START=1759
-END=1759
-title=Capture End

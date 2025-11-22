@@ -1,12 +1,6 @@
 ;FFMETADATA1
 [CHAPTER]
 TIMEBASE=1/1
-START=0
-END=8
-title=Capture Start
-
-[CHAPTER]
-TIMEBASE=1/1
 START=8
 END=439
 title=T.J. Bennett at 45 (April 2, 1992)
@@ -16,9 +10,3 @@ TIMEBASE=1/1
 START=445
 END=1618
 title=Morgan Flynn at 1 (April 18, 1992)
-
-[CHAPTER]
-TIMEBASE=1/1
-START=1619
-END=1629
-title=Capture End
