@@ -1,90 +1,85 @@
 Param(
     [Parameter(Mandatory=$true)]
-    [string]$Input
+    [string]$VideoFile,
+
+    [string]$ChapterFilter
 )
 
-# Validate input file
-if (-not (Test-Path $Input)) {
-    Write-Error "Input file not found: $Input"
-    exit 1
-}
+# Validate input
+if (-not (Test-Path $VideoFile)) { throw "Input file not found: $VideoFile" }
 
-# Paths and filenames
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $FFmpeg = Join-Path $ScriptDir "bin\ffmpeg.exe"
+if (-not (Test-Path $FFmpeg)) { throw "ffmpeg not found: $FFmpeg" }
 
-$BaseName = [System.IO.Path]::GetFileNameWithoutExtension($Input)
-$Output = Join-Path (Get-Location) "${BaseName}_metadata.mkv"
+# Load filter chains
+$VideoFilterChain = ((Get-Content (Join-Path $ScriptDir "filters_video.cfg") | Where-Object {$_ -notmatch '^\s*#' -and $_.Trim()} ) -join ',')
+$AudioFilterChain = ((Get-Content (Join-Path $ScriptDir "filters_audio.cfg") | Where-Object {$_ -notmatch '^\s*#' -and $_.Trim()} ) -join ',')
 
-# Extract VIDEO_NAME prefix up to first number
-if ($BaseName -match '^([^0-9]*[0-9]+)') {
-    $VideoName = $matches[1]
-} else {
-    $VideoName = $BaseName
+Write-Host "Using video filter chain: $VideoFilterChain"
+Write-Host "Using audio filter chain: $AudioFilterChain"
+
+# Export chapters
+$TempMeta = Join-Path $env:TEMP ("chapters_" + [guid]::NewGuid() + ".ffmetadata")
+& $FFmpeg -nostdin -v error -i $VideoFile -f ffmetadata -y $TempMeta
+
+# Read all lines
+$lines = Get-Content $TempMeta -Encoding UTF8
+
+# Initialize
+$Start = $null
+$End = $null
+$Title = $null
+
+function Process-Chapter {
+    param([double]$StartNs, [double]$EndNs, [string]$Title)
+
+    if (-not $StartNs -or -not $EndNs -or -not $Title) { return }
+    if ($Title -match "Capture Start|Capture End") { return }
+    if ($ChapterFilter -and $Title -ne $ChapterFilter) { return }
+
+    $StartSec = [math]::Round($StartNs / 1e9, 3)
+    $EndSec = [math]::Round($EndNs / 1e9, 3)
+    $SafeTitle = ($Title -replace '[\/:*?"<>|]', '_')
+    $OutFile = "$SafeTitle.mp4"
+
+    Write-Host "Extracting chapter '$Title' -> $OutFile"
+
+    & $FFmpeg -nostdin -v error -i $VideoFile `
+        -ss $StartSec -to $EndSec `
+        -pix_fmt yuv420p `
+        -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -color_range:v 1 `
+        -vf $VideoFilterChain `
+        -c:v libx265 -preset slow -crf 20 -profile:v main `
+        -af $AudioFilterChain `
+        -c:a aac -b:a 41.1k -ac 1 -ar 44100 `
+        -movflags +faststart `
+        -metadata "title=$Title" `
+        -metadata "comment=Extracted chapter from $VideoFile (video_filter_chain=$VideoFilterChain, audio_filter_chain=$AudioFilterChain)" `
+        -y $OutFile
 }
 
-$MetaDir = Join-Path $ScriptDir "media_metadata\$VideoName"
+# Iterate lines robustly
+foreach ($line in $lines) {
+    $line = $line.Trim()
+    if ($line -eq "") { continue }
 
-$Cover = Join-Path $MetaDir "cover.jpg"
-$TitleFile = Join-Path $MetaDir "title.txt"
-$CommentFile = Join-Path $MetaDir "comment.txt"
-$Chapters = Join-Path $MetaDir "chapters.ffmetadata"
-
-# Validate metadata files
-foreach ($f in @($Cover, $TitleFile, $CommentFile, $Chapters)) {
-    if (-not (Test-Path $f)) {
-        Write-Error "Missing expected metadata file: $f"
-        exit 1
+    if ($line -match '^\[CHAPTER\]') {
+        # Process previous chapter
+        Process-Chapter -StartNs $Start -EndNs $End -Title $Title
+        $Start = $null; $End = $null; $Title = $null
+        continue
     }
+
+    if ($line -match '^START=(\d+)') { $Start = [double]$Matches[1]; continue }
+    if ($line -match '^END=(\d+)') { $End = [double]$Matches[1]; continue }
+    if ($line -match '^title=(.+)') { $Title = $Matches[1].Trim(); continue }
 }
 
-# Read title and comment (first line)
-$Title = Get-Content $TitleFile -Encoding UTF8 | Select-Object -First 1
-$Comment = Get-Content $CommentFile -Encoding UTF8 | Select-Object -First 1
+# Process last chapter after loop
+Process-Chapter -StartNs $Start -EndNs $End -Title $Title
 
-# Create temp chapters file with LF line endings (ffmpeg prefers Unix line endings)
-$TempChapters = [System.IO.Path]::Combine($env:TEMP, "chapters_$([guid]::NewGuid().ToString()).ffmetadata")
-(Get-Content $Chapters -Raw) -replace "`r`n", "`n" | Set-Content -Encoding UTF8 $TempChapters
+# Cleanup temp file
+Remove-Item $TempMeta -ErrorAction SilentlyContinue
 
-# Cover extension lowercase
-$CoverExt = ([System.IO.Path]::GetExtension($Cover)).TrimStart('.').ToLower()
-
-Write-Host "Processing '$Input' -> '$Output' ..."
-Write-Host "Using temporary chapters file: $TempChapters"
-
-# Build ffmpeg arguments
-$FFArgs = @(
-    '-nostdin', '-v', 'error',
-    '-i', $Input,
-    '-f', 'ffmetadata', '-i', $TempChapters,
-    '-map', '0:v:0', '-map', '0:a?',
-    '-map_metadata', '0',
-    '-map_chapters', '-1', '-map_chapters', '1',
-    '-c', 'copy',
-    '-metadata', "title=$Title",
-    '-metadata', "comment=$Comment",
-    '-attach', $Cover,
-    '-metadata:s:t:0', 'mimetype=image/jpeg',
-    '-metadata:s:t:0', "filename=cover.$CoverExt",
-    '-color_primaries:v', '6',
-    '-color_trc:v', '6',
-    '-colorspace:v', '5',
-    '-aspect', '4:3',
-    '-f', 'matroska',
-    $Output,
-    '-y'
-)
-
-# Run ffmpeg
-$proc = Start-Process -FilePath $FFmpeg -ArgumentList $FFArgs -NoNewWindow -Wait -PassThru
-
-# Clean up temp chapters file
-Remove-Item $TempChapters -ErrorAction SilentlyContinue
-
-if ($proc.ExitCode -eq 0) {
-    Write-Host "Done."
-    Write-Host "Output: $Output"
-} else {
-    Write-Error "ffmpeg returned exit code $($proc.ExitCode)"
-    exit $proc.ExitCode
-}
+Write-Host "Chapter extraction complete."
