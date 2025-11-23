@@ -25,7 +25,7 @@ for %%I in (%*) do (
     set "FILENAME=%%~nxI"
     set "BASENAME=%%~nI"
 
-    echo Creating FFv1 archive "%%~nI_archive.mkv"...
+    echo Creating MVK encoded as FFv1 archive "%%~nI_archive.mkv"...
 
     "%FFMPEG%" -nostdin -v error -i "%%~I" ^
         -pix_fmt yuv422p ^

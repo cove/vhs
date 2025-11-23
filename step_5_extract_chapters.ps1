@@ -44,7 +44,35 @@ function Process-Chapter {
     $OutFile = "$SafeTitle.mp4"
 
     Write-Host "Extracting chapter '$Title' -> $OutFile"
+<#
+  From Grok AI:
+  FINAL x265 SETTINGS – GOLD STANDARD FOR VHS / VHS-C AFTER QTGMC (2025)
 
+  These parameters are ONLY safe and ideal AFTER a proper QTGMC pass.
+  Never use them on raw interlaced captures – they will preserve combing and jitter!
+
+  -x265-params "no-sao=1:psy-rd=2.0:psy-rq=2.0:aq-mode=3:deblock=-2,-2"
+
+  Parameter               What it does                                                          Why it belongs AFTER QTGMC (and nowhere else)
+  ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  no-sao=1                Disables Sample Adaptive Offset (SAO)                                 QTGMC already removed all block/combing artefacts. SAO would now only
+                                                                                       attack real tape grain → turns snow into plastic. Mandatory OFF for analog.
+
+  psy-rd=2.0              Psychovisual RD optimisation – spend extra bits on visible detail    QTGMC recovered extremely fine luma detail and stabilised grain.
+                                                                                       High psy-rd forces x265 to preserve that hard-won detail instead of flattening it.
+
+  psy-rq=2.0              Psychovisual quantisation tuning                                      Protects the natural “breathing” motion of tape grain that QTGMC restored.
+                                                                                       Essential for VHS texture to stay alive.
+
+  aq-mode=3               Variance + edge-aware Adaptive Quantisation                           QTGMC output is full of correct, high-frequency noise (grain).
+                                                                                       Mode 3 is the only mode that doesn’t murder grain with ugly pooling/worms.
+
+  deblock=-2,-2           Very light positive deblocking                                        QTGMC + SourceMatch/Lossless can leave <0.1 % residual ringing on
+                                                                                       insane frames. Tiny deblock cleans the last traces without touching real grain.
+
+  This exact string is used on every single top-tier VHS/VHS-C release in 2025.
+  It is the current universal best practice for final archival encodes.
+#>
     & $FFmpeg -nostdin -v error -i $VideoFile `
         -ss $StartSec -to $EndSec `
         -pix_fmt yuv422p `
@@ -52,6 +80,7 @@ function Process-Chapter {
         -tag:v hvc1 `
         -vf "$VideoFilterChain" `
         -c:v libx265 -preset slower -crf 16 `
+        -x265-params "no-sao=1:psy-rd=2.0:psy-rq=2.0:aq-mode=3:deblock=-2,-2" `
         -af "$AudioFilterChain" `
         -c:a aac -b:a 48k -ac 1 -ar 48000 `
         -movflags +faststart `

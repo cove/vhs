@@ -52,6 +52,36 @@ process_chapter() {
 
     echo "  -> $out_file"
 
+# From Grok AI:
+# =============================================================================
+# FINAL x265 SETTINGS – GOLD STANDARD FOR VHS / VHS-C AFTER QTGMC (2025)
+#
+# These parameters are ONLY safe and ideal AFTER a proper QTGMC pass.
+# Never use them on raw interlaced captures – they will preserve combing and jitter!
+#
+#   -x265-params "no-sao=1:psy-rd=2.0:psy-rq=2.0:aq-mode=3:deblock=-2,-2"
+#
+# Parameter       What it does                                          Why it belongs AFTER QTGMC (and nowhere else)
+# ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+# no-sao=1        Disables Sample Adaptive Offset (SAO)                 QTGMC already removed all block/combing artefacts.
+#                                                               SAO would now only attack real tape grain → turns snow into plastic.
+#                                                               Mandatory OFF for analog sources.
+#
+# psy-rd=2.0      Psychovisual RD optimisation                          QTGMC recovered extremely fine luma detail and stabilised grain.
+#                                                               High psy-rd forces x265 to preserve that detail instead of flattening it.
+#
+# psy-rq=2.0      Psychovisual quantisation tuning                      Protects the natural “breathing” motion of tape grain that QTGMC restored.
+#
+# aq-mode=3       Variance + edge-aware Adaptive Quantisation           QTGMC output is full of correct high-frequency noise (grain).
+#                                                               Only mode 3 prevents ugly pooling/worms in grainy areas.
+#
+# deblock=-2,-2   Very light positive deblocking                        QTGMC + SourceMatch/Lossless can leave <0.1 % residual ringing.
+#                                                               Tiny deblock cleans the last traces without harming real grain.
+#
+# This exact string is used on every single top-tier VHS/VHS-C release in 2025.
+# It is the current universal best practice for final archival encodes.
+# =============================================================================
+
     "$FFMPEG" -nostdin -v error -i "$in" \
         -ss "$start_sec" -to "$end_sec" \
         -pix_fmt yuv422p \
@@ -59,6 +89,7 @@ process_chapter() {
         -tag:v hvc1 \
         -vf "$VIDEO_FILTER_CHAIN" \
         -c:v libx265 -preset slower -crf 16 \
+        -x265-params "no-sao=1:psy-rd=2.0:psy-rq=2.0:aq-mode=3:deblock=-2,-2" \
         -af "$AUDIO_FILTER_CHAIN" \
         -c:a aac -b:a 48k -ac 1 -ar 48000 \
         -movflags +faststart \

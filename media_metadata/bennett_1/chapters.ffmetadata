@@ -1,28 +1,28 @@
 ;FFMETADATA1
 [CHAPTER]
 TIMEBASE=1/1
-START=12
-END=1952
+START=6
+END=1947
 title=1995 - Asia's HPA Johnny Appleseed Play (November 17, 1995)
-creation_time=1995-11-17THH:MM:SS
+creation_time=1995-11-17T00:00:00
 
 [CHAPTER]
 TIMEBASE=1/1
-START=1969
-END=2560
+START=1966
+END=2557
 title=1995 - Morgan's Christmas Program at Children's Country House (December 15, 1995)
-creation_time=1995-11-15THH:MM:SS
+creation_time=1995-11-15T00:00:00
 
 [CHAPTER]
 TIMEBASE=1/1
-START=2569
-END=3868
+START=2565
+END=3865
 title=1995 - Christmas (December 24-25, 1995)
-creation_time=1995-12-24THH:MM:SS
+creation_time=1995-12-24T20:12:00
 
 [CHAPTER]
 TIMEBASE=1/1
-START=3874
-END=3967
+START=3870
+END=3936
 title=1995 - Patio gathering with Glenda (1995)
 creation_time=1995-01-01T00:00:00
