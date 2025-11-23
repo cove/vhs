@@ -45,11 +45,6 @@ function Process-Chapter {
 
     Write-Host "Extracting chapter '$Title' -> $OutFile"
 
-    $CreationArg = @()
-    if ($CreationTime) {
-        $CreationArg = "-metadata", "creation_time=$CreationTime"
-    }
-
     & $FFmpeg -nostdin -v error -i $VideoFile `
         -ss $StartSec -to $EndSec `
         -pix_fmt yuv422p `
@@ -61,8 +56,8 @@ function Process-Chapter {
         -c:a aac -b:a 48k -ac 1 -ar 48000 `
         -movflags +faststart `
         -metadata "title=$Title" `
+        -metadata "creation_time=$CreationTime" `
         -metadata "comment=Extracted chapter from $VideoFile (video_filter_chain=$VideoFilterChain, audio_filter_chain=$AudioFilterChain)" `
-        $CreationArg `
         -y $OutFile
 }
 

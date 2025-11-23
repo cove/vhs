@@ -52,9 +52,6 @@ process_chapter() {
 
     echo "  -> $out_file"
 
-    creation_arg=()
-    [[ -n "$creation_time" ]] && creation_arg=(-metadata "creation_time=$creation_time")
-
     "$FFMPEG" -nostdin -v error -i "$in" \
         -ss "$start_sec" -to "$end_sec" \
         -pix_fmt yuv422p \
@@ -66,8 +63,8 @@ process_chapter() {
         -c:a aac -b:a 48k -ac 1 -ar 48000 \
         -movflags +faststart \
         -metadata "title=$title" \
+        -metadata "creation_time=$creation_time" \
         -metadata "comment=Extracted chapter from $in (video_filter_chain=$VIDEO_FILTER_CHAIN, audio_filter_chain=$AUDIO_FILTER_CHAIN)" \
-        "${creation_arg[@]}" \
         -y "$out_file"
 }
 
