@@ -3,10 +3,12 @@
 TIMEBASE=1/1
 START=11
 END=282
-title=1992 - Arizona trip to Meteor Crater Natural Landmark (Auguest 23, 1992)
+title=1992 - Arizona trip to Meteor Crater Natural Landmark (August 23, 1992)
+creation_time=1992-08-23T00:00:00
 
 [CHAPTER]
 TIMEBASE=1/1
 START=284
 END=343
-title=1992 - Arizona trip to Flintstone's Bedrock City (Auguest 25, 1992)
+title=1992 - Arizona trip to Flintstone's Bedrock City (August 25, 1992)
+creation_time=1992-08-25T00:00:00

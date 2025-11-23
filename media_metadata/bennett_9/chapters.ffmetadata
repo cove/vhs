@@ -22,9 +22,11 @@ TIMEBASE=1/1
 START=1338
 END=1479
 title=1992 - Michael 21st Birthday (July, 1992)
+creation_time=1992-07-01T00:00:00
 
 [CHAPTER]
 TIMEBASE=1/1
 START=1481
 END=1759
 title=1992 - Swimming at Gerrish Swim & Tennis Club (1992)
+creation_time=1992-01-01T00:00:00

@@ -4,15 +4,18 @@ TIMEBASE=1/1
 START=9
 END=2482
 title=1997 - Terra's 6th Grade Egyptian HPA Play (1997)
+creation_time=1997-01-01T00:00:00
 
 [CHAPTER]
 TIMEBASE=1/1
 START=2491
 END=4096
 title=1996 - Flag Football match (December 7, 1996)
+creation_time=1996-12-07T00:00:00
 
 [CHAPTER]
 TIMEBASE=1/1
 START=4054
 END=5413
 title=1996 - Christmas (December 24-25, 1996)
+creation_time=1996-12-24T00:00:00

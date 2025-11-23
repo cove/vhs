@@ -33,7 +33,7 @@ set OUTBLAKE="00-manifest-blake3sums.txt"
 if exist "%OUTBLAKE%" del /f /q "%OUTBLAKE%"
 
 set "FOUND=0"
-for %%F in (*.mp4 *.mkv) do (
+for %%F in (*.mkv) do (
     if exist "%%F" (
         set "FOUND=1"
         echo.
@@ -50,7 +50,7 @@ for %%F in (*.mp4 *.mkv) do (
 )
 
 if "!FOUND!"=="0" (
-    echo No .mp4 or .mkv files found in %CD%
+    echo No .avi files found in %CD%
     exit /b 0
 )
 

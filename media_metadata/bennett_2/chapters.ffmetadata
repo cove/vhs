@@ -4,9 +4,11 @@ TIMEBASE=1/1
 START=8
 END=439
 title=1992 - T.J. Bennett at 45 (April 2, 1992)
+creation_time=1992-04-02T00:00:00
 
 [CHAPTER]
 TIMEBASE=1/1
 START=445
 END=1618
 title=1992 - Morgan Flynn at 1 (April 18, 1992)
+creation_time=1992-04-18T00:00:00

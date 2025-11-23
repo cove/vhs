@@ -45,28 +45,80 @@ for %%F in ("%COVER%" "%TITLE_FILE%" "%COMMENT_FILE%" "%CHAPTERS%") do (
 for /f "usebackq delims=" %%A in ("%TITLE_FILE%") do set "TITLE=%%A"
 for /f "usebackq delims=" %%A in ("%COMMENT_FILE%") do set "COMMENT=%%A"
 
-echo Processing "%INPUT%" -> "%OUTPUT%"...
-echo Applying VHS tags and attachments...
+REM Loop over all provided MKV files
+for %%I in (%*) do (
+    set "INPUT=%%~I"
 
-:: --- Lowercase extension of cover file ---
-for /f %%E in ('powershell -noprofile -command "(Get-Item '%COVER%').Extension.ToLower().TrimStart('.')"') do set "EXT=%%E"
+    if not exist "!INPUT!" (
+        echo ERROR: "!INPUT!" not found.
+        echo.
+        continue
+    )
 
-:: --- Run ffmpeg ---
-"%FFMPEG%" -nostdin -v error -i "%INPUT%" ^
-    -f ffmetadata -i "%CHAPTERS%" ^
-    -map 0:v:0 -map 0:a ^
-    -map_metadata 0 ^
-    -map_chapters -1 ^
-    -map_chapters 1 ^
-    -c copy ^
-    -metadata title="%TITLE%" ^
-    -metadata comment="%COMMENT%" ^
-    -attach "%COVER%" ^
-    -metadata:s:t:0 mimetype=image/jpeg ^
-    -metadata:s:t:0 filename="cover.%EXT%" ^
-    -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -aspect 4:3 ^
-    -f matroska "%OUTPUT%" -y
+    REM Basename + output
+    for %%F in ("!INPUT!") do set "FILENAME=%%~nxF"
+    for %%B in ("!INPUT!") do set "BASENAME=%%~nB"
+    set "OUTPUT=!BASENAME!_metadata.mkv"
 
-echo Done.
-echo Output: %OUTPUT%
+    REM Extract VIDEO_NAME prefix up to first number
+    for /f %%V in ('powershell -noprofile -command ^
+        "$b='!BASENAME!'; if($b -match '^([^0-9]*[0-9]+)'){ $matches[1] } else { $b }"') do (
+        set "VIDEO_NAME=%%V"
+    )
+
+    set "META_DIR=%SCRIPT_DIR%media_metadata\!VIDEO_NAME!"
+
+    set "COVER=!META_DIR!\cover.jpg"
+    set "TITLE_FILE=!META_DIR!\title.txt"
+    set "COMMENT_FILE=!META_DIR!\comment.txt"
+    set "CHAPTERS=!META_DIR!\chapters.ffmetadata"
+
+    REM Validate metadata files
+    for %%F in ("!COVER!" "!TITLE_FILE!" "!COMMENT_FILE!" "!CHAPTERS!") do (
+        if not exist %%F (
+            echo ERROR: Missing expected metadata file: %%F
+            echo Skipping "!INPUT!"
+            echo.
+            goto :continueLoop
+        )
+    )
+
+    REM Read title/comment
+    for /f "usebackq delims=" %%A in ("!TITLE_FILE!") do set "TITLE=%%A"
+    for /f "usebackq delims=" %%A in ("!COMMENT_FILE!") do set "COMMENT=%%A"
+
+    echo Processing "!INPUT!" -> "!OUTPUT!"...
+    echo Applying VHS tags and attachments...
+
+    REM Lowercase extension of cover file
+    for /f %%E in ('powershell -noprofile -command "(Get-Item '!COVER!').Extension.ToLower().TrimStart('.')"') do (
+        set "EXT=%%E"
+    )
+
+    REM ffmpeg
+    "%FFMPEG%" -nostdin -v error -i "!INPUT!" ^
+        -f ffmetadata -i "!CHAPTERS!" ^
+        -map 0:v:0 -map 0:a ^
+        -map_metadata 0 ^
+        -map_chapters -1 ^
+        -map_chapters 1 ^
+        -c copy ^
+        -metadata title="!TITLE!" ^
+        -metadata comment="!COMMENT!" ^
+        -attach "!COVER!" ^
+        -metadata:s:t:0 mimetype=image/jpeg ^
+        -metadata:s:t:0 filename="cover.!EXT!" ^
+        -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -aspect 4:3 ^
+        -f matroska "!OUTPUT!" -y
+
+    echo Done.
+    echo Output: "!OUTPUT!"
+    echo.
+
+    :continueLoop
+)
+
+echo All files processed.
 exit /b 0
+
+

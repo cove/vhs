@@ -28,7 +28,7 @@ OUTBLAKE="00-manifest-blake3sums.txt"
 rm -f -- "$OUTBLAKE"
 
 found=false
-for f in *.mp4 *.mkv; do
+for f in *.mkv; do
   if [[ -f "$f" ]]; then
     found=true
     echo

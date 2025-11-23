@@ -30,9 +30,10 @@ $lines = Get-Content $TempMeta -Encoding UTF8
 $Start = $null
 $End = $null
 $Title = $null
+$CreationTime = $null
 
 function Process-Chapter {
-    param([double]$StartNs, [double]$EndNs, [string]$Title)
+    param([double]$StartNs, [double]$EndNs, [string]$Title, [string]$CreationTime)
 
     if (-not $StartNs -or -not $EndNs -or -not $Title) { return }
     if ($ChapterFilter -and $Title -ne $ChapterFilter) { return }
@@ -44,18 +45,24 @@ function Process-Chapter {
 
     Write-Host "Extracting chapter '$Title' -> $OutFile"
 
+    $CreationArg = @()
+    if ($CreationTime) {
+        $CreationArg = "-metadata", "creation_time=$CreationTime"
+    }
+
     & $FFmpeg -nostdin -v error -i $VideoFile `
         -ss $StartSec -to $EndSec `
-        -pix_fmt yuv420p `
+        -pix_fmt yuv422p `
         -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -color_range:v 1 `
         -tag:v hvc1 `
         -vf "$VideoFilterChain" `
-        -c:v libx265 -preset slow -crf 20 -profile:v main `
+        -c:v libx265 -preset slower -crf 16 `
         -af "$AudioFilterChain" `
-        -c:a aac -b:a 41.1k -ac 1 -ar 44100 `
+        -c:a aac -b:a 48k -ac 1 -ar 48000 `
         -movflags +faststart `
         -metadata "title=$Title" `
         -metadata "comment=Extracted chapter from $VideoFile (video_filter_chain=$VideoFilterChain, audio_filter_chain=$AudioFilterChain)" `
+        $CreationArg `
         -y $OutFile
 }
 
@@ -66,18 +73,19 @@ foreach ($line in $lines) {
 
     if ($line -match '^\[CHAPTER\]') {
         # Process previous chapter
-        Process-Chapter -StartNs $Start -EndNs $End -Title $Title
-        $Start = $null; $End = $null; $Title = $null
+        Process-Chapter -StartNs $Start -EndNs $End -Title $Title -CreationTime $CreationTime
+        $Start = $null; $End = $null; $Title = $null; $CreationTime = $null
         continue
     }
 
     if ($line -match '^START=(\d+)') { $Start = [double]$Matches[1]; continue }
     if ($line -match '^END=(\d+)') { $End = [double]$Matches[1]; continue }
     if ($line -match '^title=(.+)') { $Title = $Matches[1].Trim(); continue }
+    if ($line -match '^creation_time=(.+)') { $CreationTime = $Matches[1].Trim(); continue }
 }
 
 # Process last chapter after loop
-Process-Chapter -StartNs $Start -EndNs $End -Title $Title
+Process-Chapter -StartNs $Start -EndNs $End -Title $Title -CreationTime $CreationTime
 
 # Cleanup temp file
 Remove-Item $TempMeta -ErrorAction SilentlyContinue
