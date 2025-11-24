@@ -70,13 +70,23 @@ foreach ($src in $files) {
         # 2. QTGMC + x265 only this chapter
         $avs = "$ScriptDir\qtgmc_$num.avs"
 @"
-LoadPlugin("ffms2.dll") LoadPlugin("masktools2.dll") LoadPlugin("Rgtools.dll") LoadPlugin("mvtools2.dll")
-LoadPlugin("nnedi3.dll") LoadPlugin("yadifmod2.dll") LoadPlugin("fft3dfilter.dll") LoadPlugin("LoadDLL64.dll")
-LoadDLL("libfftw3f-3.dll") Import("Zs_RF_Shared.avsi") Import("QTGMC.avsi")
-FFmpegSource2("$tempRaw", atrack=-1) ConvertToYV12(matrix="Rec601")
+LoadPlugin("ffms2.dll") 
+LoadPlugin("masktools2.dll") 
+LoadPlugin("Rgtools.dll") 
+LoadPlugin("mvtools2.dll")
+LoadPlugin("nnedi3.dll") 
+LoadPlugin("yadifmod2.dll") 
+LoadPlugin("fft3dfilter.dll") 
+LoadPlugin("LoadDLL64.dll")
+LoadDLL("libfftw3f-3.dll") 
+Import("Zs_RF_Shared.avsi") 
+Import("QTGMC.avsi")
+FFmpegSource2("$tempRaw", atrack=-1) 
+ConvertToYV12(matrix="Rec601")
 QTGMC(preset="Faster") Crop(0,0,-2,-6) LanczosResize(640,480) SetPixelAspectRatio(1.0) Return Last
 "@ | Set-Content -Path $avs -Encoding ASCII
 
+        Push-Location "$QTGMCDir"
         & $ffmpeg -i $avs -i $tempRaw `
             -map 0:v -map 1:a? -map_metadata 1 `
             -metadata title="$title" `
@@ -90,6 +100,7 @@ QTGMC(preset="Faster") Crop(0,0,-2,-6) LanczosResize(640,480) SetPixelAspectRati
         # 3. Delete temps immediately
         Remove-Item $tempRaw -Force
         Remove-Item $avs -Force
+        Pop-Location
     }
 
     Write-Host "Finished → $out" -ForegroundColor Green
