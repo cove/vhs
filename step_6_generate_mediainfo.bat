@@ -22,6 +22,7 @@ if exist "%B3A%" (
 )
 
 REM Check mediainfo
+set PATH=%PATH%;%BASE%\software\MediaInfo_CLI_25.10_Windows
 where mediainfo >nul 2>&1
 if errorlevel 1 (
     echo Error: mediainfo CLI not found in PATH.
