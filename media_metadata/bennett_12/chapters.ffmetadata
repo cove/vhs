@@ -1,15 +1,35 @@
 ;FFMETADATA1
 [CHAPTER]
 TIMEBASE=1/1
-START=10
-END=3632
-title=
-creation_time=1996-01-01T00:00:00
+START=3
+END=511
+title=1997 - Ralph, Gene & Monica talking with friends (October 20, 1997)
+creation_time=1997-10-20T00:00:00
 
 [CHAPTER]
 TIMEBASE=1/1
-START=280
-END=1139
-title=
-creation_time=1996-01-01T00:00:00
+START=515
+END=1435
+title=1997 - Ralph & Monica tour Poppyfields (October ?, 1997)
+creation_time=1997-10-01T00:00:00
 
+[CHAPTER]
+TIMEBASE=1/1
+START=1436
+END=1559
+title=1997 - Ralph talking with Glenda & Asia (October ?, 1997)
+creation_time=1997-10-01T00:00:00
+
+[CHAPTER]
+TIMEBASE=1/1
+START=1560
+END=1672
+title=1997 - Ralph & Monica ice cream with Bennetts at Thrifty (October ?, 1997)
+creation_time=1997-10-01T00:00:00
+
+[CHAPTER]
+TIMEBASE=1/1
+START=1675
+END=3111
+title=1997 - Ralph & Gene talking with friends (October ?, 1997)
+creation_time=1997-10-01T00:00:00
