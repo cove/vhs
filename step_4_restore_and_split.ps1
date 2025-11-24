@@ -37,7 +37,7 @@ $ScriptDir = if ($MyInvocation.MyCommand.Path) {
     $PSScriptRoot
 }
 
-$FFmpeg = Join-Path $ScriptDir "FFmpeg-QTGMC Easy 2025.01.11\ffmpeg.exe"
+$FFmpeg = Join-Path $ScriptDir "software\FFmpeg-QTGMC Easy 2025.01.11\ffmpeg.exe"
 if (-not (Test-Path $FFmpeg)) {
     Write-Error "ffmpeg.exe not found at: $FFmpeg"
     exit 1
