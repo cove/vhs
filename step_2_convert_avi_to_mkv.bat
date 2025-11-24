@@ -12,7 +12,7 @@ for %%I in ("%INPUT%") do set "BASENAME=%%~nI"
 
 set "SCRIPT_DIR=%~dp0"
 set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
-set "FFMPEG=%SCRIPT_DIR%\bin\ffmpeg.exe"
+set "FFMPEG=%SCRIPT_DIR%\FFmpeg-QTGMC Easy 2025.01.11\ffmpeg.exe"
 if not exist "%FFMPEG%" (
     echo [ERROR] ffmpeg.exe not found at "%FFMPEG%"
     pause

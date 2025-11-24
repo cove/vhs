@@ -1,6 +1,7 @@
 *.mp4
 *.mkv
 *blake3.txt
+*mediainfo.txt
 *info.json
 *info.txt
 .DS_Store

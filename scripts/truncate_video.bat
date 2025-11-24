@@ -11,6 +11,17 @@ set INPUT=%~1
 set OUTPUT=%~2
 set DURATION=%~3
 
-ffmpeg -nostdin -v error -i "%INPUT%" -t %DURATION% -c copy "%OUTPUT%"
+set "SCRIPT_DIR=%~dp0"
+set "SCRIPT_DIR=%SCRIPT_DIR:~0,-1%"
+set "FFMPEG=%SCRIPT_DIR%\FFmpeg-QTGMC Easy 2025.01.11\ffmpeg.exe"
+if not exist "%FFMPEG%" (
+    echo [ERROR] ffmpeg.exe not found at "%FFMPEG%"
+    pause
+ 
+    exit /b 1
+)
+
+%FFMPEG% -nostdin -v error -i "%INPUT%" -t %DURATION% -c copy "%OUTPUT%"
 echo Trim complete: %OUTPUT%
 pause
+exit /b 0

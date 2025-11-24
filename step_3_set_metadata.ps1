@@ -22,7 +22,7 @@ $ScriptDir = if ($MyInvocation.MyCommand.Path) {
     $PSScriptRoot
 }
 
-$FFmpeg = Join-Path $ScriptDir "bin\ffmpeg.exe"
+$FFmpeg = Join-Path $ScriptDir "FFmpeg-QTGMC Easy 2025.01.11\ffmpeg.exe"
 if (-not (Test-Path $FFmpeg)) {
     Write-Error "ffmpeg.exe not found at: $FFmpeg"
     exit 1
@@ -52,16 +52,16 @@ if ($ResolvedFiles.Count -eq 0) {
     exit 1
 }
 
-foreach ($INPUT in $ResolvedFiles) {
-    if (-not (Test-Path $INPUT)) {
-        Write-Warning "File not found (may have been deleted): $INPUT"
+foreach ($eachInput in $ResolvedFiles) {
+    if (-not (Test-Path $eachInput)) {
+        Write-Warning "File not found (may have been deleted): $eachInput"
         Write-Host ""
         continue
     }
 
-    $FileName   = [IO.Path]::GetFileName($INPUT)
-    $BaseName   = [IO.Path]::GetFileNameWithoutExtension($INPUT)
-    $OutputFile = "${BaseName}_metadata.mkv"
+    $FileName   = [IO.Path]::GetFileName($eachInput)
+    $BaseName   = [IO.Path]::GetFileNameWithoutExtension($eachInput)
+    $eachOutput = "${BaseName}_metadata.mkv"
 
     # Extract video name prefix up to the first sequence of digits (e.g. "HomeVideo1995" → "HomeVideo1995")
     if ($BaseName -match '^([^0-9]*[0-9]+)') {
@@ -99,10 +99,10 @@ foreach ($INPUT in $ResolvedFiles) {
     $CoverExt = [IO.Path]::GetExtension($Cover).Substring(1)  # removes dot
     $CoverExtLower = $CoverExt.ToLower()
 
-    Write-Host "Processing: `"$FileName`" → `"$OutputFile`"" -ForegroundColor Cyan
+    Write-Host "Processing: `"$FileName`" → `"$eachOutput`"" -ForegroundColor Cyan
     Write-Host "Using metadata folder: $MetaDir" -ForegroundColor DarkCyan
 
-    & $FFmpeg -nostdin -v error -i "$INPUT" `
+    & $FFmpeg -nostdin -v error -i "$eachInput" `
         -f ffmetadata -i "$Chapters" `
         -map 0:v:0 -map 0:a `
         -map_metadata 0 `
@@ -115,12 +115,12 @@ foreach ($INPUT in $ResolvedFiles) {
         -metadata:s:t:0 mimetype="image/jpeg" `
         -metadata:s:t:0 filename="cover.$CoverExtLower" `
         -color_primaries:v 6 -color_trc:v 6 -colorspace:v 5 -aspect 4:3 `
-        -f matroska "$OutputFile" -y
+        -f matroska "$eachOutput" -y
 
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "Success: $OutputFile" -ForegroundColor Green
+        Write-Host "Success: $eachOutput" -ForegroundColor Green
     } else {
-        Write-Warning "FFmpeg failed on $FileName (exit code: $LASTEXITCODE)"
+        Write-Warning "FFmpeg failed on $eachInput (exit code: $LASTEXITCODE)"
     }
     Write-Host ""
 }
