@@ -1,95 +1,94 @@
 <#=====================================================================
-  VHS-C Restoration and Chapter Splitting Script
+  VHS-C → Chapter-by-chapter QTGMC + x265 (2025 – RIGID & FINAL)
+  Always assumes chapters exist → always identical workflow
 =====================================================================#>
 
-# -------------------------- CONFIGURATION --------------------------
-$AVS_Template = @"
-LoadPlugin("ffms2.dll")
-LoadPlugin("masktools2.dll")
-LoadPlugin("Rgtools.dll")
-LoadPlugin("mvtools2.dll")
-LoadPlugin("nnedi3.dll")
-LoadPlugin("yadifmod2.dll")
-LoadPlugin("fft3dfilter.dll")
-LoadPlugin("LoadDLL64.dll")
-LoadDLL("libfftw3f-3.dll")
-Import("Zs_RF_Shared.avsi")
-Import("QTGMC.avsi")
-
-FFmpegSource2("%SOURCE%", atrack=-1)
-ConvertToYV12(matrix="Rec601")
-QTGMC(preset="Faster")
-Crop(0, 0, -2, -6)
-LanczosResize(640, 480)
-SetPixelAspectRatio(1.0)
-Return Last
-"@
-
-$AudioFilter = "dehummer=f=60:mode=peak:q=3, highpass=f=80, arnndn=m=bdnr.pmd, lowpass=f=14000, acompressor=ratio=3:attack=8:release=60:makeup=2"
-$VideoPreset = "slow"
-$CRF         = "18"
-# ------------------------------------------------------------------
-
-# Resolve script directory (works when called via symlink, ./script.ps1, or full path)
 $ScriptDir = if ($MyInvocation.MyCommand.Path) {
     Split-Path -Parent $MyInvocation.MyCommand.Path
 } else {
     $PSScriptRoot
 }
 
-$FFmpeg = Join-Path $ScriptDir "software\FFmpeg-QTGMC Easy 2025.01.11\ffmpeg.exe"
-if (-not (Test-Path $FFmpeg)) {
-    Write-Error "ffmpeg.exe not found at: $FFmpeg"
+$ffmpeg = Join-Path $ScriptDir "software\FFmpeg-QTGMC Easy 2025.01.11\ffmpeg.exe"
+if (-not (Test-Path $ffmpeg)) {
+    Write-Error "ffmpeg.exe not found at: $ffmpeg"
     exit 1
 }
 
-$Files = $args
-if ($Files.Count -eq 0) {
-    Write-Host "Drag & drop .mkv files onto this script or pass them as arguments." -ForegroundColor Red
-    pause
-    exit
+$ffprobe = Join-Path $ScriptDir "software\FFmpeg-QTGMC Easy 2025.01.11\ffprobe.exe"
+if (-not (Test-Path $ffprobe)) {
+    Write-Error "ffprobe.exe not found at: $ffprobe"
+    exit 1
 }
 
-foreach ($SourcePath in $Files) {
-    $SourcePath = (Resolve-Path $SourcePath).Path
-    $SourceName = [IO.Path]::GetFileNameWithoutExtension($SourcePath)
-    $SourceFileName = [IO.Path]::GetFileName($SourcePath)
-    $SourceDir  = Split-Path $SourcePath -Parent
+$files = $args
+if ($files.Count -eq 0) { Write-Host "Drag your .mkv files onto this script" -ForegroundColor Red; pause; exit }
 
-    $OutFolder = Join-Path $SourceDir ("{0}_chapters" -f $SourceName)
-    New-Item -ItemType Directory -Force -Path $OutFolder | Out-Null
+foreach ($src in $files) {
+    $src = (Resolve-Path $src).Path
+    $name = [IO.Path]::GetFileNameWithoutExtension($src)
+    $dir  = Split-Path $src -Parent
+    $out  = Join-Path $dir ($name + "_chapters")
+    New-Item -ItemType Directory -Force -Path $out | Out-Null
 
-    $AVS_Content = $AVS_Template -replace "%SOURCE%", $SourcePath.Replace("\","\\")
-    $TempAVS = Join-Path $Env:TEMP ("{0}_qtgmc.avs" -f [guid]::NewGuid())
-    Set-Content -Path $TempAVS -Value $AVS_Content -Encoding ASCII
+    Write-Host "`nProcessing: $name" -ForegroundColor Cyan
 
-    $CoverPath = Join-Path $SourceDir "cover.jpg"
-    $AttachCover = if (Test-Path $CoverPath) { "-attach `"$CoverPath`" -metadata:s:t mimetype=image/jpeg" } else { "" }
+    # Get chapters and source creation_time (once)
+    $chapters = (& $ffprobe -print_format json -show_chapters $src | ConvertFrom-Json).chapters
+    $sourceCreation = (& $ffprobe -v quiet -print_format json -show_format $src | ConvertFrom-Json).format.tags.creation_time
 
-    Write-Host "`nProcessing: $SourceFileName → $OutFolder" -ForegroundColor Cyan
+    for ($i = 0; $i -lt $chapters.Count; $i++) {
+        $ch    = $chapters[$i]
+        $num   = "{0:D2}" -f ($i+1)
+        $title = $ch.tags.title.Trim()
+        $start = $ch.start_time
+        $end   = if ($i -lt $chapters.Count-1) { $chapters[$i+1].start_time } else { (& $ffprobe -v error -show_entries format=duration -of json $src | ConvertFrom-Json).format.duration }
 
-    & $FFmpeg -i $TempAVS -i $SourcePath `
-        -map 0:v -map 1:a? -map 1:s? `
-        -map_metadata 1 -map_chapters -1 `
-        $AttachCover `
-        -c:v libx265 -preset $VideoPreset -crf $CRF -x265-params "profile=main10:level-idc=5.1:aq-mode=3" `
-        -c:a aac -b:a 192k `
-        -af $AudioFilter `
-        -metadata title="%chapter_title" `
-        -metadata comment="Extracted chapter from $SourceFileName" `
-        -f segment `
-        -segment_chapters all `
-        -segment_format mp4 `
-        -segment_format_options movflags=+faststart `
-        -reset_timestamps 1 `
-        "$OutFolder/%chapter_title%.mp4"
+        # creation_time: chapter tag → start time → source file
+        $creation = $ch.tags.creation_time
+        if (-not $creation) { $creation = (Get-Date "1970-01-01").AddSeconds([double]$start).ToString("yyyy-MM-ddTHH:mm:ss.000000Z") }
+        if (-not $creation) { $creation = $sourceCreation }
 
-    Remove-Item $TempAVS -Force
-    Write-Host "Finished $SourceFileName" -ForegroundColor Green
+        $safeTitle = $title -replace '[:<>"/\\|?*]', ' -'
+        $final     = "$out\$num - $safeTitle.mp4"
+        $tempRaw   = "$env:TEMP\vhs_chap_$num.mkv"
+
+        Write-Host "   → $num - $title" -ForegroundColor Gray
+
+        # 1. Extract raw chapter (fast, tiny file)
+        if ($end) {
+            & $ffmpeg -ss $start -to $end -i $src -map 0:v -map 0:a? -map 0:s? -c copy -avoid_negative_ts make_zero -y $tempRaw
+        } else {
+            & $ffmpeg -ss $start -i $src -map 0:v -map 0:a? -map 0:s? -c copy -avoid_negative_ts make_zero -y $tempRaw
+        }
+
+        # 2. QTGMC + x265 only this chapter
+        $avs = "$env:TEMP\qtgmc_$num.avs"
+@"
+LoadPlugin("ffms2.dll") LoadPlugin("masktools2.dll") LoadPlugin("Rgtools.dll") LoadPlugin("mvtools2.dll")
+LoadPlugin("nnedi3.dll") LoadPlugin("yadifmod2.dll") LoadPlugin("fft3dfilter.dll") LoadPlugin("LoadDLL64.dll")
+LoadDLL("libfftw3f-3.dll") Import("Zs_RF_Shared.avsi") Import("QTGMC.avsi")
+FFmpegSource2("$tempRaw", atrack=-1) ConvertToYV12(matrix="Rec601")
+QTGMC(preset="Faster") Crop(0,0,-2,-6) LanczosResize(640,480) SetPixelAspectRatio(1.0) Return Last
+"@ | Set-Content -Path $avs -Encoding ASCII
+
+        & $ffmpeg -i $avs -i $tempRaw `
+            -map 0:v -map 1:a? -map_metadata 1 `
+            -metadata title="$title" `
+            -metadata comment="Extracted chapter from $([IO.Path]::GetFileName($src))" `
+            -metadata creation_time="$creation" `
+            -c:v libx265 -preset slow -crf 18 -x265-params "profile=main10:aq-mode=3" `
+            -c:a aac -b:a 48k `
+            -af "dehummer=f=60:mode=peak:q=3,highpass=f=80,arnndn=m=bdnr.pmd,lowpass=f=14000,acompressor=ratio=3:attack=8:release=60" `
+            -movflags +faststart -y "$final"
+
+        # 3. Delete temps immediately
+        Remove-Item $tempRaw -Force
+        Remove-Item $avs -Force
+    }
+
+    Write-Host "Finished → $out" -ForegroundColor Green
 }
 
-Write-Host "`nAll done! Every chapter now has:" -ForegroundColor Magenta
-Write-Host "   • title = chapter name (e.g., 'Christmas Morning 1995')"
-Write-Host "   • comment = 'Extracted chapter from OriginalFile.mkv'"
-Write-Host "   • original creation_time, encoder, etc."
-$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+Write-Host "`nAll done! Every chapter processed identically. Zero temp space left." -ForegroundColor Magenta
+pause
