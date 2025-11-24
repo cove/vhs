@@ -3,7 +3,6 @@
 =====================================================================#>
 
 # -------------------------- CONFIGURATION --------------------------
-$FFmpegPath   = "ffmpeg.exe"
 $AVS_Template = @"
 LoadPlugin("ffms2.dll")
 LoadPlugin("masktools2.dll")
@@ -29,6 +28,13 @@ Return Last
 $AudioFilter = "dehummer=f=60:mode=peak:q=3, highpass=f=80, arnndn=m=bdnr.pmd, lowpass=f=14000, acompressor=ratio=3:attack=8:release=60:makeup=2"
 $VideoPreset = "slow"
 $CRF         = "18"
+
+$FFmpeg = Join-Path $ScriptDir "FFmpeg-QTGMC Easy 2025.01.11\ffmpeg.exe"
+if (-not (Test-Path $FFmpeg)) {
+    Write-Error "ffmpeg.exe not found at: $FFmpeg"
+    exit 1
+}
+
 # ------------------------------------------------------------------
 
 $Files = $args
@@ -56,7 +62,7 @@ foreach ($SourcePath in $Files) {
 
     Write-Host "`nProcessing: $SourceFileName → $OutFolder" -ForegroundColor Cyan
 
-    & $FFmpegPath -i $TempAVS -i $SourcePath `
+    & $FFmpeg -i $TempAVS -i $SourcePath `
         -map 0:v -map 1:a? -map 1:s? `
         -map_metadata 1 -map_chapters -1 `
         $AttachCover `
