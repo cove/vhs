@@ -9,15 +9,20 @@ $ScriptDir = if ($MyInvocation.MyCommand.Path) {
     $PSScriptRoot
 }
 
-$ffmpeg = Join-Path $ScriptDir "software\FFmpeg-QTGMC Easy 2025.01.11\ffmpeg.exe"
-if (-not (Test-Path $ffmpeg)) {
-    Write-Error "ffmpeg.exe not found at: $ffmpeg"
+$QTGMCDir = Join-Path $ScriptDir "software\FFmpeg-QTGMC Easy 2025.01.11"
+
+# Prepend to PATH so this directory is searched first (only for this PS session)
+$env:PATH = "$QTGMCDir;$env:PATH"
+
+$ffmpeg = "ffmpeg.exe"
+if (-not (Get-Command $ffmpeg -ErrorAction SilentlyContinue)) {
+    Write-Error "ffmpeg.exe not found in: $QTGMCDir"
     exit 1
 }
 
-$ffprobe = Join-Path $ScriptDir "software\FFmpeg-QTGMC Easy 2025.01.11\ffprobe.exe"
-if (-not (Test-Path $ffprobe)) {
-    Write-Error "ffprobe.exe not found at: $ffprobe"
+$ffprobe = "ffprobe.exe"
+if (-not (Get-Command $ffprobe -ErrorAction SilentlyContinue)) {
+    Write-Error "ffprobe.exe not found in: $QTGMCDir"
     exit 1
 }
 
