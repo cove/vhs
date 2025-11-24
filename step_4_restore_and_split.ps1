@@ -83,7 +83,11 @@ ConvertToYV12(matrix="Rec601")
 QTGMC(preset="Faster") 
 Crop(0,0,-2,-6) 
 LanczosResize(640,480) 
+<<<<<<< HEAD
 
+=======
+SetPixelAspectRatio(1.0) 
+>>>>>>> 3c77b07cba05848a0c0e9c15d60b08ac7d70671b
 Return Last
 "@ | Set-Content -Path $avs -Encoding ASCII
 
