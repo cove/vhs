@@ -29,7 +29,7 @@ Import("QTGMC.avsi")
 #Opening of video file (the video file opened here is "in.mp4" and it has NO audio tack, you must replace "in.mp4" by the name of your video file)
 #FFMpegSource2("in.mp4")
 #Opening of video file (the video file opened here is "in.mp4" and it has an audio track, you must replace "in.mp4" by the name of your video file)
-FFMpegSource2("in.mp4",atrack=1)
+FFMpegSource2("in.mkv",atrack=1)
 #Converion to YV12 color format: http://avisynth.nl/index.php/ConvertToYV12
 ConvertToYV12()
 #Applying QTGMC in Faster mode
