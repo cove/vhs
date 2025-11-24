@@ -1,5 +1,5 @@
 <#=====================================================================
-  VHS-C → per-chapter x265 MP4 – CORRECTED VERSION (titles now work reliably)
+  VHS-C Restoration and Chapter Splitting Script
 =====================================================================#>
 
 # -------------------------- CONFIGURATION --------------------------

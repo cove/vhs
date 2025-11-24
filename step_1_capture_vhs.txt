@@ -12,15 +12,9 @@ See the screenshots/ directory for what the above settings look like.
 
 Notes:
 
-VirtualDub included in the software/ and encoding with UT Video is the only way I was able to get a reliable correct capture. Specifically it did not write video faster to storage than it could handle, and UT Video kept the color in VHS ranges. Addtionaly it didn't crash. See screenshots/ for an example where there's a color missmatch that only shows up under bright white light that turns tan.
+VirtualDub included in the software/ and encoding with UT Video is the only way I was able to get a reliable correct capture. Specifically it did not write video faster to storage than it could handle, and UT Video kept the color in VHS ranges. Addtionaly it didn't crash.
 
-Osprey-260e Video Proc Amp settings to help prevent whites rolling off in poor quality recordings:
-    - brightness 107
-    - contrast 156 to 108
-    - hue 0
-    - saturation 75
-    - sharpness 1
-    - gamma 102
+T2 UtVideo YUV422 BT.601.VCM is faster and also works, but VLC doesn't support the T2 version to validate the capture.
 
 If the VCR automatically stops playing the VHS-C tape in its VHS cassette adapter, this can be due to the battery being low.
 

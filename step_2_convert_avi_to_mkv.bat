@@ -1,5 +1,5 @@
 @echo off
-REM Usage: step_2_convert_avi_to_mkv.bat captured.avi
+REM Usage: step_2_convert_avi_to_mkv.bat captured.mkv
 
 if "%~1"=="" (
     echo Usage: %~nx0 captured.avi

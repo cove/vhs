@@ -21,9 +21,14 @@ if exist "%B3A%" (
     exit /b 1
 )
 
+set MEDIAINFO=%BASE%bin\mediainfo.exe
+if not exist "%MEDIAINFO%" (   
+    echo Error: mediainfo CLI not found at "%MEDIAINFO%"
+    exit /b 1
+)
+
 REM Check mediainfo
-set PATH=%PATH%;%BASE%\software\MediaInfo_CLI_25.10_Windows
-where mediainfo >nul 2>&1
+where "%MEDIAINFO%" >nul 2>&1
 if errorlevel 1 (
     echo Error: mediainfo CLI not found in PATH.
     exit /b 1
@@ -51,7 +56,7 @@ for %%F in (*.mkv) do (
 )
 
 if "!FOUND!"=="0" (
-    echo No .avi files found in %CD%
+    echo No .mvk files found in %CD%
     exit /b 0
 )
 
@@ -70,7 +75,7 @@ for %%I in ("%IN%") do set "BN=%%~nI"
 
 echo Generating mediainfo for "%IN%"...
 
-mediainfo --Output=Text "%IN%" > "%BN% mediainfo.txt"
+%MEDIAINFO% --Output=Text "%IN%" > "%BN%_mediainfo.txt"
 if errorlevel 1 (
     echo Error generating mediainfo for "%IN%"
     endlocal
