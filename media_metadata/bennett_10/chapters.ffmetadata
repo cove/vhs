@@ -1,14 +1,21 @@
 ;FFMETADATA1
 [CHAPTER]
 TIMEBASE=1/1
-START=10
-END=3632
-title=
-creation_time=1996-01-01T00:00:00
+START=8
+END=553
+title=1992 - Asia's 5th Birthday at Gerrish Swim & Tennis Club Part 2 (August 13, 1992)
+creation_time=1992-08-131T00:00:00
 
 [CHAPTER]
 TIMEBASE=1/1
-START=280
-END=1139
-title=
-creation_time=1996-01-01T00:00:00
+START=494
+END=689
+title=1992 - Kim & Rhett Butler, Lance and Jan's House (1992)
+creation_time=1992-01-01T00:00:00
+
+[CHAPTER]
+TIMEBASE=1/1
+START=691
+END=870
+title=1992 - Red Rock State Park, Sedona, Arizona (1992)
+creation_time=1992-01-01T00:00:00

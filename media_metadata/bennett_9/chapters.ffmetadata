@@ -1,32 +1,28 @@
 ;FFMETADATA1
 [CHAPTER]
 TIMEBASE=1/1
-START=10
-END=3632
+START=6
+END=267
 title=1992 - Dennis The Menace Playground (1992)
+creation_time=1992-01-01T00:00:00
 
 [CHAPTER]
 TIMEBASE=1/1
-START=280
-END=1139
+START=276
+END=1136
 title=1992 - Anat & Joe's Wedding Berkeley (1992)
+creation_time=1992-01-01T00:00:00
 
 [CHAPTER]
 TIMEBASE=1/1
-START=1140
-END=1337
+START=1117
+END=1477
 title=1992 - Michael 21st Birthday at Mark & Florine's Condo (July 4, 1992)
-
-[CHAPTER]
-TIMEBASE=1/1
-START=1338
-END=1479
-title=1992 - Michael 21st Birthday (July, 1992)
 creation_time=1992-07-01T00:00:00
 
 [CHAPTER]
 TIMEBASE=1/1
-START=1481
-END=1759
-title=1992 - Swimming at Gerrish Swim & Tennis Club (1992)
-creation_time=1992-01-01T00:00:00
+START=1478
+END=1755
+title=1992 - Asia's 5th Birthday at Gerrish Swim & Tennis Club Part 1 (August 13, 1992)
+creation_time=1992-08-131T00:00:00
