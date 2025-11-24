@@ -28,14 +28,20 @@ Return Last
 $AudioFilter = "dehummer=f=60:mode=peak:q=3, highpass=f=80, arnndn=m=bdnr.pmd, lowpass=f=14000, acompressor=ratio=3:attack=8:release=60:makeup=2"
 $VideoPreset = "slow"
 $CRF         = "18"
+# ------------------------------------------------------------------
+
+# Resolve script directory (works when called via symlink, ./script.ps1, or full path)
+$ScriptDir = if ($MyInvocation.MyCommand.Path) {
+    Split-Path -Parent $MyInvocation.MyCommand.Path
+} else {
+    $PSScriptRoot
+}
 
 $FFmpeg = Join-Path $ScriptDir "FFmpeg-QTGMC Easy 2025.01.11\ffmpeg.exe"
 if (-not (Test-Path $FFmpeg)) {
     Write-Error "ffmpeg.exe not found at: $FFmpeg"
     exit 1
 }
-
-# ------------------------------------------------------------------
 
 $Files = $args
 if ($Files.Count -eq 0) {
