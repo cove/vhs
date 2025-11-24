@@ -70,20 +70,24 @@ foreach ($src in $files) {
         # 2. QTGMC + x265 only this chapter
         $avs = "$ScriptDir\qtgmc_$num.avs"
 @"
-LoadPlugin("ffms2.dll") 
-LoadPlugin("masktools2.dll") 
-LoadPlugin("Rgtools.dll") 
-LoadPlugin("mvtools2.dll")
-LoadPlugin("nnedi3.dll") 
-LoadPlugin("yadifmod2.dll") 
-LoadPlugin("fft3dfilter.dll") 
-LoadPlugin("LoadDLL64.dll")
-LoadDLL("libfftw3f-3.dll") 
-Import("Zs_RF_Shared.avsi") 
-Import("QTGMC.avsi")
+LoadPlugin("$QTGMCDir/ffms2.dll") 
+LoadPlugin("$QTGMCDir/masktools2.dll") 
+LoadPlugin("$QTGMCDir/Rgtools.dll") 
+LoadPlugin("$QTGMCDir/mvtools2.dll")
+LoadPlugin("$QTGMCDir/nnedi3.dll") 
+LoadPlugin("$QTGMCDir/yadifmod2.dll") 
+LoadPlugin("$QTGMCDir/fft3dfilter.dll") 
+LoadPlugin("$QTGMCDir/LoadDLL64.dll")
+LoadDLL("$QTGMCDir/libfftw3f-3.dll") 
+Import("$QTGMCDir/Zs_RF_Shared.avsi") 
+Import("$QTGMCDir/QTGMC.avsi")
 FFmpegSource2("$tempRaw", atrack=-1) 
 ConvertToYV12(matrix="Rec601")
-QTGMC(preset="Faster") Crop(0,0,-2,-6) LanczosResize(640,480) SetPixelAspectRatio(1.0) Return Last
+QTGMC(preset="Faster") 
+Crop(0,0,-2,-6) 
+LanczosResize(640,480) 
+SetPixelAspectRatio(1.0) 
+Return Last
 "@ | Set-Content -Path $avs -Encoding ASCII
 
         Push-Location "$QTGMCDir"
