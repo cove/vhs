@@ -63,7 +63,7 @@ foreach ($src in $files) {
         }
 
         # 2. QTGMC + x265 only this chapter
-        $avs = "$env:TEMP\qtgmc_$num.avs"
+        $avs = "$ScriptDir\qtgmc_$num.avs"
 @"
 LoadPlugin("ffms2.dll") LoadPlugin("masktools2.dll") LoadPlugin("Rgtools.dll") LoadPlugin("mvtools2.dll")
 LoadPlugin("nnedi3.dll") LoadPlugin("yadifmod2.dll") LoadPlugin("fft3dfilter.dll") LoadPlugin("LoadDLL64.dll")
