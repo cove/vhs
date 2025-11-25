@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# vhs_c_batch_process.py
-# Run from vhs/ → processes all .mkv in ../Archive/
 
 import subprocess
 import sys
@@ -60,16 +58,17 @@ for src in mkv_files:
     for i, (title, ctime, start, end) in enumerate(chapters):
         num = f"{i+1:02d}"
         safe_title = title.translate(str.maketrans(r'<>:"/\|?*', "---------"))
-        final_temp = out_dir / f"{num} - {safe_title}_temp.mp4"
-        final = out_dir / f"{num} - {safe_title}.mp4"
+        final_temp = out_dir / f"{safe_title}_temp.mp4"
+        final = out_dir / f"{safe_title}.mp4"
         temp_raw = out_dir / f"temp_raw_{num}.mkv"
 
         # Step 1: Extract raw chapter
         subprocess.run([
-            FFMPEG, "-v", "error",
-            "-ss", str(start), "-to", str(end),
+            FFMPEG, "-v", "error", "-stats",
             "-i", str(src),
-            "-map", "0:v", "-map", "0:a?",
+            "-map_metadata", "-1",
+            "-ss", str(start), "-to", str(end),
+            "-map", "0:v", "-map", "0:a",
             "-c", "copy", "-avoid_negative_ts", "make_zero",
             "-y", str(temp_raw)
         ], check=True, cwd=out_dir)
@@ -99,29 +98,21 @@ Return Last
 
         subprocess.run([
             FFMPEG,
-            "-i", str(avs_file), "-i", str(temp_raw),
-            "-map", "0:v", "-map", "1:a?",
+            "-i", str(avs_file), "-i", str(temp_raw), "-stats",
+            "-map", "0:v", "-map", "1:a",
             "-map_metadata", "-1",
             "-metadata", f"title={title}",
             "-metadata", f"creation_time={ctime or ''}",
-            "-metadata", f"com.apple.quicktime.creationdate={ctime or ''}",
             "-metadata", f"description=Source VHS tape archive: {src.name}",
+            "-metadata", f"com.apple.quicktime.creationdate={ctime or ''}",
+            "-tag:v", "hvc1",
+            "-brand", "mp42",
             "-c:v", "libx265", "-preset", "fast", "-crf", "18",
             "-x265-params", "profile=main10",
             "-pix_fmt", "yuv420p10le",
-            "-tag:v", "hvc1",
             "-c:a", "aac", "-b:a", "48k", "-ac", "1",
             "-af", "highpass=f=80,lowpass=f=14000,acompressor",
-            "-y", str(final_temp)
-        ], check=True, cwd=out_dir)
-
-        # Step 3: Faststart fix — instant, safe
-        subprocess.run([
-            FFMPEG,
-            "-i", str(final_temp),
-            "-c", "copy",
             "-movflags", "+faststart+write_colr",
-            "-brand", "mp42",
             "-y", str(final)
         ], check=True, cwd=out_dir)
 
