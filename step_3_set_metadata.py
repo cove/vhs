@@ -27,6 +27,9 @@ for mkv in mkv_files:
     if not os.path.isfile(mkv):
         print(f"File not found: {mkv}")
         continue
+    if mkv.endswith("_metadata.mkv"):
+        print(f"Skipping already processed file: {mkv}")
+        continue
 
     name = os.path.splitext(os.path.basename(mkv))[0]
     folder = os.path.dirname(mkv)
@@ -34,7 +37,7 @@ for mkv in mkv_files:
     # Extract prefix: bennett_1_metadata_archive → bennett_1
     prefix = "_".join(name.rsplit("_", 2)[:2])
 
-    meta_dir = "media_metadata" / Path(prefix)
+    meta_dir = "media_metadata/" + prefix
     cover = os.path.join(meta_dir, "cover.jpg")
     title_file = os.path.join(meta_dir, "title.txt")
     comment_file = os.path.join(meta_dir, "comment.txt")
