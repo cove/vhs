@@ -12,9 +12,9 @@ import re
 from pathlib import Path
 from datetime import datetime, timezone
 
-FFMPEG    = r"software\FFmpeg-QTGMC Easy 2025.01.11\ffmpeg.exe"
-FFPROBE   = r"software\FFmpeg-QTGMC Easy 2025.01.11\ffprobe.exe"
-QTGMC_DIR = r"software\FFmpeg-QTGMC Easy 2025.01.11"
+FFMPEG    = r"software/FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe"
+FFPROBE   = r"software/FFmpeg-QTGMC Easy 2025.01.11/ffprobe.exe"
+QTGMC_DIR = r"software/FFmpeg-QTGMC Easy 2025.01.11"
 
 for tool in (FFMPEG, FFPROBE):
     if not Path(tool).exists():
@@ -22,7 +22,7 @@ for tool in (FFMPEG, FFPROBE):
         sys.exit(1)
 
 if len(sys.argv) < 2:
-    print("Usage: python vhs_c_qtgmc_chapter_split.py video1.mkv ...")
+    print("Usage: python this_script.py video1.mkv")
     sys.exit(1)
 
 script_dir = Path(__file__).parent.resolve()
@@ -127,7 +127,7 @@ Crop(0,0,-2,-6)
 LanczosResize(640,480)
 Return Last
 '''
-        avs_file = Path(tempfile.gettempdir()) / f"qtgmc_{num}.avs"
+        avs_file = Path(f"qtgmc_{num}.avs")
         avs_file.write_text(avs_content, encoding="ascii")
 
         # Encode
