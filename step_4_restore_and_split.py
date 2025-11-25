@@ -29,8 +29,6 @@ for src_path in sys.argv[1:]:
     with open(chapters_file, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
-            if not line or line.startswith(";"):
-                continue
             if line == "[CHAPTER]":
                 if title is not None:
                     chapters.append((title, ctime, start, end))
@@ -50,12 +48,13 @@ for src_path in sys.argv[1:]:
 
     for i, (title, ctime, start, end) in enumerate(chapters):
         num = f"{i+1:02d}"
-        safe_title = title.translate(str.maketrans(r'<>:"/\|?*', "--------"))
-        final = out_dir / f"{num} - {safe_title}.mp4"
-        temp_raw = Path(tempfile.gettempdir()) / f"temp_{num}.mkv"
+        safe_title = title.translate(str.maketrans(r'<>:"/\|?*', "---------"))
+        final = out_dir / f"{safe_title}.mp4"
+        temp_raw = Path(f"temp_{num}_{safe_title}.mkv")
 
+        print(f"Processing chapter: {title}")
         subprocess.run([
-            FFMPEG, "-v", "error",
+            FFMPEG, "-v", "error", "-stats",
             "-ss", str(start), "-to", str(end),
             "-i", str(src),
             "-map", "0:v", "-map", "0:a?",
@@ -82,12 +81,12 @@ Crop(0,0,-2,-6)
 LanczosResize(640,480)
 Return Last
 '''
-        avs_file = Path(tempfile.gettempdir()) / f"qtgmc_{num}.avs"
+        avs_file = Path(f"qtgmc_{num}.avs")
         avs_file.write_text(avs, encoding="ascii")
 
         subprocess.run([
-            FFMPEG,
-            "-i", str(avs_file), "-i", str(temp_raw),
+            FFMPEG,"-v", "error", "-stats",
+            "-i", str(avs_file), "-i", str(temp_raw), 
             "-map", "0:v", "-map", "1:a?",
             "-metadata", f"title={title}",
             "-metadata", f"creation_time={ctime or ''}",
