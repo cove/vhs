@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+# step_2_convert_avi_to_mkv.py
+# Drag & drop any video files → creates *_archive.mkv with FFv1 lossless
+
+import os
+import sys
+import subprocess
+
+# CHANGE THIS PATH ONLY IF NEEDED
+ffmpeg = r"FFmpeg-QTGMC Easy 2025.01.11\ffmpeg.exe"
+
+if not os.path.exists(ffmpeg):
+    print("ERROR: ffmpeg.exe not found!")
+    print(f"   Looking for: {os.path.abspath(ffmpeg)}")
+    input("Press Enter to exit...")
+    sys.exit(1)
+
+if len(sys.argv) < 2:
+    print("Drag video files onto this script or run:")
+    print("   python this_script.py video1.avi video2.mkv ...")
+    input("Press Enter to exit...")
+    sys.exit(1)
+
+for file in sys.argv[1:]:
+    if not os.path.exists(file):
+        print(f"File not found: {file}")
+        continue
+
+    name = os.path.splitext(file)[0]
+    output = name + "_archive.mkv"
+
+    print(f"Converting: {os.path.basename(file)}  →  {os.path.basename(output)}")
+
+    cmd = [
+        ffmpeg,
+        "-nostdin", "-v", "error",
+        "-i", file,
+        "-pix_fmt", "yuv422p",
+        "-color_primaries:v", "6",
+        "-color_trc:v", "6",
+        "-colorspace:v", "5",
+        "-color_range:v", "1",
+        "-map", "0:v:0", "-c:v", "ffv1",
+        "-level", "3", "-g", "1", "-coder", "1", "-context", "1",
+        "-slices", "24", "-slicecrc", "1",
+        "-map", "0:a?", "-c:a", "pcm_s16le",
+        "-y", output
+    ]
+
+    subprocess.run(cmd)
+
+    print("Done!\n")
+
+print("All finished!")
+input("Press Enter to close...")
