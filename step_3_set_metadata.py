@@ -34,7 +34,7 @@ for mkv in mkv_files:
     # Extract prefix: bennett_1_metadata_archive → bennett_1
     prefix = "_".join(name.rsplit("_", 2)[:2])
 
-    meta_dir = Path("..") / "media_metadata" / prefix
+    meta_dir = "media_metadata" / Path(prefix)
     cover = os.path.join(meta_dir, "cover.jpg")
     title_file = os.path.join(meta_dir, "title.txt")
     comment_file = os.path.join(meta_dir, "comment.txt")
