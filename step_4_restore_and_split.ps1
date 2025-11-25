@@ -62,12 +62,10 @@ foreach ($src in $files) {
         Write-Host "   → $num - $title" -ForegroundColor Gray
 
         # 1. Extract raw chapter (fast, tiny file)
-        & $ffmpeg -v error -ss $start -to $end -i $src -map 0:v -map 0:a? -map 0:s? -c copy -avoid_negative_ts make_zero -y $tempRaw
-
-        $temp = [System.IO.Path]::GetTempFileName()
+        & $ffmpeg -v error -stats -ss $start -to $end -i $src -map 0:v -map 0:a? -map 0:s? -c copy -avoid_negative_ts make_zero -y $tempRaw
 
         # 2. QTGMC + x265 only this chapter
-        $avs = Join-Path $env:TEMP "$([System.Guid]::NewGuid()).avs"
+        $avs = "$QTGMCDir\temp_chap_$num.avs"
 @"
 LoadPlugin("$QTGMCDir/ffms2.dll") 
 LoadPlugin("$QTGMCDir/masktools2.dll") 
@@ -86,9 +84,9 @@ QTGMC(preset="Faster")
 Crop(0,0,-2,-6) 
 LanczosResize(640,480) 
 Return Last
-"@ | Set-Content -Path $avs -Encoding ASCII
+"@ | Set-Content -Path $avs -Encoding ASCII -Force
 
-        & $ffmpeg -i $avs -i $tempRaw `
+        & $ffmpeg -v error -stats -i $avs -i $tempRaw `
             -map 0:v -map 1:a? -map_metadata 1 `
             -metadata title="$title" `
             -metadata comment="Extracted chapter from $([IO.Path]::GetFileName($src))" `
