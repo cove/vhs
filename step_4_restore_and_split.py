@@ -5,28 +5,24 @@ import subprocess
 import os
 from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).parent.resolve()
-QTGMC_DIR = SCRIPT_DIR / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
+BASE_DIR = Path(__file__).parent.resolve()
+QTGMC_DIR = BASE_DIR / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
 FFMPEG    = QTGMC_DIR / "ffmpeg.exe"
-
-if not os.path.exists(FFMPEG):
-    print("ERROR: ffmpeg.exe not found!")
-    print(f"   Looking for: {FFMPEG.resolve()}")
-    sys.exit(1)
+ARCHIVE_DIR = BASE_DIR / ".." / "Archive"
 
 src_path = sys.argv[1]
 src = Path(src_path).resolve()
 name = src.stem
+print (f"Source file: {src.name}")
 
-# Extract prefix: bennett_1_metadata_archive → bennett_1
-prefix = name.rsplit("_", 2)[0] if "_" in name else name
-
+# Extract prefix: bennett_1_archive → bennett_1
+prefix = "_".join(name.rsplit("_", 2)[0:2])
+print (f"Source file: {prefix}")
 out_dir = src.parent / f"{name}_chapters"
 out_dir.mkdir(exist_ok=True)
 
 chapters_file = Path(__file__).parent / "media_metadata" / prefix / "chapters.ffmetadata"
 
-# Parse ffmetadata — bulletproof
 chapters = []
 title = ctime = start = end = None
 
@@ -62,8 +58,8 @@ for i, (title, ctime, start, end) in enumerate(chapters):
     num = f"{i+1:02d}"
     safe_title = title.translate(str.maketrans(r'<>:"/\|?*', "---------"))
     final = out_dir / f"{num} - {safe_title}.mp4"
-    temp_raw = out_dir / f"temp_raw_{num}.mkv"       # ← in out_dir, safe
-    temp_qtgmc = out_dir / f"temp_qtgmc_{num}.mkv"   # ← lossless intermediate
+    temp_raw = out_dir / f"temp_raw_{num}.mkv"
+    temp_qtgmc = out_dir / f"temp_qtgmc_{num}.mkv"
 
     print(f"Processing: {title}")
 
