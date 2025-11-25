@@ -2,7 +2,6 @@
 
 import sys
 import subprocess
-import tempfile
 from pathlib import Path
 
 FFMPEG    = "software/FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe"
@@ -57,18 +56,18 @@ if single_chapter is not None:
 
 for i, (title, ctime, start, end) in enumerate(chapters):
     num = f"{i+1:02d}"
-    safe_title = title.translate(str.maketrans(r'<>:"/\|?*', "--------"))
-    final = out_dir / f"{num} - {safe_title}.mp4"
-    temp_raw = Path(tempfile.gettempdir()) / f"temp_{num}.mkv"
+    safe_title = title.translate(str.maketrans(r'<>:"/\|?*', "---------"))
+    final = out_dir / f"{safe_title}.mp4"
+    temp_raw = Path(f"temp_{num}.mkv")
 
-    print(f"Processing: {title}")
+    print(f"Processing: {title} {start} → {end}  →  {final.name} {temp_raw}")
 
     subprocess.run([
         FFMPEG, "-v", "error",
         "-ss", str(start), "-to", str(end),
         "-i", str(src),
-        "-map", "0:v", "-map", "0:a?",
-        "-c", "copy", "-avoid_negative_ts", "make_zero",
+        "-map", "0:v", "-map", "0:a",
+        "-c", "copy",
         "-y", str(temp_raw)
     ], check=True)
 
@@ -86,24 +85,24 @@ Import("{QTGMC_DIR}/Zs_RF_Shared.avsi")
 Import("{QTGMC_DIR}/QTGMC.avsi")
 FFmpegSource2("{temp_raw}", atrack=-1)
 ConvertToYV12(matrix="Rec601")
-QTGMC(preset="Faster")
+QTGMC(preset="Fast")
 Crop(0,0,-2,-6)
 LanczosResize(640,480)
 Return Last
 '''
-    avs_file = Path(f"qtgmc_{num}.avs"
+    avs_file = Path(f"qtgmc_{num}.avs")
     avs_file.write_text(avs, encoding="ascii")
 
     subprocess.run([
         FFMPEG,
         "-i", str(avs_file), "-i", str(temp_raw),
-        "-map", "0:v", "-map", "1:a?",
+        "-map", "0:v", "-map", "0:a",
         "-metadata", f"title={title}",
         "-metadata", f"creation_time={ctime or ''}",
         "-c:v", "libx265", "-preset", "slow", "-crf", "18",
-        "-x265-params", "profile=main10",
+        "-profile:v", "main",
         "-tag:v", "hvc1",
-        "-c:a", "aac", "-b:a", "48k",
+        "-c:a", "aac", "-b:a", "48k", "-ac", "1",
         "-af", "highpass=f=80,lowpass=f=14000,acompressor",
         "-movflags", "+faststart",
         "-y", str(final)
