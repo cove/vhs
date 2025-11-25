@@ -2,6 +2,7 @@
   VHS-C → Chapter-by-chapter QTGMC + x265 (2025 – RIGID & FINAL)
   Always assumes chapters exist → always identical workflow
 =====================================================================#>
+$errorActionPreference = "Stop"
 
 $ScriptDir = if ($MyInvocation.MyCommand.Path) {
     Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -39,7 +40,7 @@ foreach ($src in $files) {
     Write-Host "`nProcessing: $name" -ForegroundColor Cyan
 
     # Get chapters and source creation_time (once)
-    $chapters = (& $ffprobe -print_format json -show_chapters $src | ConvertFrom-Json).chapters
+    $chapters = (& $ffprobe -v error -print_format json -show_chapters $src | ConvertFrom-Json).chapters
     $sourceCreation = (& $ffprobe -v quiet -print_format json -show_format $src | ConvertFrom-Json).format.tags.creation_time
 
     for ($i = 0; $i -lt $chapters.Count; $i++) {
@@ -61,32 +62,30 @@ foreach ($src in $files) {
         Write-Host "   → $num - $title" -ForegroundColor Gray
 
         # 1. Extract raw chapter (fast, tiny file)
-        if ($end) {
-            & $ffmpeg -ss $start -to $end -i $src -map 0:v -map 0:a? -map 0:s? -c copy -avoid_negative_ts make_zero -y $tempRaw
-        } else {
-            & $ffmpeg -ss $start -i $src -map 0:v -map 0:a? -map 0:s? -c copy -avoid_negative_ts make_zero -y $tempRaw
-        }
+        & $ffmpeg -v error -ss $start -to $end -i $src -map 0:v -map 0:a? -map 0:s? -c copy -avoid_negative_ts make_zero -y $tempRaw
 
         # 2. QTGMC + x265 only this chapter
         $avs = "$ScriptDir\qtgmc_$num.avs"
 @"
-LoadPlugin("ffms2.dll") 
-LoadPlugin("masktools2.dll") 
-LoadPlugin("Rgtools.dll") 
-LoadPlugin("mvtools2.dll")
-LoadPlugin("nnedi3.dll") 
-LoadPlugin("yadifmod2.dll") 
-LoadPlugin("fft3dfilter.dll") 
-LoadPlugin("LoadDLL64.dll")
-LoadDLL("libfftw3f-3.dll") 
-Import("Zs_RF_Shared.avsi") 
-Import("QTGMC.avsi")
+LoadPlugin("$QTGMCDir/ffms2.dll") 
+LoadPlugin("$QTGMCDir/masktools2.dll") 
+LoadPlugin("$QTGMCDir/Rgtools.dll") 
+LoadPlugin("$QTGMCDir/mvtools2.dll")
+LoadPlugin("$QTGMCDir/nnedi3.dll") 
+LoadPlugin("$QTGMCDir/yadifmod2.dll") 
+LoadPlugin("$QTGMCDir/fft3dfilter.dll") 
+LoadPlugin("$QTGMCDir/LoadDLL64.dll")
+LoadDLL("$QTGMCDir/libfftw3f-3.dll") 
+Import("$QTGMCDir/Zs_RF_Shared.avsi") 
+Import("$QTGMCDir/QTGMC.avsi")
 FFmpegSource2("$tempRaw", atrack=-1) 
 ConvertToYV12(matrix="Rec601")
-QTGMC(preset="Faster") Crop(0,0,-2,-6) LanczosResize(640,480) SetPixelAspectRatio(1.0) Return Last
+QTGMC(preset="Faster") 
+Crop(0,0,-2,-6) 
+LanczosResize(640,480) 
+Return Last
 "@ | Set-Content -Path $avs -Encoding ASCII
 
-        Push-Location "$QTGMCDir"
         & $ffmpeg -i $avs -i $tempRaw `
             -map 0:v -map 1:a? -map_metadata 1 `
             -metadata title="$title" `
@@ -94,13 +93,12 @@ QTGMC(preset="Faster") Crop(0,0,-2,-6) LanczosResize(640,480) SetPixelAspectRati
             -metadata creation_time="$creation" `
             -c:v libx265 -preset slow -crf 18 -x265-params "profile=main10:aq-mode=3" `
             -c:a aac -b:a 48k `
-            -af "dehummer=f=60:mode=peak:q=3,highpass=f=80,arnndn=m=bdnr.pmd,lowpass=f=14000,acompressor=ratio=3:attack=8:release=60" `
+            -af "highpass=f=80,lowpass=f=14000,acompressor=ratio=3:attack=8:release=60" `
             -movflags +faststart -y "$final"
 
         # 3. Delete temps immediately
         Remove-Item $tempRaw -Force
         Remove-Item $avs -Force
-        Pop-Location
     }
 
     Write-Host "Finished → $out" -ForegroundColor Green
