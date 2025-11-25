@@ -10,11 +10,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-# CHANGE ONLY THESE LINES
 FFMPEG   = r"software/FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe"
 FFPROBE  = r"software/FFmpeg-QTGMC Easy 2025.01.11/ffprobe.exe"
 QTGMC_DIR = r"software/FFmpeg-QTGMC Easy 2025.01.11"
-CRF = 18
 
 # Check tools exist
 for tool in (FFMPEG, FFPROBE):
@@ -105,7 +103,7 @@ Return Last
             "-metadata", f"title={title}",
             "-metadata", f"comment=Chapter from {src.name}",
             "-metadata", f"creation_time={creation}",
-            "-c:v", "libx265", "-preset", "slow", "-crf", str(CRF),
+            "-c:v", "libx265", "-preset", "slow", "-crf", 18,
             "-x265-params", "aq-mode=3:profile=main10:keyint=240:min-keyint=24:bframes=4:weightb=1:hme=1:strong-intra-smoothing=0:rect=0",
             "-c:a", "aac", "-b:a", "48k",
             "-af", "highpass=f=80,lowpass=f=14000,acompressor=ratio=3:attack=8:release=60",
