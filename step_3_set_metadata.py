@@ -6,18 +6,17 @@ import sys
 import subprocess
 from pathlib import Path
 
-BASE_DIR = Path(__file__).parent.resolve()
-ARCHIVE_DIR = BASE_DIR / ".." / "Archive"
-B3SUM = BASE_DIR / "bin" / "b3sum_windows_x64_bin.exe"
-MEDIAINFO = BASE_DIR / "bin" / "mediainfo.exe"
-FFMPEG = "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
-FFPROBE = "bin" / "ffprobe.exe"
+ARCHIVE_DIR =  "../Archive"
+B3SUM = "bin/b3sum_windows_x64_bin.exe"
+MEDIAINFO = "bin/mediainfo.exe"
+FFMPEG = "software/FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe"
+FFPROBE = "bin/ffprobe.exe"
 
-output_file = ARCHIVE_DIR / "00-manifest-blake3sums.txt"
+output_file = Path(ARCHIVE_DIR + "/00-manifest-blake3sums.txt")
 if output_file.exists():
     output_file.unlink()
 
-mkv_files = list(glob.glob(str(ARCHIVE_DIR / "*.mkv")))
+mkv_files = list(glob.glob(str(ARCHIVE_DIR+ "/*.mkv")))
 if not mkv_files:
     print("No .mkv files found.")
     sys.exit(0)
