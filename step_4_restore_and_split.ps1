@@ -67,8 +67,7 @@ foreach ($src in $files) {
         $temp = [System.IO.Path]::GetTempFileName()
 
         # 2. QTGMC + x265 only this chapter
-        $tempPath = [System.IO.Path]::GetTempPath()
-        $avs = Join-Path $tempPath ([System.IO.Path]::GetRandomFileName())
+        $avs = (New-TemporaryFile).Rename( ($_.BaseName + "_qtgmc.avs") )
 @"
 LoadPlugin("$QTGMCDir/ffms2.dll") 
 LoadPlugin("$QTGMCDir/masktools2.dll") 
