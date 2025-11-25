@@ -60,8 +60,8 @@ for src in mkv_files:
         final_temp = out_dir / f"{safe_title}_temp.mp4"
         final = out_dir / f"{safe_title}.mp4"
         temp_raw = out_dir / f"temp_raw_{num}.mkv"
-        temp_raw_ffindex = f"{temp_raw}.ffindex"
-
+        temp_raw_ffindex = temp_raw + ".ffindex"
+    
         if os.path.exists(final) and os.path.getsize(final) > 100_000:
             print(f"   Skipping existing chapter: {final.name} (delete if you want to reprocess it)")
             continue
