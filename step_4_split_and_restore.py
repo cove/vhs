@@ -59,6 +59,7 @@ for src in mkv_files:
         final_temp = out_dir / f"{safe_title}_temp.mp4"
         final = out_dir / f"{safe_title}.mp4"
         temp_raw = out_dir / f"temp_raw_{num}.mkv"
+        temp_raw_ffindex = f"{temp_raw}.ffindex"
 
         # Step 1: Extract raw chapter
         subprocess.run([
@@ -116,8 +117,10 @@ Return Last
 
         # Clean up everything
         temp_raw.unlink(missing_ok=True)
+        temp_raw_ffindex.unlink(missing_ok=True)
         avs_file.unlink(missing_ok=True)
         final_temp.unlink(missing_ok=True)
+
 
     print(f"Finished: {out_dir.name}\n")
 
