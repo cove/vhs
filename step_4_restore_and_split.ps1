@@ -64,8 +64,11 @@ foreach ($src in $files) {
         # 1. Extract raw chapter (fast, tiny file)
         & $ffmpeg -v error -ss $start -to $end -i $src -map 0:v -map 0:a? -map 0:s? -c copy -avoid_negative_ts make_zero -y $tempRaw
 
+        $temp = [System.IO.Path]::GetTempFileName()
+
         # 2. QTGMC + x265 only this chapter
-        $avs = "$ScriptDir\qtgmc_$num.avs"
+        $tempPath = [System.IO.Path]::GetTempPath()
+        $avs = Join-Path $tempPath ([System.IO.Path]::GetRandomFileName())
 @"
 LoadPlugin("$QTGMCDir/ffms2.dll") 
 LoadPlugin("$QTGMCDir/masktools2.dll") 
