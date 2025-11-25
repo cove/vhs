@@ -63,7 +63,7 @@ for src in mkv_files:
             continue
 
         # Step 1: Extract raw chapter
-        print(f"Processing: {src.name} - Chapter {num}: {title}")
+        print(f"Processing: {src.name} - Chapter: {title}")
         subprocess.run([
             FFMPEG, "-v", "error", "-stats",
             "-i", str(src),
@@ -109,7 +109,7 @@ Return Last
             "-tag:v", "hvc1",
             "-brand", "mp42",
             "-c:v", "libx265", "-preset", "fast", "-crf", "18",
-            "-x265-params", "profile=main10",
+            "-vprofile", "main10",
             "-pix_fmt", "yuv420p10le",
             "-c:a", "aac", "-b:a", "48k", "-ac", "1",
             "-af", "highpass=f=80,lowpass=f=14000,acompressor",
