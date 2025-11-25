@@ -4,6 +4,7 @@ import sys
 import subprocess
 import tempfile
 import configparser
+import re
 from pathlib import Path
 
 FFMPEG = "software/FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe"
@@ -16,7 +17,8 @@ for src_path in sys.argv[1:]:
     out_dir.mkdir(exist_ok=True)
 
     # Extract prefix like "bennett_1" from "bennett_1_metadata"
-    prefix = name.rsplit("_", 1)[0] if "_" in name else name
+    match = re.match(r"^(.*?_\d+)", name)
+    prefix = match.group(1) if match else name
     meta_dir = Path(__file__).parent / "media_metadata" / prefix
 
     chapters_file = meta_dir / "chapstes.ffmetadata"
