@@ -106,7 +106,7 @@ Return Last
             "-metadata", f"comment=Chapter from {src.name}",
             "-metadata", f"creation_time={creation}",
             "-c:v", "libx265", "-preset", "slow", "-crf", str(CRF),
-            "-x265-params", "profile=main10:aq-mode=3",
+            "-x265-params", "aq-mode=3:profile=main10:keyint=240:min-keyint=24:bframes=4:weightb=1:hme=1:strong-intra-smoothing=0:rect=0",
             "-c:a", "aac", "-b:a", "48k",
             "-af", "highpass=f=80,lowpass=f=14000,acompressor=ratio=3:attack=8:release=60",
             "-movflags", "+faststart",
