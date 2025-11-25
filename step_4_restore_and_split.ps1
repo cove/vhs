@@ -104,5 +104,5 @@ Return Last
     Write-Host "Finished → $out" -ForegroundColor Green
 }
 
-Write-Host "`nAll done! Every chapter processed identically. Zero temp space left." -ForegroundColor Magenta
+Write-Host "`nAll done! Every chapter processed identically." -ForegroundColor Magenta
 pause
