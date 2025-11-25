@@ -67,6 +67,7 @@ for src in mkv_files:
             continue
 
         # Step 1: Extract raw chapter
+        print(f"Processing: {src.name} - Chapter {num}: {title}")
         subprocess.run([
             FFMPEG, "-v", "error", "-stats",
             "-i", str(src),
@@ -77,7 +78,7 @@ for src in mkv_files:
             "-y", str(temp_raw)
         ], check=True, cwd=out_dir)
 
-        # Step 2: QTGMC + x265 in one pass (no faststart)
+        # Step 2: QTGMC + x265 in one pass
         avs = f'''
 LoadPlugin("{QTGMC_DIR}/ffms2.dll")
 LoadPlugin("{QTGMC_DIR}/masktools2.dll")
