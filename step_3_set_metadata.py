@@ -18,7 +18,7 @@ output_file = ARCHIVE_DIR / "00-manifest-blake3sums.txt"
 if output_file.exists():
     output_file.unlink()
 
-mkv_files = list(glob.glob("*.mkv", root_dir=ARCHIVE_DIR))
+mkv_files = list(glob.glob(str(ARCHIVE_DIR / "*.mkv")))
 if not mkv_files:
     print("No .mkv files found.")
     sys.exit(0)
@@ -29,12 +29,12 @@ for mkv in mkv_files:
         continue
 
     name = os.path.splitext(os.path.basename(mkv))[0]
-    folder = os.path.dirname(mkv) or "."
+    folder = os.path.dirname(mkv)
 
     # Extract prefix: bennett_1_metadata_archive → bennett_1
-    prefix = "_".join(name.rsplit("_", 2)[:2])  # bennett_1_metadata_archive → bennett_1
+    prefix = "_".join(name.rsplit("_", 2)[:2])
 
-    meta_dir = os.path.join(os.path.dirname(__file__), "media_metadata", prefix)
+    meta_dir = Path("..") / "media_metadata" / prefix
     cover = os.path.join(meta_dir, "cover.jpg")
     title_file = os.path.join(meta_dir, "title.txt")
     comment_file = os.path.join(meta_dir, "comment.txt")
