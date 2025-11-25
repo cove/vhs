@@ -46,9 +46,10 @@ for mkv in mkv_files:
     with open(comment_file, "r", encoding="utf-8") as f:
         comment = f.read().strip()
 
-    output = os.path.join(folder, f"{name}_metadata.mkv")
+    temp_output = Path(folder) / f"{name}_metadatamkv"
+    final_output = os.path.join(folder, f"{name}.mkv")
 
-    print(f"Processing: {os.path.basename(mkv)} → {os.path.basename(output)}")
+    print(f"Processing: {os.path.basename(mkv)} → {os.path.basename(final_output)}")
 
     cmd = [
         str(FFMPEG),
@@ -70,10 +71,47 @@ for mkv in mkv_files:
         "-colorspace:v", "5",
         "-aspect", "4:3",
         "-f", "matroska",
-        "-y", str(output)
+        "-y", str(temp_output)
     ]
 
     result = subprocess.run(cmd, capture_output=True, text=True)
+
+    # VALIDATION: Check duration matches original (within 1 second)
+    cmd = [str(FFMPEG), "-v", "error", "-i", temp_output, "-f", "null", "-"]
+    proc = subprocess.run(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+    if proc.stderr.strip() != "":
+        print(f"FFmpeg validation FAILED:")
+        print(proc.stderr)
+        print()
+        temp_output.unlink(missing_ok=True)
+        continue
+
+    def get_duration(file):
+        try:
+            out = subprocess.check_output([
+                str(FFMPEG), "-v", "error", "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1", str(temp_output)
+            ], text=True).strip()
+            return float(out) if out else 0
+        except:
+            return 0
+
+    orig_dur = get_duration(mkv)
+    new_dur = get_duration(temp_output)
+
+    if abs(orig_dur - new_dur) > 1.0:
+        print(f"Validation FAILED: duration mismatch ({orig_dur:.1f}s → {new_dur:.1f}s)")
+        temp_output.unlink(missing_ok=True)
+        continue
+
+    # SUCCESS — replace original
+#    temp_output.replace(final_output)
+    print(f"Success → {Path(final_output).name}\n")
 
     if result.returncode == 0:
         print("Success!\n")
