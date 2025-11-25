@@ -13,7 +13,7 @@ if not FFMPEG.exists():
     print(f"ERROR: ffmpeg not found at {FFMPEG}")
     sys.exit(1)
 
-mkv_files = list(ARCHIVE_DIR.glob("*.mkv"))
+mkv_files = list(ARCHIVE_DIR.glob("bennett*.mkv"))
 if not mkv_files:
     print("No .mkv files found in ../Archive/")
     sys.exit(0)

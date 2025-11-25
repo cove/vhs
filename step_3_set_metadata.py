@@ -16,7 +16,7 @@ output_file = Path(ARCHIVE_DIR + "/00-manifest-blake3sums.txt")
 if output_file.exists():
     output_file.unlink()
 
-mkv_files = list(glob.glob(str(ARCHIVE_DIR+ "/*.mkv")))
+mkv_files = list(glob.glob(str(ARCHIVE_DIR+ "/bennett*.mkv")))
 if not mkv_files:
     print("No .mkv files found.")
     sys.exit(0)
