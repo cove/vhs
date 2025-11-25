@@ -15,7 +15,8 @@ for src_path in sys.argv[1:]:
     out_dir = src.parent / f"{name}_chapters"
     out_dir.mkdir(exist_ok=True)
 
-    prefix = ''.join(c for c in name if c.isdigit() or c.isalpha())[:10]
+    # Extract prefix like "bennett_1" from "bennett_1_metadata"
+    prefix = name.rsplit("_", 1)[0] if "_" in name else name
     meta_dir = Path(__file__).parent / "media_metadata" / prefix
 
     chapters_file = meta_dir / "chapstes.ffmetadata"
