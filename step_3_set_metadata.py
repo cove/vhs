@@ -8,11 +8,6 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent.resolve()
 FFMPEG = SCRIPT_DIR / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
 
-if not os.path.exists(FFMPEG):
-    print("ERROR: ffmpeg.exe not found!")
-    print(f"   Looking for: {FFMPEG.resolve()}")
-    sys.exit(1)
-
 if len(sys.argv) < 2:
     print("python this_script.py video1.mkv")
     sys.exit(1)
@@ -25,30 +20,14 @@ for file in sys.argv[1:]:
     name = os.path.splitext(os.path.basename(file))[0]
     folder = os.path.dirname(file) or "."
 
-    # Try to extract video name (e.g. HomeVideo1995_01.mkv → HomeVideo1995)
-    import re
-    match = re.match(r"^(.*?[0-9]+)", name)
-    video_name = match.group(1) if match else name
+    # Extract prefix: bennett_1_metadata_archive → bennett_1
+    prefix = name.rsplit("_", 2)[0] if "_" in name else name
 
-    meta_dir = os.path.join(os.path.dirname(__file__), "media_metadata", video_name)
+    meta_dir = os.path.join(os.path.dirname(__file__), "media_metadata", prefix)
     cover = os.path.join(meta_dir, "cover.jpg")
     title_file = os.path.join(meta_dir, "title.txt")
     comment_file = os.path.join(meta_dir, "comment.txt")
     chapters_file = os.path.join(meta_dir, "chapters.ffmetadata")
-
-    # Check if all metadata files exist
-    missing = []
-    for f in (cover, title_file, comment_file, chapters_file):
-        if not os.path.exists(f):
-            missing.append(f)
-
-    if missing:
-        print(f"Skipping: {os.path.basename(file)}")
-        print("   Missing metadata:")
-        for m in missing:
-            print(f"     {m}")
-        print()
-        continue
 
     # Read title and comment
     with open(title_file, "r", encoding="utf-8") as f:
@@ -61,7 +40,7 @@ for file in sys.argv[1:]:
     print(f"Processing: {os.path.basename(file)} → {os.path.basename(output)}")
 
     cmd = [
-        ffmpeg,
+        str(FFMPEG),
         "-nostdin", "-v", "error", "-stats",
         "-i", file,
         "-f", "ffmetadata", "-i", chapters_file,
@@ -93,4 +72,3 @@ for file in sys.argv[1:]:
         print()
 
 print("All done!")
-input("Press Enter to close...")

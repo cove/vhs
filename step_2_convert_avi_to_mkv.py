@@ -28,7 +28,7 @@ for file in sys.argv[1:]:
     print(f"Converting: {os.path.basename(file)}  →  {os.path.basename(output)}")
 
     cmd = [
-        ffmpeg,
+        str(FFMPEG),
         "-nostdin", "-v", "error", "-stats",
         "-i", file,
         "-pix_fmt", "yuv422p",
