@@ -46,7 +46,7 @@ for mkv in mkv_files:
     with open(comment_file, "r", encoding="utf-8") as f:
         comment = f.read().strip()
 
-    temp_output = Path(folder) / f"{name}_metadatamkv"
+    temp_output = Path(folder) / f"{name}_metadata.mkv"
     final_output = os.path.join(folder, f"{name}.mkv")
 
     print(f"Processing: {os.path.basename(mkv)} → {os.path.basename(temp_output)}")
