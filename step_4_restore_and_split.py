@@ -1,7 +1,4 @@
 #!/usr/bin/env python3
-# vhs_c_qtgmc_chapter_split.py
-# Drag & drop .mkv files → perfect 640x480 QTGMC + x265 chapters
-# 2025 rigid workflow — assumes chapters exist
 
 import os
 import sys

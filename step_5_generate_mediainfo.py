@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
-# generate_blake3_and_mediainfo.py
-# Drop this script in a folder with .mkv files → creates:
-#   00-manifest-blake3sums.txt + one _mediainfo.txt per file
 
 import os
 import sys
 import subprocess
 from pathlib import Path
 
-# -------------------------------------------------
-# CHANGE ONLY THESE IF YOU MOVE THINGS
-# -------------------------------------------------
 BASE_DIR = Path(__file__).parent.resolve()
 
 # Try two possible locations for b3sum

@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-# Apply-Metadata.py
-# Drag & drop .mkv files → adds title, comment, chapters, and cover.jpg
 
 import os
 import sys
 import subprocess
 
-# CHANGE ONLY THIS LINE IF NEEDED
 ffmpeg = r"FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe"
 
 if not os.path.exists(ffmpeg):

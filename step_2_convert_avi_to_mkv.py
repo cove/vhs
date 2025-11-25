@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-# step_2_convert_avi_to_mkv.py
-# Drag & drop any video files → creates *_archive.mkv with FFv1 lossless
 
 import os
 import sys
 import subprocess
 
-# CHANGE THIS PATH ONLY IF NEEDED
 ffmpeg = r"FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe"
 
 if not os.path.exists(ffmpeg):

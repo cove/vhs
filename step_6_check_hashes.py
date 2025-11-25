@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# verify_blake3.py
-# Drop this in a folder with 00-manifest-blake3sums.txt → verifies all BLAKE3 hashes
 
 import os
 import sys
