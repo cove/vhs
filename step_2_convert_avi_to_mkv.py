@@ -7,7 +7,7 @@ import sys
 import subprocess
 
 # CHANGE THIS PATH ONLY IF NEEDED
-ffmpeg = r"FFmpeg-QTGMC Easy 2025.01.11\ffmpeg.exe"
+ffmpeg = r"FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe"
 
 if not os.path.exists(ffmpeg):
     print("ERROR: ffmpeg.exe not found!")
@@ -33,7 +33,7 @@ for file in sys.argv[1:]:
 
     cmd = [
         ffmpeg,
-        "-nostdin", "-v", "error",
+        "-nostdin", "-v", "error", "-stats",
         "-i", file,
         "-pix_fmt", "yuv422p",
         "-color_primaries:v", "6",

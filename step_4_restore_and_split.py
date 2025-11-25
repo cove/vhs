@@ -11,9 +11,9 @@ import tempfile
 from pathlib import Path
 
 # CHANGE ONLY THESE LINES
-FFMPEG   = r"software\FFmpeg-QTGMC Easy 2025.01.11\ffmpeg.exe"
-FFPROBE  = r"software\FFmpeg-QTGMC Easy 2025.01.11\ffprobe.exe"
-QTGMC_DIR = r"software\FFmpeg-QTGMC Easy 2025.01.11"
+FFMPEG   = r"software/FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe"
+FFPROBE  = r"software/FFmpeg-QTGMC Easy 2025.01.11/ffprobe.exe"
+QTGMC_DIR = r"software/FFmpeg-QTGMC Easy 2025.01.11"
 CRF = 18
 
 # Check tools exist
@@ -67,24 +67,24 @@ for file in sys.argv[1:]:
 
         # 1. Extract raw chapter
         subprocess.run([
-            FFMPEG, "-v", "error", "-ss", str(start), "-to", str(end),
+            FFMPEG, "-v", "error", "-stats", "-ss", str(start), "-to", str(end),
             "-i", str(src), "-map", "0:v", "-map", "0:a?", "-c", "copy",
             "-avoid_negative_ts", "make_zero", "-y", str(temp_raw)
         ], check=True)
 
         # 2. Create .avs with QTGMC
         avs_content = f'''
-LoadPlugin("{QTGMC_DIR}\\ffms2.dll")
-LoadPlugin("{QTGMC_DIR}\\masktools2.dll")
-LoadPlugin("{QTGMC_DIR}\\Rgtools.dll")
-LoadPlugin("{QTGMC_DIR}\\mvtools2.dll")
-LoadPlugin("{QTGMC_DIR}\\nnedi3.dll")
-LoadPlugin("{QTGMC_DIR}\\yadifmod2.dll")
-LoadPlugin("{QTGMC_DIR}\\fft3dfilter.dll")
-LoadPlugin("{QTGMC_DIR}\\LoadDLL64.dll")
-LoadDLL("{QTGMC_DIR}\\libfftw3f-3.dll")
-Import("{QTGMC_DIR}\\Zs_RF_Shared.avsi")
-Import("{QTGMC_DIR}\\QTGMC.avsi")
+LoadPlugin("{QTGMC_DIR}/ffms2.dll")
+LoadPlugin("{QTGMC_DIR}/masktools2.dll")
+LoadPlugin("{QTGMC_DIR}/Rgtools.dll")
+LoadPlugin("{QTGMC_DIR}/mvtools2.dll")
+LoadPlugin("{QTGMC_DIR}/nnedi3.dll")
+LoadPlugin("{QTGMC_DIR}/yadifmod2.dll")
+LoadPlugin("{QTGMC_DIR}/fft3dfilter.dll")
+LoadPlugin("{QTGMC_DIR}/LoadDLL64.dll")
+LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll")
+Import("{QTGMC_DIR}/Zs_RF_Shared.avsi")
+Import("{QTGMC_DIR}/QTGMC.avsi")
 
 FFmpegSource2("{temp_raw}", atrack=-1)
 ConvertToYV12(matrix="Rec601")
@@ -94,7 +94,7 @@ LanczosResize(640,480)
 Return Last
 '''
 
-        avs_file = Path(tempfile.gettempdir()) / f"qtgmc_{num}.avs"
+        avs_file = Path(f"qtgmc_{num}.avs")
         avs_file.write_text(avs_content, encoding="ascii")
 
         # 3. Encode with QTGMC + x265
@@ -103,7 +103,7 @@ Return Last
             "-i", str(avs_file), "-i", str(temp_raw),
             "-map", "0:v", "-map", "1:a?",
             "-metadata", f"title={title}",
-            "-metadata", f"comment=Extracted chapter from {src.name}",
+            "-metadata", f"comment=Chapter from {src.name}",
             "-metadata", f"creation_time={creation}",
             "-c:v", "libx265", "-preset", "slow", "-crf", str(CRF),
             "-x265-params", "profile=main10:aq-mode=3",
