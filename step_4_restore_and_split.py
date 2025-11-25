@@ -3,41 +3,54 @@
 import sys
 import subprocess
 import tempfile
-import configparser
-import re
 from pathlib import Path
 
-FFMPEG = "software/FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe"
+FFMPEG    = "software/FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe"
 QTGMC_DIR = "software/FFmpeg-QTGMC Easy 2025.01.11"
 
 for src_path in sys.argv[1:]:
     src = Path(src_path).resolve()
     name = src.stem
+
+    # Extract prefix: bennett_1_metadata_archive → bennett_1
+    prefix = name.rsplit("_", 2)[0] if "_" in name else name
+
     out_dir = src.parent / f"{name}_chapters"
     out_dir.mkdir(exist_ok=True)
 
-    # Extract prefix like "bennett_1" from "bennett_1_metadata"
-    match = re.match(r"^(.*?_\d+)", name)
-    prefix = match.group(1) if match else name
-    meta_dir = Path(__file__).parent / "media_metadata" / prefix
+    chapters_file = Path(__file__).parent / "media_metadata" / prefix / "chapters.ffmetadata"
 
-    chapters_file = meta_dir / "chapstes.ffmetadata"
-    cfg = configparser.ConfigParser(delimiters='=', comment_prefixes=';', interpolation=None)
-    cfg.optionxform = str
-    cfg.read(str(chapters_file), encoding="utf-8")
-
+    # Parse ffmetadata — simple, perfect, bulletproof
     chapters = []
-    for section in cfg.sections():
-        if section == "FFMETADATA1": continue
-        title = cfg[section].get("title", "Untitled").strip()
-        ctime = cfg[section].get("creation_time", "").strip() or None
-        start = float(cfg[section].get("START", 0))
-        end = float(cfg[section].get("END", 999999))
-        chapters.append((title, ctime, start, end))
+    title = None
+    ctime = None
+    start = end = None
+
+    with open(chapters_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith(";"):
+                continue
+            if line == "[CHAPTER]":
+                if title is not None:
+                    chapters.append((title, ctime, start, end))
+                title = ctime = start = end = None
+                continue
+            if line.startswith("title="):
+                title = line[6:].strip()
+            elif line.startswith("creation_time="):
+                ctime = line[14:].strip()
+            elif line.startswith("START="):
+                start = int(line[6:])
+            elif line.startswith("END="):
+                end = int(line[4:])
+
+        if title is not None:
+            chapters.append((title, ctime, start, end))
 
     for i, (title, ctime, start, end) in enumerate(chapters):
         num = f"{i+1:02d}"
-        safe_title = ''.join(c if c not in r'<>:"/\|?*' else '-' for c in title)
+        safe_title = title.translate(str.maketrans(r'<>:"/\|?*', "--------"))
         final = out_dir / f"{num} - {safe_title}.mp4"
         temp_raw = Path(tempfile.gettempdir()) / f"temp_{num}.mkv"
 
@@ -80,7 +93,7 @@ Return Last
             "-metadata", f"creation_time={ctime or ''}",
             "-c:v", "libx265", "-preset", "slow", "-crf", "18",
             "-x265-params", "profile=main10",
-            "-tag:v", "hvc1",  # Apple QuickTime compatibility
+            "-tag:v", "hvc1",
             "-c:a", "aac", "-b:a", "48k",
             "-af", "highpass=f=80,lowpass=f=14000,acompressor",
             "-movflags", "+faststart",
@@ -90,6 +103,6 @@ Return Last
         temp_raw.unlink(missing_ok=True)
         avs_file.unlink(missing_ok=True)
 
-    print(f"Done: {out_dir}")
+    print(f"Done: {out_dir.name}")
 
 print("All finished.")
