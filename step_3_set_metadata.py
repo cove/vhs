@@ -3,13 +3,14 @@
 import os
 import sys
 import subprocess
+from pathlib import Path
 
-ffmpeg = r"FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe"
+SCRIPT_DIR = Path(__file__).parent.resolve()
+FFMPEG = SCRIPT_DIR / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
 
-if not os.path.exists(ffmpeg):
+if not os.path.exists(FFMPEG):
     print("ERROR: ffmpeg.exe not found!")
-    print(f"   Expected here: {os.path.abspath(ffmpeg)}")
-    input("Press Enter to exit...")
+    print(f"   Looking for: {FFMPEG.resolve()}")
     sys.exit(1)
 
 if len(sys.argv) < 2:
