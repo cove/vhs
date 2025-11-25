@@ -1,26 +1,31 @@
 #!/usr/bin/env python3
+# vhs_c_qtgmc_chapter_split.py
+# Drag & drop .mkv files → perfect QTGMC + x265 chapters
+# creation_time comes from media_metadata/.../chapters.ffmetadata
 
 import os
 import sys
 import json
 import subprocess
 import tempfile
+import re
 from pathlib import Path
+from datetime import datetime, timezone
 
-FFMPEG   = r"software/FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe"
-FFPROBE  = r"software/FFmpeg-QTGMC Easy 2025.01.11/ffprobe.exe"
-QTGMC_DIR = r"software/FFmpeg-QTGMC Easy 2025.01.11"
+FFMPEG    = r"software\FFmpeg-QTGMC Easy 2025.01.11\ffmpeg.exe"
+FFPROBE   = r"software\FFmpeg-QTGMC Easy 2025.01.11\ffprobe.exe"
+QTGMC_DIR = r"software\FFmpeg-QTGMC Easy 2025.01.11"
 
-# Check tools exist
 for tool in (FFMPEG, FFPROBE):
     if not Path(tool).exists():
         print(f"ERROR: {tool} not found!")
-        input("Press Enter to exit...")
         sys.exit(1)
 
 if len(sys.argv) < 2:
-    print("python this_script.py video1.mkv")
+    print("Usage: python vhs_c_qtgmc_chapter_split.py video1.mkv ...")
     sys.exit(1)
+
+script_dir = Path(__file__).parent.resolve()
 
 for file in sys.argv[1:]:
     src = Path(file).resolve()
@@ -32,41 +37,76 @@ for file in sys.argv[1:]:
     out_dir = src.parent / f"{name}_chapters"
     out_dir.mkdir(exist_ok=True)
 
+    # Extract video prefix (e.g. Tape1995_01.mkv → Tape1995)
+    match = re.match(r"^(.*?[0-9]+)", name)
+    video_prefix = match.group(1) if match else name
+
+    # Load external ffmetadata file
+    chapters_file = script_dir / "media_metadata" / video_prefix / "chapters.ffmetadata"
+    if not chapters_file.exists():
+        print(f"ERROR: No chapters.ffmetadata found for {src.name}")
+        print(f"   Expected: {chapters_file}")
+        continue
+
     print(f"\nProcessing: {src.name}")
+    print(f"   Using metadata: {chapters_file}")
 
-    # Get chapters and source creation_time
-    chapters = json.loads(subprocess.check_output([FFPROBE, "-v", "error", "-print_format", "json", "-show_chapters", src], text=True))["chapters"]
-    source_creation = json.loads(subprocess.check_output([FFPROBE, "-v", "quiet", "-print_format", "json", "-show_format", src], text=True))["format"]["tags"].get("creation_time")
+    # Parse ffmetadata to get titles + creation_time
+    chapter_data = []
+    with open(chapters_file, "r", encoding="utf-8") as f:
+        content = f.read()
+        blocks = re.split(r"\[CHAPTER\]", content)
+        for block in blocks[1:]:  # Skip header
+            title_match = re.search(r"title=(.+)", block)
+            time_match = re.search(r"creation_time=(.+)", block)
+            title = title_match.group(1).strip() if title_match else "Untitled"
+            ctime = time_match.group(1).strip() if time_match else None
+            chapter_data.append((title, ctime))
 
-    for i, ch in enumerate(chapters):
+    # Get chapter timestamps from the source video
+    chapters_json = subprocess.check_output([
+        FFPROBE, "-v", "error", "-print_format", "json",
+        "-show_chapters", "-show_format", str(src)
+    ], text=True)
+    data = json.loads(chapters_json)
+    chapters = data["chapters"]
+    duration = float(data["format"]["duration"])
+
+    if len(chapter_data) != len(chapters):
+        print(f"WARNING: Metadata has {len(chapter_data)} chapters, video has {len(chapters)}")
+        print("   Using minimum count...")
+
+    num_chapters = min(len(chapter_data), len(chapters))
+
+    for i in range(num_chapters):
+        ch = chapters[i]
         num = f"{i+1:02d}"
-        title = ch["tags"]["title"].strip()
-        start = float(ch["start_time"])
-        end = float(chapters[i+1]["start_time"]) if i < len(chapters)-1 else float(json.loads(subprocess.check_output([FFPROBE, "-v", "error", "-show_entries", "format=duration", "-of", "json", src], text=True))["format"]["duration"])
+        title, creation_from_meta = chapter_data[i]
 
-        # creation_time priority
-        creation = ch["tags"].get("creation_time")
+        start = float(ch["start_time"])
+        end = float(chapters[i+1]["start_time"]) if i < num_chapters-1 else duration
+
+        # Use creation_time from metadata file first
+        creation = creation_from_meta
         if not creation:
-            from datetime import datetime, timezone
+            # Fallback: calculate from start time
             creation = datetime(1970, 1, 1, tzinfo=timezone.utc).timestamp() + start
             creation = datetime.fromtimestamp(creation, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000000Z")
-        if not creation:
-            creation = source_creation or ""
 
         safe_title = "".join(c if c not in r'<>:"/\|?*' else " - " for c in title)
         final = out_dir / f"{num} - {safe_title}.mp4"
         temp_raw = Path(tempfile.gettempdir()) / f"vhs_temp_{num}.mkv"
 
-        print(f"   → {num} - {title}")
+        print(f"   → {num} - {title}  ({creation})")
 
-        # 1. Extract raw chapter
+        # Extract raw chapter
         subprocess.run([
-            FFMPEG, "-v", "error", "-stats", "-ss", str(start), "-to", str(end),
+            FFMPEG, "-v", "error", "-ss", str(start), "-to", str(end),
             "-i", str(src), "-map", "0:v", "-map", "0:a?", "-c", "copy",
             "-avoid_negative_ts", "make_zero", "-y", str(temp_raw)
         ], check=True)
 
-        # 2. Create .avs with QTGMC
+        # QTGMC .avs
         avs_content = f'''
 LoadPlugin("{QTGMC_DIR}/ffms2.dll")
 LoadPlugin("{QTGMC_DIR}/masktools2.dll")
@@ -87,11 +127,10 @@ Crop(0,0,-2,-6)
 LanczosResize(640,480)
 Return Last
 '''
-
-        avs_file = Path(f"qtgmc_{num}.avs")
+        avs_file = Path(tempfile.gettempdir()) / f"qtgmc_{num}.avs"
         avs_file.write_text(avs_content, encoding="ascii")
 
-        # 3. Encode with QTGMC + x265
+        # Encode
         subprocess.run([
             FFMPEG,
             "-i", str(avs_file), "-i", str(temp_raw),
@@ -99,19 +138,17 @@ Return Last
             "-metadata", f"title={title}",
             "-metadata", f"comment=Chapter from {src.name}",
             "-metadata", f"creation_time={creation}",
-            "-c:v", "libx265", "-preset", "slow", "-crf", 18,
-            "-x265-params", "aq-mode=3:profile=main10:keyint=240:min-keyint=24:bframes=4:weightb=1:hme=1:strong-intra-smoothing=0:rect=0",
+            "-c:v", "libx265", "-preset", "slow", "-crf", "18",
+            "-x265-params", "aq-mode=3:profile=main10",
             "-c:a", "aac", "-b:a", "48k",
             "-af", "highpass=f=80,lowpass=f=14000,acompressor=ratio=3:attack=8:release=60",
             "-movflags", "+faststart",
             "-y", str(final)
         ], check=True)
 
-        # 4. Clean up
         temp_raw.unlink(missing_ok=True)
         avs_file.unlink(missing_ok=True)
 
     print(f"Finished → {out_dir.name}")
 
-print("\nAll done! Every chapter processed perfectly.")
-input("Press Enter to exit...")
+print("\nAll done! creation_time from media_metadata is now correctly applied.")
