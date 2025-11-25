@@ -3,13 +3,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-FFMPEG = Path("software") / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
-QTGMC_DIR = Path("software") / "FFmpeg-QTGMC Easy 2025.01.11"
-ARCHIVE_DIR = Path("..") / "Archive"
+BASE_DIR = Path(__file__).parent.resolve()
+FFMPEG = BASE_DIR / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
+QTGMC_DIR = BASE_DIR / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
+ARCHIVE_DIR = BASE_DIR.parent / "Archive"
 
 mkv_files = list(ARCHIVE_DIR.glob("bennett*.mkv"))
 if not mkv_files:
-    print(f"No .mkv files found in {ARCHIVE_DIR}")
+    print("No .mkv files found in {ARCHIVE_DIR}")
     sys.exit(0)
 
 print(f"Found {len(mkv_files)} files in {ARCHIVE_DIR}\n")
@@ -20,7 +21,7 @@ for src in mkv_files:
     out_dir = src.parent / f"{name}_chapters"
     out_dir.mkdir(exist_ok=True)
 
-    chapters_file = Path("media_metadata") / prefix / "chapters.ffmetadata"
+    chapters_file = BASE_DIR / "media_metadata" / prefix / "chapters.ffmetadata"
     if not chapters_file.exists():
         print(f"Skipping {src.name} — no metadata: {chapters_file}")
         continue
