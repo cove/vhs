@@ -49,7 +49,7 @@ for mkv in mkv_files:
     temp_output = Path(folder) / f"{name}_metadatamkv"
     final_output = os.path.join(folder, f"{name}.mkv")
 
-    print(f"Processing: {os.path.basename(mkv)} → {os.path.basename(final_output)}")
+    print(f"Processing: {os.path.basename(mkv)} → {os.path.basename(temp_output)}")
 
     cmd = [
         str(FFMPEG),
@@ -76,6 +76,7 @@ for mkv in mkv_files:
 
     result = subprocess.run(cmd, capture_output=True, text=True)
 
+    print(f"Validating: {os.path.basename(temp_output)}")
     # VALIDATION: Check duration matches original (within 1 second)
     cmd = [str(FFMPEG), "-v", "error", "-i", temp_output, "-f", "null", "-"]
     proc = subprocess.run(
