@@ -6,13 +6,12 @@ import sys
 import subprocess
 from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).parent.resolve()
-FFMPEG = SCRIPT_DIR / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
-
 BASE_DIR = Path(__file__).parent.resolve()
 ARCHIVE_DIR = BASE_DIR / ".." / "Archive"
 B3SUM = BASE_DIR / "bin" / "b3sum_windows_x64_bin.exe"
 MEDIAINFO = BASE_DIR / "bin" / "mediainfo.exe"
+FFMPEG = "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
+FFPROBE = "bin" / "ffprobe.exe"
 
 output_file = ARCHIVE_DIR / "00-manifest-blake3sums.txt"
 if output_file.exists():
@@ -98,7 +97,7 @@ for mkv in mkv_files:
     def get_duration(file):
         try:
             out = subprocess.check_output([
-                str(FFMPEG), "-v", "error", "-show_entries", "format=duration",
+                str(FFPROBE), "-v", "error", "-show_entries", "format=duration",
                 "-of", "default=noprint_wrappers=1:nokey=1", str(temp_output)
             ], text=True).strip()
             return float(out) if out else 0
@@ -114,7 +113,7 @@ for mkv in mkv_files:
         continue
 
     # SUCCESS — replace original
-#    temp_output.replace(final_output)
+    temp_output.replace(final_output)
     print(f"Success → {Path(final_output).name}\n")
 
     if result.returncode == 0:
