@@ -21,7 +21,7 @@ for file in sys.argv[1:]:
     folder = os.path.dirname(file) or "."
 
     # Extract prefix: bennett_1_metadata_archive → bennett_1
-    prefix = name.rsplit("_", 2)[0] if "_" in name else name
+    prefix = "_".join(name.rsplit("_", 2)[:2])  # bennett_1_metadata_archive → bennett_1
 
     meta_dir = os.path.join(os.path.dirname(__file__), "media_metadata", prefix)
     cover = os.path.join(meta_dir, "cover.jpg")
