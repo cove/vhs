@@ -19,8 +19,7 @@ for tool in (FFMPEG, FFPROBE):
         sys.exit(1)
 
 if len(sys.argv) < 2:
-    print("Drag your .mkv files onto this script")
-    input("Press Enter to exit...")
+    print("python this_script.py video1.mkv")
     sys.exit(1)
 
 for file in sys.argv[1:]:

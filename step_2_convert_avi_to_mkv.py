@@ -13,9 +13,7 @@ if not os.path.exists(ffmpeg):
     sys.exit(1)
 
 if len(sys.argv) < 2:
-    print("Drag video files onto this script or run:")
-    print("   python this_script.py video1.avi video2.mkv ...")
-    input("Press Enter to exit...")
+    print("python this_script.py video1.mkv video2.mkv ...")
     sys.exit(1)
 
 for file in sys.argv[1:]:

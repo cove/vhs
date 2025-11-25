@@ -27,7 +27,6 @@ if not B3SUM.exists():
 
 if not MEDIAINFO.exists():
     print(f"ERROR: mediainfo.exe not found at {MEDIAINFO}")
-    input("Press Enter to exit...")
     sys.exit(1)
 
 # -------------------------------------------------
@@ -40,7 +39,6 @@ if output_file.exists():
 mkv_files = list(BASE_DIR.glob("*.mkv"))
 if not mkv_files:
     print("No .mkv files found in this folder.")
-    input("Press Enter to exit...")
     sys.exit(0)
 
 print(f"Found {len(mkv_files)} .mkv file(s)\n")
@@ -52,7 +50,6 @@ for mkv in mkv_files:
     result = subprocess.run([str(B3SUM), str(mkv)], capture_output=True, text=True)
     if result.returncode != 0:
         print(f"   ERROR: b3sum failed on {mkv.name}")
-        input("Press Enter to exit...")
         sys.exit(1)
 
     with open(output_file, "a", encoding="utf-8") as f:
@@ -67,5 +64,3 @@ for mkv in mkv_files:
 
 print(f"All done!")
 print(f"→ BLAKE3 manifest: {output_file.name}")
-print(f"→ One _mediainfo.txt per file created")
-input("Press Enter to close...")
