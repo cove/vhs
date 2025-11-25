@@ -1,80 +1,81 @@
 #!/usr/bin/env python3
+# vhs_c_batch_process.py
+# Run from vhs/ → processes all .mkv in ../Archive/
 
-import sys
 import subprocess
-import os
+import sys
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent.resolve()
+FFMPEG = BASE_DIR / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
 QTGMC_DIR = BASE_DIR / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
-FFMPEG    = QTGMC_DIR / "ffmpeg.exe"
-ARCHIVE_DIR = BASE_DIR / ".." / "Archive"
+ARCHIVE_DIR = BASE_DIR.parent / "Archive"
 
-src_path = sys.argv[1]
-src = Path(src_path).resolve()
-name = src.stem
-print (f"Source file: {src.name}")
+if not FFMPEG.exists():
+    print(f"ERROR: ffmpeg not found at {FFMPEG}")
+    sys.exit(1)
 
-# Extract prefix: bennett_1_archive → bennett_1
-prefix = "_".join(name.rsplit("_", 2)[0:2])
-print (f"Source file: {prefix}")
-out_dir = src.parent / f"{name}_chapters"
-out_dir.mkdir(exist_ok=True)
+mkv_files = list(ARCHIVE_DIR.glob("*.mkv"))
+if not mkv_files:
+    print("No .mkv files found in ../Archive/")
+    sys.exit(0)
 
-chapters_file = Path(__file__).parent / "media_metadata" / prefix / "chapters.ffmetadata"
+print(f"Found {len(mkv_files)} files in ../Archive/\n")
 
-chapters = []
-title = ctime = start = end = None
+for src in mkv_files:
+    name = src.stem
+    prefix = "_".join(name.rsplit("_", 2)[:2])  # bennett_1_metadata_archive → bennett_1
+    out_dir = src.parent / f"{name}_chapters"
+    out_dir.mkdir(exist_ok=True)
 
-with open(chapters_file, "r", encoding="utf-8") as f:
-    for line in f:
-        line = line.strip()
-        if line == "[CHAPTER]":
-            if title is not None:
-                chapters.append((title, ctime, start, end))
-            title = ctime = start = end = None
-            continue
-        if line.startswith("title="):
-            title = line[6:].strip()
-        elif line.startswith("creation_time="):
-            ctime = line[14:].strip()
-        elif line.startswith("START="):
-            start = int(line[6:])
-        elif line.startswith("END="):
-            end = int(line[4:])
-    if title is not None:
-        chapters.append((title, ctime, start, end))
+    chapters_file = BASE_DIR / "media_metadata" / prefix / "chapters.ffmetadata"
+    if not chapters_file.exists():
+        print(f"Skipping {src.name} — no metadata: {chapters_file}")
+        continue
 
-# Optional: only one chapter
-if len(sys.argv) > 2:
-    try:
-        idx = int(sys.argv[2]) - 1
-        chapters = chapters[idx:idx+1]
-    except:
-        print("Invalid chapter number")
-        sys.exit(1)
+    print(f"Processing: {src.name}")
 
-for i, (title, ctime, start, end) in enumerate(chapters):
-    num = f"{i+1:02d}"
-    safe_title = title.translate(str.maketrans(r'<>:"/\|?*', "---------"))
-    final = out_dir / f"{num} - {safe_title}.mp4"
-    temp_raw = out_dir / f"temp_raw_{num}.mkv"
-    temp_qtgmc = out_dir / f"temp_qtgmc_{num}.mkv"
+    # Parse chapters
+    chapters = []
+    title = ctime = start = end = None
+    with open(chapters_file, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line == "[CHAPTER]":
+                if title is not None:
+                    chapters.append((title, ctime, start, end))
+                title = ctime = start = end = None
+                continue
+            if line.startswith("title="):
+                title = line[6:].strip()
+            elif line.startswith("creation_time="):
+                ctime = line[14:].strip()
+            elif line.startswith("START="):
+                start = int(line[6:])
+            elif line.startswith("END="):
+                end = int(line[4:])
+        if title is not None:
+            chapters.append((title, ctime, start, end))
 
-    print(f"Processing: {title}")
+    for i, (title, ctime, start, end) in enumerate(chapters):
+        num = f"{i+1:02d}"
+        safe_title = title.translate(str.maketrans(r'<>:"/\|?*', "---------"))
+        final_temp = out_dir / f"{num} - {safe_title}_temp.mp4"
+        final = out_dir / f"{num} - {safe_title}.mp4"
+        temp_raw = out_dir / f"temp_raw_{num}.mkv"
 
-    # Step 1: Extract raw chapter
-    subprocess.run([
-        FFMPEG, "-v", "error",
-        "-ss", str(start), "-to", str(end),
-        "-i", str(src),
-        "-map", "0:v", "-map", "0:a",
-        "-c", "copy", "-avoid_negative_ts", "make_zero",
-        "-y", str(temp_raw)
-    ], check=True)
+        # Step 1: Extract raw chapter
+        subprocess.run([
+            FFMPEG, "-v", "error",
+            "-ss", str(start), "-to", str(end),
+            "-i", str(src),
+            "-map", "0:v", "-map", "0:a?",
+            "-c", "copy", "-avoid_negative_ts", "make_zero",
+            "-y", str(temp_raw)
+        ], check=True, cwd=out_dir)
 
-    # Step 2: QTGMC only → lossless intermediate (never crashes)
-    avs = f'''
+        # Step 2: QTGMC + x265 in one pass (no faststart)
+        avs = f'''
 LoadPlugin("{QTGMC_DIR}/ffms2.dll")
 LoadPlugin("{QTGMC_DIR}/masktools2.dll")
 LoadPlugin("{QTGMC_DIR}/Rgtools.dll")
@@ -86,46 +87,49 @@ LoadPlugin("{QTGMC_DIR}/LoadDLL64.dll")
 LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll")
 Import("{QTGMC_DIR}/Zs_RF_Shared.avsi")
 Import("{QTGMC_DIR}/QTGMC.avsi")
-FFmpegSource2("{temp_raw}", atrack=-1)
+FFmpegSource2("{temp_raw.name}", atrack=-1)
 ConvertToYV12(matrix="Rec601")
 QTGMC(preset="Faster")
 Crop(0,0,-2,-6)
 LanczosResize(640,480)
 Return Last
 '''
-    avs_file = out_dir / f"qtgmc_{num}.avs"
-    avs_file.write_text(avs, encoding="ascii")
+        avs_file = out_dir / f"qtgmc_{num}.avs"
+        avs_file.write_text(avs, encoding="ascii")
 
-    subprocess.run([
-        FFMPEG, "-i", str(avs_file),
-        "-c:v", "ffv1", "-c:a", "pcm_s16le",
-        "-y", str(temp_qtgmc)
-    ], check=True)
+        subprocess.run([
+            FFMPEG,
+            "-i", str(avs_file), "-i", str(temp_raw),
+            "-map", "0:v", "-map", "1:a?",
+            "-map_metadata", "-1",
+            "-metadata", f"title={title}",
+            "-metadata", f"creation_time={ctime or ''}",
+            "-metadata", f"com.apple.quicktime.creationdate={ctime or ''}",
+            "-metadata", f"description=Source VHS tape archive: {src.name}",
+            "-c:v", "libx265", "-preset", "fast", "-crf", "18",
+            "-x265-params", "profile=main10",
+            "-pix_fmt", "yuv420p10le",
+            "-tag:v", "hvc1",
+            "-c:a", "aac", "-b:a", "48k", "-ac", "1",
+            "-af", "highpass=f=80,lowpass=f=14000,acompressor",
+            "-y", str(final_temp)
+        ], check=True, cwd=out_dir)
 
-    # Step 3: Final x265 + audio + Apple tags
-    subprocess.run([
-        FFMPEG,
-        "-i", str(temp_qtgmc), "-i", str(temp_raw),
-        "-map", "0:v", "-map", "1:a",
-        "-map_metadata", "-1",
-        "-metadata", f"title={title}",
-        "-metadata", f"creation_time={ctime or ''}",
-        "-metadata", f"com.apple.quicktime.creationdate={ctime or ''}",
-        "-metadata", f"description=Source VHS tape archive: {src.name}",
-        "-c:v", "libx265", "-preset", "slow", "-crf", "18",
-        "-x265-params", "profile=main10",
-        "-pix_fmt", "yuv420p10le",
-        "-tag:v", "hvc1",
-        "-c:a", "aac", "-b:a", "48k", "-ac", "1",
-        "-af", "highpass=f=80,lowpass=f=14000,acompressor",
-        "-movflags", "+faststart+write_colr",
-        "-brand", "mp42",
-        "-y", str(final)
-    ], check=True)
+        # Step 3: Faststart fix — instant, safe
+        subprocess.run([
+            FFMPEG,
+            "-i", str(final_temp),
+            "-c", "copy",
+            "-movflags", "+faststart+write_colr",
+            "-brand", "mp42",
+            "-y", str(final)
+        ], check=True, cwd=out_dir)
 
-    # Clean up
-    temp_raw.unlink(missing_ok=True)
-    temp_qtgmc.unlink(missing_ok=True)
-    avs_file.unlink(missing_ok=True)
+        # Clean up everything
+        temp_raw.unlink(missing_ok=True)
+        avs_file.unlink(missing_ok=True)
+        final_temp.unlink(missing_ok=True)
 
-print("All finished — full-length chapters guaranteed.")
+    print(f"Finished: {out_dir.name}\n")
+
+print("All done — perfect full-length chapters.")
