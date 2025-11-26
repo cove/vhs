@@ -23,6 +23,9 @@ The VirtualDub software included is from here:
 https://www.digitalfaq.com/guides/video/capture-avi-virtualdub.htm
 https://www.digitalfaq.com/forum/video-conversion/1727-virtualdub-filters-pre.html
 
+The FFmpeg-QTGMC Easy 2025.01.11 is from here:
+https://forum.videohelp.com/threads/405720-FFmpeg-QTGMC-Easy!#post2656404
+
 Here is the tutorial from the link above that this was based off of as of November 18, 2025:
 
 How to Capture AVI Video in VirtualDub
