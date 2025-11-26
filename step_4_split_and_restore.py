@@ -16,6 +16,7 @@ QTGMC_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
 ARCHIVE = BASE.parent / "Archive"
 OUTPUT = BASE.parent / "Videos"
 MAX_PARALLEL = 8
+HARDWARE_ACCEL = True
 
 def random_delay():
     delay = uniform(5, 30)   # 5–30 seconds — perfect spread
@@ -106,26 +107,31 @@ LanczosResize(640,480)
 ''', encoding="ascii")
 #           "-c:v", "libx265", 
 
-        run([
+        cmd = [
             FFMPEG, "-v", "error", "-i", avs_file, "-i", temp_raw,
             "-map", "0:v", "-map", "1:a?",
             "-map_metadata", "-1",
             "-metadata", f"title={title}",
             "-metadata", f"creation_time={ctime}",
-            "-metadata", f"com.apple.quicktime.creationdate={ctime}",
-            "-c:v", "h264_amf",
+            "-metadata", f"com.apple.quicktime.creationdate={ctime}"]
+
+        if HARDWARE_ACCEL == True:
+           cmd += ["-c:v", "h264_amf",
             "-quality", "quality",
             "-usage", "1",
             "-rc", "2",
-            "-qp_i", "20", "-qp_p", "22", "-qp_b", "24",
-            "-crf", "18",
-            "-profile:v", "main10", "-pix_fmt", "yuv420p10le",
+            "-qp_i", "20", "-qp_p", "22", "-qp_b", "24"]
+        else:
+            cmd += ["-c:v", "libx265", "-preset", "medium", "-crf", "18",
+            "-profile:v", "main10", "-pix_fmt", "yuv420p10le"]
+
+        cmd += [
             "-tag:v", "hvc1", "-brand", "mp42",
             "-c:a", "aac", "-b:a", "48k", "-ac", "1",
             "-af", "highpass=f=80,lowpass=f=14000,acompressor",
             "-movflags", "+faststart+write_colr",
-            "-y", final
-        ], cwd=out_dir)
+            "-y", final]
+        run(cmd, cwd=out_dir)
 
         for p in [temp_raw, temp_raw.with_suffix(".mkv.ffindex"), avs_file]:
             p.unlink(missing_ok=True)
