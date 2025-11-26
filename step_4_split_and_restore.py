@@ -1,131 +1,147 @@
-import os
-import subprocess
-import sys
+import os, sys, subprocess
 from pathlib import Path
 
-BASE_DIR = Path(__file__).parent.resolve()
-FFMPEG = BASE_DIR / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
-QTGMC_DIR = BASE_DIR / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
-ARCHIVE_DIR = BASE_DIR / ".." / "Archive"
+BASE = Path(__file__).parent.resolve()
+QTGMC = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
+FFMPEG = QTGMC / "ffmpeg.exe"
+FFPROBE = BASE / "bin" / "ffprobe.exe"
+ARCHIVE = BASE.parent / "Archive"
 
-mkv_files = list(ARCHIVE_DIR.glob("bennett*.mkv"))
+def run(cmd, cwd=None):
+    subprocess.run(list(map(str, cmd)), check=True, cwd=cwd)
+
+def parse_chapters(path):
+    chapters, cur = [], {}
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line == "[CHAPTER]":
+            if cur:
+                chapters.append(cur)
+            cur = {}
+            continue
+        if "=" in line:
+            k, v = line.split("=", 1)
+            cur[k.lower()] = v.strip()
+    if cur:
+        chapters.append(cur)
+    return chapters
+
+def safe(s):
+    return s.translate(str.maketrans(r'<>:"/\|?*', "---------"))
+
+
+def valid_media(path, min_bytes=100_000):
+    # Size check
+    if not os.path.exists(path) or os.path.getsize(path) < min_bytes:
+        return False
+
+    # ffprobe container check
+    try:
+        subprocess.run(
+            [FFPROBE, "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=True
+        )
+        return True
+    except subprocess.CalledProcessError:
+        return False
+
+mkv_files = list(ARCHIVE.glob("bennett*.mkv"))
 if not mkv_files:
-    print("No .mkv files found in {ARCHIVE_DIR}")
-    sys.exit(0)
+    print(f"No .mkv files found in {ARCHIVE}")
+    sys.exit()
 
-print(f"Found {len(mkv_files)} files in {ARCHIVE_DIR}\n")
+print(f"Found {len(mkv_files)} files in {ARCHIVE}\n")
 
 for src in mkv_files:
     name = src.stem
-    prefix = "_".join(name.rsplit("_", 2)[:2])  # bennett_1_metadata_archive → bennett_1
+    prefix = "_".join(name.rsplit("_", 2)[:2])
     out_dir = src.parent / f"{name}_chapters"
     out_dir.mkdir(exist_ok=True)
 
-    chapters_file = BASE_DIR / "media_metadata" / prefix / "chapters.ffmetadata"
+    chapters_file = BASE / "media_metadata" / prefix / "chapters.ffmetadata"
     if not chapters_file.exists():
-        print(f"Skipping {src.name} — no metadata: {chapters_file}")
+        print(f"Skipping {src.name} — missing metadata")
         continue
 
+    chapters = parse_chapters(chapters_file)
     print(f"Processing: {src.name}")
 
-    # Parse chapters
-    chapters = []
-    title = ctime = start = end = None
-    with open(chapters_file, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line == "[CHAPTER]":
-                if title is not None:
-                    chapters.append((title, ctime, start, end))
-                title = ctime = start = end = None
-                continue
-            if line.startswith("title="):
-                title = line[6:].strip()
-            elif line.startswith("creation_time="):
-                ctime = line[14:].strip()
-            elif line.startswith("START="):
-                start = int(line[6:])
-            elif line.startswith("END="):
-                end = int(line[4:])
-        if title is not None:
-            chapters.append((title, ctime, start, end))
+    for i, ch in enumerate(chapters, 1):
+        title = ch.get("title", f"chapter_{i}")
+        start, end = ch.get("start"), ch.get("end")
+        ctime = ch.get("creation_time", "")
 
-    for i, (title, ctime, start, end) in enumerate(chapters):
-        num = f"{i+1:02d}"
-        safe_title = title.translate(str.maketrans(r'<>:"/\|?*', "---------"))
-        final_temp = out_dir / f"{safe_title}_temp.mp4"
-        final = out_dir / f"{safe_title}.mp4"
-        temp_raw = out_dir / f"temp_raw_{num}.mkv"
-        temp_raw_ffindex = out_dir / f"temp_raw_{num}.mkv.ffindex"
+        final = out_dir / f"{safe(title)}.mp4"
 
-        if os.path.exists(final) and os.path.getsize(final) > 100_000:
-            print(f"   Skipping existing chapter: {final.name} (delete if you want to reprocess it)")
+        if valid_media(final):
+            print(f"  Skipping {final.name} (exists)")
             continue
 
-        # Step 1: Extract raw chapter
-        print(f"Processing: {src} - Chapter: {title}")
-        subprocess.run([FFMPEG, "-v", "error", "-stats",
-            "-i", str(src),
-            "-map_metadata", "-1",
-            "-ss", str(start), "-to", str(end),
-            "-map", "0:v", "-map", "0:a",
-            "-c", "copy", "-avoid_negative_ts", "make_zero",
-            "-y", str(temp_raw)],
-        check=True, cwd=out_dir)
-        
-        if os.path.exists(temp_raw) and os.path.getsize(temp_raw) < 100_000:
-            print(f"Failed to extract chapter: {src} - Chapter: {title}")
+        temp_raw = out_dir / f"temp_raw_{i:02d}.mkv"
+        avs_file = out_dir / f"qtgmc_{i:02d}.avs"
+
+        # Extract raw
+        run([FFMPEG, "-v", "error", "-stats", "-i", src,
+             "-map_metadata", "-1",
+             "-ss", start, "-to", end,
+             "-map", "0:v", "-map", "0:a",
+             "-c", "copy", "-avoid_negative_ts", "make_zero",
+             "-y", temp_raw], cwd=out_dir)
+
+        if valid_media(temp_raw):
+            print(f"  Error: invalid video, something went wrong with {temp_raw} ({temp_raw.stat().st_size} bytes).")
             sys.exit(1)
-    
-        # Step 2: QTGMC + x265 in one pass
-        avs = f'''
-LoadPlugin("{QTGMC_DIR}/ffms2.dll")
-LoadPlugin("{QTGMC_DIR}/masktools2.dll")
-LoadPlugin("{QTGMC_DIR}/Rgtools.dll")
-LoadPlugin("{QTGMC_DIR}/mvtools2.dll")
-LoadPlugin("{QTGMC_DIR}/nnedi3.dll")
-LoadPlugin("{QTGMC_DIR}/yadifmod2.dll")
-LoadPlugin("{QTGMC_DIR}/fft3dfilter.dll")
-LoadPlugin("{QTGMC_DIR}/LoadDLL64.dll")
-LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll")
-Import("{QTGMC_DIR}/Zs_RF_Shared.avsi")
-Import("{QTGMC_DIR}/QTGMC.avsi")
+
+        # Write QTGMC script
+        avs_file.write_text(f"""
+LoadPlugin("{QTGMC}/ffms2.dll")
+LoadPlugin("{QTGMC}/masktools2.dll")
+LoadPlugin("{QTGMC}/Rgtools.dll")
+LoadPlugin("{QTGMC}/mvtools2.dll")
+LoadPlugin("{QTGMC}/nnedi3.dll")
+LoadPlugin("{QTGMC}/yadifmod2.dll")
+LoadPlugin("{QTGMC}/fft3dfilter.dll")
+LoadPlugin("{QTGMC}/LoadDLL64.dll")
+LoadDLL("{QTGMC}/libfftw3f-3.dll")
+Import("{QTGMC}/Zs_RF_Shared.avsi")
+Import("{QTGMC}/QTGMC.avsi")
 FFmpegSource2("{temp_raw.name}", atrack=-1)
 ConvertToYV12(matrix="Rec601")
 QTGMC(preset="Faster")
 Crop(0,0,-2,-6)
 LanczosResize(640,480)
-Return Last
-'''
-        avs_file = out_dir / f"qtgmc_{num}.avs"
-        avs_file.write_text(avs, encoding="ascii")
+""", encoding="ascii")
 
-        subprocess.run([
+        # Encode
+        run([
             FFMPEG,
-            "-i", str(f"qtgmc_{num}.avs"), "-i", str(temp_raw), "-stats",
+            "-i", avs_file, "-i", temp_raw, "-stats",
             "-map", "0:v", "-map", "1:a",
             "-map_metadata", "-1",
             "-metadata", f"title={title}",
-            "-metadata", f"creation_time={ctime or ''}",
+            "-metadata", f"creation_time={ctime}",
             "-metadata", f"description=Source VHS tape archive: {src.name}",
-            "-metadata", f"com.apple.quicktime.creationdate={ctime or ''}",
-            "-tag:v", "hvc1",
-            "-brand", "mp42",
+            "-metadata", f"com.apple.quicktime.creationdate={ctime}",
+            "-tag:v", "hvc1", "-brand", "mp42",
             "-c:v", "libx265", "-preset", "fast", "-crf", "18",
             "-profile:v", "main10",
             "-pix_fmt", "yuv420p10le",
             "-c:a", "aac", "-b:a", "48k", "-ac", "1",
             "-af", "highpass=f=80,lowpass=f=14000,acompressor",
             "-movflags", "+faststart+write_colr",
-            "-y", str(final)
-        ], check=True, cwd=out_dir)
+            "-y", final
+        ], cwd=out_dir)
 
-        # Clean up everything
-        temp_raw.unlink(missing_ok=True)
-        temp_raw_ffindex.unlink(missing_ok=True)
-        avs_file.unlink(missing_ok=True)
-        final_temp.unlink(missing_ok=True)
+        if valid_media(final):
+            print(f"  Error: invalid video, something went wrong with {final} ({final.stat().st_size} bytes).")
+            sys.exit(1)
 
+        # Cleanup
+        for p in [temp_raw, temp_raw.with_suffix(".mkv.ffindex"), avs_file]:
+            p.unlink(missing_ok=True)
 
     print(f"Finished: {out_dir.name}\n")
 
