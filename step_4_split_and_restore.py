@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from time import time
+from random import uniform
 
 BASE = Path(__file__).parent.resolve()
 FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
@@ -17,7 +18,7 @@ OUTPUT = BASE.parent / "Videos"
 MAX_PARALLEL = 8
 
 def random_delay():
-    delay = random.uniform(5, 30)   # 5–30 seconds — perfect spread
+    delay = uniform(5, 30)   # 5–30 seconds — perfect spread
     print(f"   → Stagger delay: {delay:.1f}s")
     time.sleep(delay)
     
