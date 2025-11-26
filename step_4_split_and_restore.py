@@ -43,7 +43,7 @@ def parse_chapters(path):
     return chapters
 
 def safe(s):
-    return s.translate(str.maketrans(r'<>:"/\|?*', "---------"))
+    return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
 
 def process_single_file(src_path):
     src = Path(src_path)
