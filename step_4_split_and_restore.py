@@ -2,10 +2,12 @@
 # vhs_c_qtgmc_parallel.py
 # Processes all tapes in ../Archive/ — you control how many run at once
 
+from random import random
 import subprocess
 import sys
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from time import time
 
 BASE = Path(__file__).parent.resolve()
 FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
@@ -14,6 +16,11 @@ ARCHIVE = BASE.parent / "Archive"
 OUTPUT = BASE.parent / "Videos"
 MAX_PARALLEL = 8
 
+def random_delay():
+    delay = random.uniform(5, 30)   # 5–30 seconds — perfect spread
+    print(f"   → Stagger delay: {delay:.1f}s")
+    time.sleep(delay)
+    
 def run(cmd, cwd=None):
     subprocess.run(list(map(str, cmd)), check=True, cwd=cwd)
 
@@ -48,6 +55,8 @@ def process_single_file(src_path):
         print(f"Skipping {src.name} — no metadata")
         return
 
+    random_delay()
+    
     chapters = parse_chapters(chapters_file)
     print(f"Processing: {src.name} ({len(chapters)} chapters)")
 
@@ -67,7 +76,7 @@ def process_single_file(src_path):
         run([FFMPEG, "-v", "error",
              "-ss", start, "-to", end,
              "-i", src,
-             "-map", "0:v", "-map", "0:a?",
+             "-map", "0:v", "-map", "0:a",
              "-c", "copy", "-avoid_negative_ts", "make_zero",
              "-y", temp_raw], cwd=out_dir)
 
@@ -94,16 +103,16 @@ Tweak(sat=1.25, bright=2)
 Crop(0,0,-2,-6)
 LanczosResize(640,480)
 ''', encoding="ascii")
+#           "-c:v", "libx265", 
 
         run([
-            FFMPEG, "-i", avs_file, "-i", temp_raw,
+            FFMPEG, "-v", "error", "-i", avs_file, "-i", temp_raw,
             "-map", "0:v", "-map", "1:a?",
             "-map_metadata", "-1",
             "-metadata", f"title={title}",
             "-metadata", f"creation_time={ctime}",
             "-metadata", f"com.apple.quicktime.creationdate={ctime}",
             "-c:v h264_amf",
-#           "-c:v", "libx265", 
             "-preset", "fast", "-crf", "18",
             "-profile:v", "main10", "-pix_fmt", "yuv420p10le",
             "-tag:v", "hvc1", "-brand", "mp42",
