@@ -126,7 +126,7 @@ LanczosResize(640,480)
             "-map_metadata", "-1",
             "-metadata", f"title={title}",
             "-metadata", f"creation_time={ctime}",
-        "-metadata", f"description=Source VHS tape archive: {src.name}",
+            "-metadata", f"description=Source VHS tape archive: {src.name}",
             "-metadata", f"com.apple.quicktime.creationdate={ctime}",
             "-tag:v", "hvc1", "-brand", "mp42",
             "-c:v", "libx265", "-preset", "slow", "-crf", "18",
