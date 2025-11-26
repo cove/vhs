@@ -91,7 +91,7 @@ for src in mkv_files:
              "-c", "copy", "-avoid_negative_ts", "make_zero",
              "-y", temp_raw], cwd=out_dir)
 
-        if valid_media(temp_raw):
+        if not valid_media(temp_raw):
             print(f"  Error: invalid video, something went wrong with {temp_raw} ({temp_raw.stat().st_size} bytes).")
             sys.exit(1)
 
@@ -135,7 +135,7 @@ LanczosResize(640,480)
             "-y", final
         ], cwd=out_dir)
 
-        if valid_media(final):
+        if not valid_media(final):
             print(f"  Error: invalid video, something went wrong with {final} ({final.stat().st_size} bytes).")
             sys.exit(1)
 
