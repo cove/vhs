@@ -11,8 +11,8 @@ BASE = Path(__file__).parent.resolve()
 FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
 QTGMC_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
 ARCHIVE = BASE.parent / "Archive"
-OUTPUT = BASE.parent / ".." / "Videos"
-MAX_PARALLEL = 2
+OUTPUT = BASE.parent / "Videos"
+MAX_PARALLEL = 4
 
 def run(cmd, cwd=None):
     subprocess.run(list(map(str, cmd)), check=True, cwd=cwd)
@@ -134,4 +134,3 @@ if __name__ == "__main__":
             future.result()  # raise exception if any
 
     print("\nAll done")
-    
