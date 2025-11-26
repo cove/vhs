@@ -109,7 +109,7 @@ Return Last
             "-tag:v", "hvc1",
             "-brand", "mp42",
             "-c:v", "libx265", "-preset", "fast", "-crf", "18",
-            "-vprofile", "main10",
+            "-profile:v", "main10",
             "-pix_fmt", "yuv420p10le",
             "-c:a", "aac", "-b:a", "48k", "-ac", "1",
             "-af", "highpass=f=80,lowpass=f=14000,acompressor",
