@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from time import time
+from time import sleep
 from random import uniform
 
 BASE = Path(__file__).parent.resolve()
@@ -20,7 +20,7 @@ MAX_PARALLEL = 8
 def random_delay():
     delay = uniform(5, 30)   # 5–30 seconds — perfect spread
     print(f"   → Stagger delay: {delay:.1f}s")
-    time.sleep(delay)
+    sleep(delay)
     
 def run(cmd, cwd=None):
     subprocess.run(list(map(str, cmd)), check=True, cwd=cwd)
