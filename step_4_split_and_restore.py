@@ -61,8 +61,8 @@ def process_single_file(src_path):
             print(f"  Skipping {final.name}")
             continue
 
-        temp_raw = out_dir / f"temp_raw_{i:02d}.mkv"
-        avs_file = out_dir / f"qtgmc_{i:02d}.avs"
+        temp_raw = out_dir / f"temp_raw_{i:02d}_{safe(title)}.mkv"
+        avs_file = out_dir / f"qtgmc_{i:02d}_{safe(title)}.avs"
 
         run([FFMPEG, "-v", "error",
              "-ss", start, "-to", end,
