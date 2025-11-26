@@ -116,16 +116,22 @@ LanczosResize(640,480)
 
     print(f"Finished: {src.name}")
 
-mkv_files = list(ARCHIVE.glob("bennett*.mkv"))
-if not mkv_files:
-    print("No files found")
-    sys.exit(0)
+if __name__ == "__main__":
+    if not FFMPEG.exists():
+        print(f"ERROR: ffmpeg not found at {FFMPEG}")
+        sys.exit(1)
 
-print(f"Starting {len(mkv_files)} files — {MAX_PARALLEL} at a time\n")
+    mkv_files = list(ARCHIVE.glob("bennett*.mkv"))
+    if not mkv_files:
+        print("No files found")
+        sys.exit(0)
 
-with ProcessPoolExecutor(max_workers=MAX_PARALLEL) as executor:
-    futures = [executor.submit(process_single_file, str(f)) for f in mkv_files]
-    for future in as_completed(futures):
-        future.result()  # raise if error
+    print(f"Starting {len(mkv_files)} files — {MAX_PARALLEL} at a time\n")
 
-print("\nAll done — your archive is perfect.")
+    with ProcessPoolExecutor(max_workers=MAX_PARALLEL) as executor:
+        futures = [executor.submit(process_single_file, str(f)) for f in mkv_files]
+        for future in as_completed(futures):
+            future.result()  # raise exception if any
+
+    print("\nAll done")
+    
