@@ -111,6 +111,12 @@ Import("{QTGMC}/QTGMC.avsi")
 FFmpegSource2("{temp_raw.name}", atrack=-1)
 ConvertToYV12(matrix="Rec601")
 QTGMC(preset="Faster")
+
+Levels(16, 1.15, 235, 0, 255, coring=false)
+ColorYUV(off_u=-15, off_v=+10)
+Tweak(sat=1.25, bright=2)
+MergeChroma(Blur(0.8))
+
 Crop(0,0,-2,-6)
 LanczosResize(640,480)
 """, encoding="ascii")
