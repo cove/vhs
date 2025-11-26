@@ -111,22 +111,13 @@ Import("{QTGMC}/QTGMC.avsi")
 FFmpegSource2("{temp_raw.name}", atrack=-1)
 ConvertToYV12(matrix="Rec601")
 
-QTGMC(
-    Preset="Very Slow",      # best motion search
-    EZKeepGrain=1.0,         # ← keeps ALL grain, no wax
-    Sharpness=1.2,           # ← 1.1–1.3 is the sweet spot
-    SourceMatch=3,           # ← returns to original source frames when possible
-    Lossless=2,              # ← lossless re-assembly = razor edges
-    TR2=3,                   # ← stronger temporal stability without blur
-    SLMode=2,                # ← sharp limiting (prevents ringing)
-    SMode=2                  # ← high-quality sharpening kernel
-)
+QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3,SLMode=2,SMode=2)
 
-Levels(16, 1.10, 235, 0, 255, coring=false)   # 1.10–1.20 is the sweet spot
-ColorYUV(off_u=-12, off_v=+6)                 # tweak ±20 per tape if needed
+Levels(16, 1.10, 235, 0, 255, coring=false)
+ColorYUV(off_u=-12, off_v=+6)
 MergeChroma(Blur(0.8))
 Tweak(sat=1.25, bright=2, cont=1.05)
-# ColorYUV(gain_u=-30, gain_v=-30)   # reduces chroma noise (use sparingly)
+# ColorYUV(gain_u=-30, gain_v=-30)
 
 Crop(0,0,-2,-6)
 LanczosResize(640,480)
