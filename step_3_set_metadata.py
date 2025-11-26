@@ -73,13 +73,11 @@ for mkv in files:
     )
     if v.stderr.strip():
         print("Validation error:\n", v.stderr)
-        temp.unlink(missing_ok=True)
         continue
 
     # Duration check
     if abs(duration(mkv) - duration(temp)) > 1:
         print("Duration mismatch.")
-        temp.unlink(missing_ok=True)
         continue
 
     temp.replace(final)
