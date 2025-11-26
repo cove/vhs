@@ -109,8 +109,8 @@ LoadDLL("{QTGMC}/libfftw3f-3.dll")
 Import("{QTGMC}/Zs_RF_Shared.avsi")
 Import("{QTGMC}/QTGMC.avsi")
 FFmpegSource2("{temp_raw.name}", atrack=-1)
+AssumeFPS(30000,1001)
 ConvertToYV12(matrix="Rec601")
-
 QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3,SLMode=2,SMode=2)
 
 Levels(16, 1.10, 235, 0, 255, coring=false)
