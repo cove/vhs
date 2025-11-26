@@ -44,7 +44,7 @@ for mkv in files:
 
     print(f"Processing: {p.name}")
 
-    cmd = [
+    r = subprocess.run([
         str(FFMPEG), "-nostdin", "-v", "error", "-stats",
         "-i", str(p), "-f", "ffmetadata", "-i", str(chapters),
         "-map", "0:v:0", "-map", "0:a",
@@ -58,9 +58,7 @@ for mkv in files:
         "-color_primaries:v", "6", "-color_trc:v", "6", "-colorspace:v", "5",
         "-aspect", "4:3",
         "-f", "matroska", "-y", str(temp),
-    ]
-
-    r = subprocess.run(cmd, capture_output=True, text=True)
+        ], capture_output=True, text=True)
     if r.returncode:
         print("FFmpeg failed:\n", r.stderr)
         temp.unlink(missing_ok=True)
