@@ -30,7 +30,7 @@ def safe(s):
     return s.translate(str.maketrans(r'<>:"/\|?*', "---------"))
 
 
-def valid_media(path, min_bytes=1_000_000):
+def valid_media(path, min_bytes=100_000):
     # Size check
     if not os.path.exists(path) or os.path.getsize(path) < min_bytes:
         return False
@@ -58,7 +58,7 @@ print(f"Found {len(mkv_files)} files in {ARCHIVE}\n")
 for src in mkv_files:
     name = src.stem
     prefix = "_".join(name.rsplit("_", 2)[:2])
-    out_dir = src.parent / f"{name}_chapters"
+    out_dir = src.parent / ".." / f"Videos"
     out_dir.mkdir(exist_ok=True)
 
     chapters_file = BASE / "media_metadata" / prefix / "chapters.ffmetadata"
@@ -109,28 +109,35 @@ LoadDLL("{QTGMC}/libfftw3f-3.dll")
 Import("{QTGMC}/Zs_RF_Shared.avsi")
 Import("{QTGMC}/QTGMC.avsi")
 FFmpegSource2("{temp_raw.name}", atrack=-1)
+AssumeFPS(30000,1001)
 ConvertToYV12(matrix="Rec601")
 AssumeFPS(30000,1001)
 QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3,SLMode=2,SMode=2)
-ColorYUV(off_u=-6, off_v=+2)
+
+Levels(16, 1.10, 235, 0, 255, coring=false)
+ColorYUV(off_u=-12, off_v=+6)
+MergeChroma(Blur(0.8))
+Tweak(sat=1.25, bright=2, cont=1.05)
+# ColorYUV(gain_u=-30, gain_v=-30)
+
 Crop(0,0,-2,-6)
 LanczosResize(640,480)
 """, encoding="ascii")
 
         # Encode
         run([
-            FFMPEG,             
+            FFMPEG,
             "-i", avs_file, "-i", temp_raw, "-stats",
             "-map", "0:v", "-map", "1:a",
-            "-analyzeduration", "100MB", "-probesize", "100MB", "-sws_flags", "lanczos+accurate_rnd",
             "-map_metadata", "-1",
             "-metadata", f"title={title}",
             "-metadata", f"creation_time={ctime}",
             "-metadata", f"description=Source VHS tape archive: {src.name}",
             "-metadata", f"com.apple.quicktime.creationdate={ctime}",
             "-tag:v", "hvc1", "-brand", "mp42",
-            "-c:v", "libx265", "-preset", "slow", "-crf", "18",
+            "-c:v", "libx265", "-preset", "fast", "-crf", "18",
             "-profile:v", "main10",
+            "-pix_fmt", "yuv420p10le",
             "-c:a", "aac", "-b:a", "48k", "-ac", "1",
             "-af", "highpass=f=80,lowpass=f=14000,acompressor",
             "-movflags", "+faststart+write_colr",
