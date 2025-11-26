@@ -6,7 +6,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent.resolve()
 FFMPEG = BASE_DIR / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
 QTGMC_DIR = BASE_DIR / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
-ARCHIVE_DIR = BASE_DIR.parent / "Archive"
+ARCHIVE_DIR = BASE_DIR / ".." / "Archive"
 
 mkv_files = list(ARCHIVE_DIR.glob("bennett*.mkv"))
 if not mkv_files:
@@ -63,17 +63,20 @@ for src in mkv_files:
             continue
 
         # Step 1: Extract raw chapter
-        print(f"Processing: {src.name} - Chapter: {title}")
-        subprocess.run([
-            FFMPEG, "-v", "error", "-stats",
+        print(f"Processing: {src} - Chapter: {title}")
+        subprocess.run([FFMPEG, "-v", "error", "-stats",
             "-i", str(src),
             "-map_metadata", "-1",
             "-ss", str(start), "-to", str(end),
             "-map", "0:v", "-map", "0:a",
             "-c", "copy", "-avoid_negative_ts", "make_zero",
-            "-y", str(temp_raw)
-        ], check=True, cwd=out_dir)
-
+            "-y", str(temp_raw)],
+        check=True, cwd=out_dir)
+        
+        if os.path.exists(temp_raw) and os.path.getsize(temp_raw) < 100_000:
+            print(f"Failed to extract chapter: {src} - Chapter: {title}")
+            sys.exit(1)
+    
         # Step 2: QTGMC + x265 in one pass
         avs = f'''
 LoadPlugin("{QTGMC_DIR}/ffms2.dll")
@@ -99,7 +102,7 @@ Return Last
 
         subprocess.run([
             FFMPEG,
-            "-i", str(avs_file), "-i", str(temp_raw), "-stats",
+            "-i", str(f"qtgmc_{num}.avs"), "-i", str(temp_raw), "-stats",
             "-map", "0:v", "-map", "1:a",
             "-map_metadata", "-1",
             "-metadata", f"title={title}",
