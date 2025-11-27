@@ -83,7 +83,7 @@ def process_single_file(src_path):
         CLEAN_UP_ON_ABORT_FILES = [temp_raw, temp_raw.with_suffix(".mkv.ffindex"), avs_file, final]
 
         # Extract chapter segment
-        run([FFMPEG, "-v", "error", "-ss", start, "-to", end, "-i", src,
+        run([FFMPEG, "-v", "warning", "-ss", start, "-to", end, "-i", src,
              "-map", "0:v", "-map", "0:a", "-c", "copy", "-avoid_negative_ts", "make_zero", "-y", temp_raw],
             cwd=out_dir)
 
@@ -109,7 +109,7 @@ LanczosResize(640,480)
 ''', encoding="ascii")
 
         # Prepare final encoding command
-        cmd = [FFMPEG, "-v", "error", "-i", avs_file, "-i", temp_raw,
+        cmd = [FFMPEG, "-v", "warning", "-i", avs_file, "-i", temp_raw,
                "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
                "-metadata", f"title={title}", "-metadata", f"creation_time={ctime}",
                "-metadata", f"com.apple.quicktime.creationdate={ctime}"]
