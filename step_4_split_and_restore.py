@@ -17,15 +17,15 @@ MAX_PARALLEL = 8
 USE_H264_AMF_ACCEL = True
 
 # Track all temp files and current final output
-TEMP_FILES = set()
+CLEAN_UP_ON_ABORT_FILES = set()
 
 def cleanup_temp_files():
-    for p in TEMP_FILES:
+    for p in CLEAN_UP_ON_ABORT_FILES:
         try:
             Path(p).unlink(missing_ok=True)
         except Exception:
             pass
-    TEMP_FILES.clear()
+    CLEAN_UP_ON_ABORT_FILES.clear()
 
 def handle_sigint(signum, frame):
     print("\nCtrl-C detected, cleaning up all temporary and current files...")
@@ -80,7 +80,7 @@ def process_single_file(src_path):
         avs_file = out_dir / f"qtgmc_{i:02d}_{safe(title)}.avs"
 
         # Track all current files for cleanup
-        TEMP_FILES.update([temp_raw, temp_raw.with_suffix(".mkv.ffindex"), avs_file, final])
+        CLEAN_UP_ON_ABORT_FILES = [temp_raw, temp_raw.with_suffix(".mkv.ffindex"), avs_file, final]
 
         # Extract chapter segment
         run([FFMPEG, "-v", "error", "-ss", start, "-to", end, "-i", src,
@@ -128,9 +128,9 @@ LanczosResize(640,480)
         run(cmd, cwd=out_dir)
 
         # Clean up finished files
-        for p in [temp_raw, temp_raw.with_suffix(".mkv.ffindex"), avs_file, final]:
+        CLEAN_UP_ON_ABORT_FILES.clear()
+        for p in [temp_raw, temp_raw.with_suffix(".mkv.ffindex"), avs_file]:
             Path(p).unlink(missing_ok=True)
-            TEMP_FILES.discard(p)
 
     print(f"Finished: {src.name}")
 
