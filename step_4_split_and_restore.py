@@ -1,7 +1,12 @@
+#!/usr/bin/env python3
+# vhs_c_qtgmc_parallel.py
+# Parallel VHS processing using QTGMC with cleanup on Ctrl-C
+
+import signal
+import sys
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import subprocess
-import sys
 
 BASE = Path(__file__).parent.resolve()
 FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
@@ -10,6 +15,24 @@ ARCHIVE = BASE.parent / "Archive"
 OUTPUT = BASE.parent / "Videos"
 MAX_PARALLEL = 8
 USE_H264_AMF_ACCEL = False
+
+# Track all temp files and current final output
+TEMP_FILES = set()
+
+def cleanup_temp_files():
+    for p in TEMP_FILES:
+        try:
+            Path(p).unlink(missing_ok=True)
+        except Exception:
+            pass
+    TEMP_FILES.clear()
+
+def handle_sigint(signum, frame):
+    print("\nCtrl-C detected, cleaning up all temporary and current files...")
+    cleanup_temp_files()
+    sys.exit(1)
+
+signal.signal(signal.SIGINT, handle_sigint)
 
 def run(cmd, cwd=None):
     subprocess.run(list(map(str, cmd)), check=True, cwd=cwd)
@@ -48,6 +71,7 @@ def process_single_file(src_path):
         title = ch.get("title", f"chapter_{i}")
         start, end, ctime = ch.get("start"), ch.get("end"), ch.get("creation_time", "")
         final = out_dir / f"{safe(title)}.mp4"
+
         if final.exists():
             print(f"  Skipping {final.name}")
             continue
@@ -55,10 +79,15 @@ def process_single_file(src_path):
         temp_raw = out_dir / f"temp_raw_{i:02d}_{safe(title)}.mkv"
         avs_file = out_dir / f"qtgmc_{i:02d}_{safe(title)}.avs"
 
+        # Track all current files for cleanup
+        TEMP_FILES.update([temp_raw, temp_raw.with_suffix(".mkv.ffindex"), avs_file, final])
+
+        # Extract chapter segment
         run([FFMPEG, "-v", "error", "-ss", start, "-to", end, "-i", src,
              "-map", "0:v", "-map", "0:a", "-c", "copy", "-avoid_negative_ts", "make_zero", "-y", temp_raw],
             cwd=out_dir)
 
+        # Write AVS script
         avs_file.write_text(f'''
 LoadPlugin("{QTGMC_DIR}/ffms2.dll")
 LoadPlugin("{QTGMC_DIR}/masktools2.dll")
@@ -79,6 +108,7 @@ Crop(0,0,-2,-6)
 LanczosResize(640,480)
 ''', encoding="ascii")
 
+        # Prepare final encoding command
         cmd = [FFMPEG, "-v", "error", "-i", avs_file, "-i", temp_raw,
                "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
                "-metadata", f"title={title}", "-metadata", f"creation_time={ctime}",
@@ -97,8 +127,10 @@ LanczosResize(640,480)
 
         run(cmd, cwd=out_dir)
 
-        for p in [temp_raw, temp_raw.with_suffix(".mkv.ffindex"), avs_file]:
-            p.unlink(missing_ok=True)
+        # Clean up finished files
+        for p in [temp_raw, temp_raw.with_suffix(".mkv.ffindex"), avs_file, final]:
+            Path(p).unlink(missing_ok=True)
+            TEMP_FILES.discard(p)
 
     print(f"Finished: {src.name}")
 
@@ -112,9 +144,14 @@ if __name__ == "__main__":
 
     print(f"Starting {len(mkv_files)} files — {MAX_PARALLEL} at a time\n")
 
-    with ProcessPoolExecutor(max_workers=MAX_PARALLEL) as executor:
-        futures = [executor.submit(process_single_file, str(f)) for f in mkv_files]
-        for future in as_completed(futures):
-            future.result()  # raise if any error
+    try:
+        with ProcessPoolExecutor(max_workers=MAX_PARALLEL) as executor:
+            futures = [executor.submit(process_single_file, str(f)) for f in mkv_files]
+            for future in as_completed(futures):
+                future.result()
+    except KeyboardInterrupt:
+        print("\nKeyboardInterrupt caught, cleaning up all temporary and current files...")
+        cleanup_temp_files()
+        sys.exit(1)
 
     print("\nAll done")
