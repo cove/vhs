@@ -14,7 +14,7 @@ QTGMC_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
 ARCHIVE = BASE.parent / "Archive"
 OUTPUT = BASE.parent / "Videos"
 MAX_PARALLEL = 10
-USE_H264_AMF_ACCEL = True
+USE_HEVC_AMF_ACCEL = True
 
 # Track all temp files and current final output
 CLEAN_UP_ON_ABORT_FILES = set()
@@ -114,12 +114,47 @@ LanczosResize(640,480)
                "-metadata", f"title={title}", "-metadata", f"creation_time={ctime}",
                "-metadata", f"description=Chapter {title} from VHS tape {src.name}"]
 
-        if USE_H264_AMF_ACCEL:
-            cmd += ["-c:v", "h264_amf", "-usage", "3", "-rc", "1", "-profile:v", "high",
-                    "-qp_i", "19", "-qp_p", "21", "-qp_b", "23"]
+        if USE_HEVC_AMF_ACCEL:
+            cmd += [
+                "-c:v", "hevc_amf",
+                
+                # Highest quality mode
+                "-usage", "transcoding",              # = "0" — best quality
+                "-quality", "quality",                # highest AMF preset
+                
+                # Best rate control for viewing quality
+                "-rc", "vbr_latency",                 # ← VBR Latency = best balance 2025
+                "-qvbr_quality_level", "14",          # ← 14 = visually lossless for VHS
+                "-header_insertion_spacing", "0",     # smooth playback
+                
+                # GOP & B-frames — perfect for 59.94 fps
+                "-g", "600",                          # 10 sec GOP at 59.94 fps
+                "-bf", "3",                           # 3 B-frames = excellent compression
+                
+                # 10-bit + Apple compatibility
+                "-profile:v", "main10",
+                "-pix_fmt", "yuv420p10le",
+                "-tag:v", "hvc1",                     # Apple QuickTime / iOS
+                "-movflags", "+faststart+write_colr",
+                "-brand", "mp42",
+                
+                # Optional: force sane QP bounds (prevents spikes)
+                "-min_qp_i", "14", "-max_qp_i", "24",
+                "-min_qp_p", "16", "-max_qp_p", "28",
+                "-min_qp_b", "18", "-max_qp_b", "30",
+                
+                # Bonus 2025 tweaks (only if your driver supports)
+                "-preanalysis", "1",                  # look-ahead = better motion
+                "-enforce_hrd", "1",                  # smoother bitrate
+            ]
         else:
-            cmd += ["-c:v", "libx265", "-preset", "medium", "-crf", "18",
-                    "-profile:v", "main10", "-pix_fmt", "yuv420p10le"]
+            cmd += [
+                "-c:v", "libx265",
+                "-preset", "slow",
+                "-crf", "18",
+                "-profile:v", "main10",
+                "-pix_fmt", "yuv420p10le"
+            ]
 
         cmd += ["-brand", "mp42", "-c:a", "aac", "-b:a", "48k", "-ac", "1",
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
