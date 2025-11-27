@@ -1,13 +1,9 @@
 #!/usr/bin/env python3
-# vhs_c_qtgmc_parallel_cpu_pinned.py
-# Parallel VHS processing — each worker pinned to its own CPU core
-
 import sys
 import subprocess
 from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import psutil
-import os
 
 BASE = Path(__file__).parent.resolve()
 FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
@@ -15,18 +11,18 @@ QTGMC_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
 ARCHIVE = BASE.parent / "Archive"
 OUTPUT = BASE.parent / "Videos"
 
-MAX_PARALLEL = 16
+MAX_PARALLEL = 8  # ← Change this number freely
 USE_HEVC_AMF_ACCEL = True
 
-# Pre-calculate physical cores for pinning (0,2,4,6... on Intel/AMD)
-PHYSICAL_CORES = [i for i, core in enumerate(psutil.cpu_affinity()) if i % 2 == 0][:MAX_PARALLEL]
+# Physical cores only (0,2,4,6... on Intel/AMD)
+PHYSICAL_CORES = list(range(0, psutil.cpu_count(logical=False), 2))
 
 def run(cmd, cwd=None):
-    subprocess.run(list(map(str, cmd)), check=True, cwd=cwd)
+    subprocess.run([str(c) for c in cmd], check=True, cwd=cwd)
 
 def parse_chapters(path):
     chapters, cur = [], {}
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line == "[CHAPTER]":
             if cur: chapters.append(cur)
@@ -41,9 +37,11 @@ def parse_chapters(path):
 def safe(s):
     return s.translate(str.maketrans(r'<>:"/\|?*', "---------"))
 
-def process_single_file(src_path, core_id):
-    # PIN THIS PROCESS TO ONE PHYSICAL CORE
-    psutil.Process().cpu_affinity([PHYSICAL_CORES[core_id]])
+def process_file(src_path, worker_id):
+    # Pin this worker to one physical core
+    core = PHYSICAL_CORES[worker_id % len(PHYSICAL_CORES)]
+    psutil.Process().cpu_affinity([core])
+    print(f"[Worker {worker_id}] Pinned to CPU core {core}")
 
     src = Path(src_path)
     name = src.stem
@@ -53,29 +51,32 @@ def process_single_file(src_path, core_id):
 
     chapters_file = BASE / "media_metadata" / prefix / "chapters.ffmetadata"
     if not chapters_file.exists():
-        print(f"Skipping {src.name} — no metadata")
+        print(f"[Worker {worker_id}] Skipping {src.name} — no metadata")
         return
 
     chapters = parse_chapters(chapters_file)
-    print(f"[{core_id}] Processing: {src.name} ({len(chapters)} chapters)")
+    print(f"[Worker {worker_id}] Processing: {src.name} ({len(chapters)} chapters)")
 
     for i, ch in enumerate(chapters, 1):
-        title = ch.get("title", f"chapter_{i}")
-        start, end, ctime = ch.get("start"), ch.get("end"), ch.get("creation_time", "")
-        final = out_dir / f"{safe(title)}.mp4"
+        title = ch.get("title", f"Chapter {i}")
+        start = ch.get("start")
+        end = ch.get("end")
+        ctime = ch.get("creation_time", "")
 
+        final = out_dir / f"{safe(title)}.mp4"
         if final.exists():
-            print(f"  [{core_id}] Skipping {final.name}")
+            print(f"[Worker {worker_id}] Skipping {final.name}")
             continue
 
-        temp_raw = out_dir / f"temp_raw_{core_id}_{i:02d}.mkv"
-        avs_file = out_dir / f"qtgmc_{core_id}_{i:02d}.avs"
+        temp_raw = out_dir / f"temp_raw_w{worker_id}_{i:02d}.mkv"
+        avs_file = out_dir / f"qtgmc_w{worker_id}_{i:02d}.avs"
 
-        run([FFMPEG, "-v", "error",
-             "-ss", start, "-to", end, "-i", src,
+        # Extract chapter
+        run([FFMPEG, "-v", "error", "-ss", start, "-to", end, "-i", src,
              "-map", "0:v", "-map", "0:a?", "-c", "copy",
              "-avoid_negative_ts", "make_zero", "-y", temp_raw], cwd=out_dir)
 
+        # QTGMC script
         avs_file.write_text(f'''
 LoadPlugin("{QTGMC_DIR}/ffms2.dll")
 LoadPlugin("{QTGMC_DIR}/masktools2.dll")
@@ -100,10 +101,13 @@ Crop(0,0,-2,-6)
 LanczosResize(640,480)
 ''', encoding="ascii")
 
+        # Final encode
         cmd = [FFMPEG, "-i", avs_file, "-i", temp_raw,
                "-map", "0:v", "-map", "1:a?", "-map_metadata", "-1",
-               "-metadata", f"title={title}", "-metadata", f"creation_time={ctime}",
-               "-metadata", f"description=Chapter {title} from VHS tape {src.name}"]
+               "-metadata", f"title={title}",
+               "-metadata", f"creation_time={ctime}",
+               "-metadata", f"com.apple.quicktime.creationdate={ctime}",
+               "-metadata", f"description=Restored from VHS-C tape"]
 
         if USE_HEVC_AMF_ACCEL:
             cmd += [
@@ -125,27 +129,25 @@ LanczosResize(640,480)
 
         run(cmd, cwd=out_dir)
 
+        # Cleanup
         for p in [temp_raw, temp_raw.with_suffix(".mkv.ffindex"), avs_file]:
             p.unlink(missing_ok=True)
 
-    print(f"[{core_id}] Finished: {src.name}")
+    print(f"[Worker {worker_id}] Finished: {src.name}")
 
 if __name__ == "__main__":
     if not FFMPEG.exists():
         sys.exit(f"ERROR: ffmpeg not found at {FFMPEG}")
 
-    mkv_files = list(ARCHIVE.glob("bennett*.mkv"))
-    if not mkv_files:
+    files = list(ARCHIVE.glob("bennett*.mkv"))
+    if not files:
         sys.exit("No files found")
 
-    print(f"Starting {len(mkv_files)} files — {MAX_PARALLEL} parallel (CPU-pinned)\n")
+    print(f"Starting {len(files)} files — {MAX_PARALLEL} parallel (CPU-pinned)\n")
 
     with ProcessPoolExecutor(max_workers=MAX_PARALLEL) as executor:
-        futures = [
-            executor.submit(process_single_file, str(f), i % MAX_PARALLEL)
-            for i, f in enumerate(mkv_files)
-        ]
+        futures = [executor.submit(process_file, str(f), i) for i, f in enumerate(files)]
         for future in as_completed(futures):
             future.result()
 
-    print("\nAll done")
+    print("\nAll done.")
