@@ -13,7 +13,7 @@ FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
 QTGMC_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
 ARCHIVE = BASE.parent / "Archive"
 OUTPUT = BASE.parent / "Videos"
-MAX_PARALLEL = 8
+MAX_PARALLEL = 10
 USE_H264_AMF_ACCEL = True
 
 # Track all temp files and current final output
