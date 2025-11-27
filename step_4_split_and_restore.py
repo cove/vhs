@@ -112,7 +112,7 @@ LanczosResize(640,480)
         cmd = [FFMPEG, "-v", "warning", "-i", avs_file, "-i", temp_raw,
                "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
                "-metadata", f"title={title}", "-metadata", f"creation_time={ctime}",
-               "-metadata", f"com.apple.quicktime.creationdate={ctime}"]
+               "-metadata", f"description=Chapter {title} from VHS tape {src.name}"]
 
         if USE_H264_AMF_ACCEL:
             cmd += ["-c:v", "h264_amf", "-usage", "3", "-rc", "1", "-profile:v", "high",
