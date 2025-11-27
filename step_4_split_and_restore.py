@@ -109,7 +109,7 @@ LanczosResize(640,480)
 ''', encoding="ascii")
 
         # Prepare final encoding command
-        cmd = [FFMPEG, "-v", "warning", "-i", avs_file, "-i", temp_raw,
+        cmd = [FFMPEG, "-v", "warning", "-probesize", "50M", "-i", avs_file, "-i", temp_raw,
                "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
                "-metadata", f"title={title}", "-metadata", f"creation_time={ctime}",
                "-metadata", f"com.apple.quicktime.creationdate={ctime}"]
