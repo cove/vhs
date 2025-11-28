@@ -53,16 +53,13 @@ def encode_and_remux(job):
 
     # Create QTGMC script
     avs.write_text(f'''
-# Enable multithreading for all filters
 SetFilterMTMode("DEFAULT_MT_MODE", 2)
-# Explicitly set thread-safe mode for filters known to support MT
 SetFilterMTMode("FFmpegSource2", 2)
 SetFilterMTMode("QTGMC", 2)
 SetFilterMTMode("nnedi3", 2)
 SetFilterMTMode("mvtools", 2)
 SetFilterMTMode("FFT3DFilter", 2)
-# Use Prefetch to spawn worker threads (number of threads)
-Prefetch({CPU_THREADS})  # adjust 8 to your CPU/threads
+Prefetch({str(CPU_THREADS)})
 
 LoadPlugin("{QTGMC_DIR}/ffms2.dll")
 LoadPlugin("{QTGMC_DIR}/masktools2.dll")
