@@ -18,8 +18,6 @@ def main():
         print("Virtual environment already exists.")
 
     pip = venv_dir / "Scripts" / "pip.exe"
-    python = venv_dir / "Scripts" / "python.exe"
-
 
     if req_file.exists():
         print("Installing packages from requirements.txt...")
