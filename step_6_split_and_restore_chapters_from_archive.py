@@ -26,7 +26,7 @@ def parse_chapters(path):
     return chapters
 
 def safe(s):
-    return s.translate(str.maketrans(r'<>:"/\|?*', "________"))
+    return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
 
 def encode_and_remux(job):
     job_id, src_path, prefix, chap_idx, chap = job
