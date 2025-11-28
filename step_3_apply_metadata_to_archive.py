@@ -67,6 +67,7 @@ for mkv in files:
         continue
 
     # Basic FFmpeg validity check
+    print(f"Verifying: {p.name}")
     v = subprocess.run(
         [FFMPEG, "-v", "error", "-i", str(temp), "-f", "null", "-"],
         stderr=subprocess.PIPE, text=True
