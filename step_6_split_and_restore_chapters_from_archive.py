@@ -139,7 +139,7 @@ def main():
 
     for job in jobs:
         try:
-            print(f"Processing job {job[0]}")
+            print(f"Processing job {job[4]}")
             print(encode_and_remux(job))
         except Exception as e:
             print("ERROR:", e)
