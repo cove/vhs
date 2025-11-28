@@ -12,6 +12,7 @@ START=515
 END=1435
 title=1997 - Ralph & Monica tour Poppyfields (October ?, 1997)
 creation_time=1997-10-01T00:00:00
+location=334.195427,-118.137059/
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -19,13 +20,15 @@ START=1436
 END=1559
 title=1997 - Ralph talking with Glenda & Asia (October ?, 1997)
 creation_time=1997-10-01T00:00:00
+location=334.195427,-118.137059/
 
 [CHAPTER]
 TIMEBASE=1/1
 START=1561
 END=1672
-title=1997 - Ralph & Monica ice cream with Bennetts at Thrifty (October ?, 1997)
+title=1997 - Ralph & Monica ice cream with Bennett's at Thrifty (October ?, 1997)
 creation_time=1997-10-01T00:00:00
+location=34.1907682,-118.1325803/
 
 [CHAPTER]
 TIMEBASE=1/1

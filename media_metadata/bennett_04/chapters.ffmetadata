@@ -5,6 +5,7 @@ START=6
 END=399
 title=1992 - Christmas (December 25, 1992)
 creation_time=1992-12-25T07:37:00
+location=334.195427,-118.137059/
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -19,3 +20,4 @@ START=473
 END=1741
 title=1993 - Glenda's 38th Birthday Party (March 28, 1993)
 creation_time=1993-03-28T14:31:00
+location=334.195427,-118.137059/

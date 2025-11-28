@@ -5,6 +5,7 @@ START=9
 END=280
 title=1992 - Arizona trip to Meteor Crater Natural Landmark (August 23, 1992)
 creation_time=1992-08-23T00:00:00
+location=35.0321202,-111.0211392/
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -12,3 +13,4 @@ START=281
 END=342
 title=1992 - Arizona trip to Flintstone's Bedrock City (August 25, 1992)
 creation_time=1992-08-25T12:00:00
+location=35.654994,-112.139671/
