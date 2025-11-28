@@ -3,7 +3,7 @@
 TIMEBASE=1/1
 START=6
 END=1947
-title=1995 - Asia's HPA Johnny Appleseed Play (November 17, 1995)
+title=1995 - HPA Johnny Appleseed Play with Asia (November 17, 1995)
 creation_time=1995-11-17T00:00:00
 location=34.1751588,-118.0924703/
 
@@ -11,7 +11,63 @@ location=34.1751588,-118.0924703/
 TIMEBASE=1/1
 START=1966
 END=2557
-title=1995 - Morgan's Christmas Program at Children's Country House (December 15, 1995)
+title=1995 - Christmas Program at Children's Country House with Morgan & Asia - 00 Full Program (December 15, 1995)
+creation_time=1995-11-15T00:00:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=2013
+END=2078
+title=1995 - Christmas Program at Children's Country House with Morgan & Asia - 01 Rudolph the Red-Nosed Reindeer (December 15, 1995)
+creation_time=1995-11-15T00:00:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=2081
+END=2136
+title=1995 - Christmas Program at Children's Country House with Morgan & Asia - 02 Jiggle Bells (December 15, 1995)
+creation_time=1995-11-15T00:00:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=2141
+END=2183
+title=1995 - Christmas Program at Children's Country House with Morgan & Asia - 03 Let's Make a Snowman (December 15, 1995)
+creation_time=1995-11-15T00:00:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=2209
+END=2275
+title=1995 - Christmas Program at Children's Country House with Morgan & Asia - 04 A babby like you and me? (December 15, 1995)
+creation_time=1995-11-15T00:00:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=2276
+END=2316
+title=1995 - Christmas Program at Children's Country House with Morgan & Asia - 05 We Wish You a Merry Christmas (December 15, 1995)
+creation_time=1995-11-15T00:00:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=2318
+END=2515
+title=1995 - Christmas Program at Children's Country House with Morgan & Asia - 06 Post Performance Social with Glenda & Asia (December 15, 1995)
+creation_time=1995-11-15T00:00:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=2518
+END=2557
+title=1995 - Christmas Program at Children's Country House with Morgan & Asia - 07 Post Performance Kids Outside (December 15, 1995)
 creation_time=1995-11-15T00:00:00
 location=34.194989,-118.137183/
 

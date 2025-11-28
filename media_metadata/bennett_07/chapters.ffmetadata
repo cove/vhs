@@ -3,7 +3,7 @@
 TIMEBASE=1/1
 START=9
 END=235
-title=1992 - Morgan singing, Buddy's mask, Asia's Minimouse outfit (November 29, 1992)
+title=1992 - Morgan singing, Buddy's mask, Asia's Minnie Mouse outfit (November 29, 1992)
 creation_time=1992-11-29T00:00:00
 location=334.195427,-118.137059/
 
@@ -33,9 +33,97 @@ location=334.195427,-118.137059/
 
 [CHAPTER]
 TIMEBASE=1/1
-START=573
+START=574
 END=1202
-title=1992 - Christmas Program at Children's Country House (December 18, 1992)
+title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 00 Full Program (December 18, 1992)
+creation_time=1992-12-18T20:33:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=576
+END=665
+title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 01 Pre-show Line Up (December 18, 1992)
+creation_time=1992-12-18T20:33:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=576
+END=665
+title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 02 Jingle Bells (December 18, 1992)
+creation_time=1992-12-18T20:33:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=738
+END=778
+title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 03 Funga Alafia (December 18, 1992)
+creation_time=1992-12-18T20:33:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=780
+END=861
+title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 04 Love Love Love Love (December 18, 1992)
+creation_time=1992-12-18T20:33:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=863
+END=942
+title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 05 Gracias A La Vida (December 18, 1992)
+creation_time=1992-12-18T20:33:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=943
+END=1003
+title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 06 Rudolph the Red-Nosed Reindeer (December 18, 1992)
+creation_time=1992-12-18T20:33:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=1010
+END=1040
+title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 07 Asia helps Buddy with laurel wreath (December 18, 1992)
+creation_time=1992-12-18T20:33:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=1021
+END=1085
+title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 08 In a Little Stable (December 18, 1992)
+creation_time=1992-12-18T20:33:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=1091
+END=1139
+title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 09 Let's Make A Snowman (December 18, 1992)
+creation_time=1992-12-18T20:33:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=1140
+END=1195
+title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 10 We Wish You a Merry Christmas (December 18, 1992)
+creation_time=1992-12-18T20:33:00
+location=34.194989,-118.137183/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=1086
+END=1197
+title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 11 Final Applause (December 18, 1992)
 creation_time=1992-12-18T20:33:00
 location=34.194989,-118.137183/
 
