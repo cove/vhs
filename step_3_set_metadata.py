@@ -45,11 +45,13 @@ for mkv in files:
     print(f"Processing: {p.name}")
 
     r = subprocess.run([
-        str(FFMPEG), "-nostdin", "-v", "error", "-stats",
+        str(FFMPEG), "-nostdin", "-v", "warning", "-stats",
         "-i", str(p), "-f", "ffmetadata", "-i", str(chapters),
         "-map", "0:v:0", "-map", "0:a",
         "-map_metadata", "0", "-map_chapters", "-1", "-map_chapters", "1",
         "-c", "copy",
+        "-metadata:s:v:0", "avg_frame_rate=30000/1001",
+        "-metadata:s:a:0", "channel_layout=mono",
         "-metadata", f"title={title}",
         "-metadata", f"comment={comment}",
         "-attach", str(cover),
