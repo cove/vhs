@@ -1,6 +1,6 @@
 Setting up VirtualDub from the software/ directory:
 1. In the software/ directory, install the UT Video driver, Ospery driver, Python and unzip ffmpeg.exe.zip in the software/FFmpeg-QTGMC Easy 2025.0111 directory.
-2. Start up VirtualDub from the software/ directory.
+2. Unzip and startup up VirtualDub from the software/ directory.
 3. Set capture frame rate to 29.97 FPS in the lower right of the screen.
 4. Set Audio -> Compression to PCM 48.000 kHz 16-bit mono if it's a home video.
 5. Set Video -> Compression "UtVideo YUV422 BT.601.VCM"

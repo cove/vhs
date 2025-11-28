@@ -1,7 +1,3 @@
-#!/usr/bin/env python3
-# truncate_video.py
-# CLI only: python truncate_video.py input.mp4 01:04:28
-
 import sys
 from pathlib import Path
 

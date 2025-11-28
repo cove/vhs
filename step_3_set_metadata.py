@@ -8,7 +8,7 @@ FFPROBE = Path("bin/ffprobe.exe")
 out_manifest = ARCHIVE / "00-manifest-blake3sums.txt"
 out_manifest.unlink(missing_ok=True)
 
-files = glob.glob(str(ARCHIVE / "bennett*.mkv"))
+files = glob.glob(str(ARCHIVE / "*.mkv"))
 if not files:
     print("No .mkv files found.")
     sys.exit(0)

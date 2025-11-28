@@ -6,7 +6,6 @@ FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
 QTGMC_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
 ARCHIVE = BASE.parent / "Archive"
 OUTPUT = BASE.parent / "Videos"
-USE_HEVC_AMF_ACCEL = True
 CPU_THREADS = 8   # Set to real CPU core count
 
 def run(cmd, cwd=None):
@@ -29,7 +28,6 @@ def parse_chapters(path):
 def safe(s):
     return s.translate(str.maketrans(r'<>:"/\|?*', "________"))
 
-# --- ENCODE ---
 def encode_and_remux(job):
     job_id, src_path, prefix, chap_idx, chap = job
     src = Path(src_path)
@@ -43,7 +41,7 @@ def encode_and_remux(job):
     tmp_raw = out_dir / f"temp_raw_c{chap_idx:02d}.mkv"
     avs = out_dir / f"qtgmc_c{chap_idx:02d}.avs"
 
-    if final.exists():
+    if final.exists() and final.stat().st_size > 100_000:
         return f"Job {job_id} skipped (exists)"
 
     # Extract chapter
@@ -91,24 +89,23 @@ LanczosResize(640,480)
         "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
         "-metadata", f"title={title}",
         "-metadata", f"creation_time={ctime}",
-        "-metadata", f"description=Restored from VHS-C tape: {src.name}",
+        "-metadata", f"description=Chapter from VHS-C tape: {src.name}",
         "-threads", str(CPU_THREADS)
     ]
     if location:
         cmd += ["-metadata", f"com.apple.quicktime.location.ISO6709={location}",
                 "-metadata", f"location={location}"]
 
-    if USE_HEVC_AMF_ACCEL:
-        cmd += [
-            "-c:v", "hevc_amf", "-usage", "transcoding", "-quality", "quality",
-            "-rc", "vbr_latency", "-qvbr_quality_level", "14", "-g", "600", "-bf", "3",
-            "-profile:v", "main10", "-pix_fmt", "yuv420"
-        ]
-    else:
-        cmd += [
-            "-c:v", "libx265", "-preset", "slow", "-crf", "18",
-            "-profile:v", "main10", "-pix_fmt", "yuv420p10le"
-        ]
+    cmd += [
+        "-c:v", "libx265",
+        "-preset", "slow",
+        "-crf", "18",
+        "-g", "600",
+        "-bf", "3",
+        "-profile:v", "main10",
+        "-pix_fmt", "yuv420p10le",
+        "-x265-params", "keyint=600:bframes=3:aq-mode=2:psy-rd=1.0:1.0"
+    ]
 
     cmd += ["-tag:v", "hvc1", "-movflags", "+faststart+write_colr", "-brand", "mp42",
             "-c:a", "aac", "-b:a", "48k", "-ac", "1",
