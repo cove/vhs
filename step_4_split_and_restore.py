@@ -86,12 +86,12 @@ LanczosResize(640,480)
         if USE_HEVC_AMF_ACCEL:
             cmd += ["-c:v", "hevc_amf", "-usage", "transcoding", "-quality", "quality",
                     "-rc", "vbr_latency", "-qvbr_quality_level", "14", "-g", "600", "-bf", "3",
-                    "-profile:v", "main10", "-pix_fmt", "yuv420", "-tag:v", "hvc1",
-                    "-movflags", "+faststart+write_colr", "-brand", "mp42"]
+                    "-profile:v", "main10", "-pix_fmt", "yuv420"]
         else:
             cmd += ["-c:v", "libx265", "-preset", "slow", "-crf", "18",
                     "-profile:v", "main10", "-pix_fmt", "yuv420p10le"]
 
+        cmd += ["-tag:v", "hvc1", "-movflags", "+faststart+write_colr", "-brand", "mp42"]
         cmd += ["-c:a", "aac", "-b:a", "48k", "-ac", "1",
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
                 "-y", final]
