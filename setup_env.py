@@ -10,7 +10,6 @@ def main():
     venv_dir = root / "venv"
     req_file = root / "requirements.txt"
 
-    # 1. Create venv
     if not venv_dir.exists():
         print("Creating virtual environment...")
         run([sys.executable, "-m", "venv", str(venv_dir)])
