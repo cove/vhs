@@ -48,7 +48,7 @@ def encode_and_remux(job):
 
     if not final.exists():
         # extract chapter
-        run([FFMPEG, "-v", "error", "-ss", start, "-to", end, "-i", src,
+        run([FFMPEG, "-v", "warning", "-ss", start, "-to", end, "-i", src,
              "-map", "0:v", "-map", "0:a", "-c", "copy",
              "-avoid_negative_ts", "make_zero", "-y", tmp_raw], cwd=out_dir)
 
