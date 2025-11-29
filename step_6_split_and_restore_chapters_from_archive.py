@@ -108,6 +108,12 @@ Prefetch()
             # Final encode
             run([
                 FFMPEG, "-i", str(avs_file), "-i", str(temp_raw),
+                "-threads", "0",
+                "-thread_type", "frame+slice",
+                "-cpu-used", "-1",
+                "-tile-columns", "6",
+                "-tile-rows", "4",
+                "-x265-params", "pools=*",
                 "-map", "0:v", "-map", "1:a?", "-map_metadata", "-1",
                 "-metadata", f"title={title}",
                 "-metadata", f"creation_time={ctime}",
@@ -117,7 +123,6 @@ Prefetch()
                 "-tag:v", "hvc1", "-movflags", "+faststart+write_colr", "-brand", "mp42",
                 "-c:a", "aac", "-b:a", "48k",
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
-                "-threads", str(THREADS),
                 "-y", str(final)
             ])
 
