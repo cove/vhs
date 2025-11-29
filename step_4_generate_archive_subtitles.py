@@ -1,8 +1,8 @@
 import whisper
 from pathlib import Path
 
-# Load model once (large-v3 = best quality)
-model = whisper.load_model("large-v3")
+# Load model once (large-v2 = best quality)
+model = whisper.load_model("large-v2")
 
 ARCHIVE = Path("../Archive")
 VIDEOS = Path("../Videos")
