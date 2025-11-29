@@ -65,9 +65,9 @@ def main():
             start_sec = start_ms / 1000
             end_sec = end_ms / 1000
             # Intermediate = MKV, final = MP4
-            csv_lines.append(f"{safe_title}.mkv,{start_sec:.3f},{end_sec:.3f}")
+            csv_lines.append(f"{VIDEOS}/{safe_title}.mkv,{start_sec:.3f},{end_sec:.3f}")
 
-        csv_file = VIDEOS / f"{name}_segments.csv"
+        csv_file = VIDEOS / f"{src.stem}_segments.csv"
         csv_file.write_text("\n".join(csv_lines), encoding="utf-8")
 
         # One FFmpeg command — splits into chapter MKVs
@@ -79,7 +79,7 @@ def main():
             "-segment_list", str(csv_file),
             "-segment_list_type", "csv",
             "-reset_timestamps", "1",
-            "-y", str(VIDEOS / "%s")
+            "-y"
         ])
 
         # Process each chapter MKV → final MP4
