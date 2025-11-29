@@ -1,8 +1,4 @@
-#!/usr/bin/env python3
-# vhs_c_sequential_chapter_process.py
-# Safe, sequential, perfect chapter extraction + QTGMC
-
-import subprocess
+import subprocess, sys
 from pathlib import Path
 
 BASE = Path(__file__).parent.resolve()
@@ -59,10 +55,8 @@ def main():
 
         for i, ch in enumerate(chapters):
             title = ch.get("title", f"Chapter {i+1}")
-            start_ms = int(ch["start"])
-            end_ms = int(ch["end"])
-            start_sec = start_ms / 1000
-            end_sec = end_ms / 1000
+            start_sec = int(ch["start"])
+            end_sec = int(ch["end"])
             ctime = ch.get("creation_time", "")
 
             final = VIDEOS / f"{safe(title)}.mp4"
@@ -80,7 +74,7 @@ def main():
                 FFMPEG, "-v", "error",
                 "-ss", f"{start_sec:.3f}", "-to", f"{end_sec:.3f}",
                 "-i", str(src),
-                "-map", "0:v", "-map", "0:a?",
+                "-map", "0:v", "-map", "0:a",
                 "-c", "copy", "-avoid_negative_ts", "make_zero",
                 "-y", str(temp_raw)
             ])
