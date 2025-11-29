@@ -21,8 +21,12 @@ def run(cmd, cwd=None):
 def safe(s):
     return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
 
-def ms_to_hms(ms):
-    s = int(ms) // 1000
+def seconds_to_hms(secs):
+    s = secs
+    if secs > 0:
+        s = int(secs) // 1
+    else:
+        s = 0
     h, s = divmod(s, 3600)
     m, s = divmod(s, 60)
     return f"{h:02d}:{m:02d}:{s:02d}"
@@ -61,8 +65,8 @@ def main():
         # Build HH:MM:SS range list
         parts_list = []
         for ch in chapters:
-            start = ms_to_hms(ch["START"])
-            end = ms_to_hms(ch["END"])
+            start = seconds_to_hms(ch["START"])
+            end = seconds_to_hms(ch["END"])
             parts_list.append(f"{start}-{end}")
 
         # One single mkvmerge command — perfect HH:MM:SS ranges
