@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# vhs_c_mkvmerge_videos_dir.py
-# Split chapters → QTGMC → MP4 → all work in ../Videos/
+# vhs_c_final_title_based.py
+# Uses real chapter titles from metadata — perfect filenames
 
 import subprocess
 from pathlib import Path
@@ -25,6 +25,23 @@ def run(cmd, cwd=None):
 def safe(s):
     return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
 
+def parse_chapters(path):
+    chapters = []
+    cur = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line == "[CHAPTER]":
+            if cur:
+                chapters.append(cur)
+            cur = {}
+            continue
+        if "=" in line:
+            k, v = line.split("=", 1)
+            cur[k.lower()] = v.strip()
+    if cur:
+        chapters.append(cur)
+    return chapters
+
 def main():
     for src in ARCHIVE.glob("*.mkv"):
         name = src.stem
@@ -34,22 +51,27 @@ def main():
             print(f"Skipping {src.name} — no metadata")
             continue
 
-        # Chapter extraction folder goes directly into Videos/
+        # Parse real chapter titles from metadata
+        chapters = parse_chapters(chapters_file)
+        if not chapters:
+            print(f"No chapters found in metadata for {src.name}")
+            continue
+
         chapter_dir = VIDEOS / f"{name}_chapters"
         chapter_dir.mkdir(exist_ok=True)
 
-        print(f"Splitting: {src.name} → {chapter_dir.name}/")
+        print(f"Splitting: {src.name}")
 
-        # Split with mkvmerge — into Videos/ folder
+        # Split with mkvmerge — uses real titles
         run([
-            MKVMERGE, "-o", str(chapter_dir / "%title%.mkv"),
+            MKVMERGE, "-o", str(chapter_dir / "chapter.mkv"),
             "--split", "chapters:all",
             str(src)
         ], cwd=chapter_dir)
 
         # Process each chapter
-        for chapter_mkv in chapter_dir.glob("*.mkv"):
-            title = chapter_mkv.stem
+        for i, chapter_mkv in enumerate(sorted(chapter_dir.glob("*.mkv"))):
+            title = chapters[i].get("title", chapter_mkv.stem)
             final = VIDEOS / f"{safe(title)}.mp4"
 
             if final.exists():
@@ -101,12 +123,10 @@ Prefetch()
             chapter_mkv.unlink(missing_ok=True)
             avs.unlink(missing_ok=True)
 
-        # Delete chapter folder when done
         chapter_dir.rmdir()
-
         print(f"Finished: {src.name}\n")
 
-    print("All done — perfect chapters in ../Videos")
+    print("All done — perfect titled chapters in ../Videos")
 
 if __name__ == "__main__":
     main()
