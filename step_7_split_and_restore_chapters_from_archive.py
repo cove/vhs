@@ -166,7 +166,7 @@ def main():
 
                 # — Perceptual & detail-preserving tuning —
                 "-x265-params",
-                "psy-rd=2.0:aq-mode=3:aq-strength=1.0:deblock=-1:-1:merange=57:ref=6:bframes=8:keyint=600:rc-lookahead=80:no-sao=0:no-strong-intra-smoothing=0",
+                "merange=57:psy-rd=2.0:aq-mode=3:aq-strength=1.0:deblock=-1:-1:ref=6:bframes=8:keyint=600:rc-lookahead=80:no-sao=0:no-strong-intra-smoothing=0",
                 # — Apple / compatibility —
                 "-tag:v", "hvc1",
                 "-movflags", "+faststart+write_colr",
