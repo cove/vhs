@@ -79,7 +79,7 @@ def main():
             "-segment_list", str(csv_file),
             "-segment_list_type", "csv",
             "-reset_timestamps", "1",
-            "-y"
+            "-y", "-segment_list_entry_prefix" f"{VIDEOS}/%s"
         ])
 
         # Process each chapter MKV → final MP4
