@@ -1,8 +1,4 @@
-#!/usr/bin/env python3
-# vhs_c_parts_single_pass.py
-# One mkvmerge pass with exact START/END ranges → all chapters in one read
-
-import subprocess
+import subprocess, sys
 from pathlib import Path
 
 BASE = Path(__file__).parent.resolve()
@@ -24,6 +20,12 @@ def run(cmd, cwd=None):
 
 def safe(s):
     return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
+
+def ms_to_hms(ms):
+    s = int(ms) // 1000
+    h, s = divmod(s, 3600)
+    m, s = divmod(s, 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
 
 def parse_chapters(path):
     chapters = []
@@ -56,24 +58,21 @@ def main():
 
         print(f"Processing: {src.name} ({len(chapters)} chapters)")
 
-        # Build comma-separated parts list from metadata
-        parts_ranges = []
+        # Build HH:MM:SS range list
+        parts_list = []
         for ch in chapters:
-            start = int(ch["start"]) // 1000
-            end = int(ch["end"]) // 1000
-            parts_ranges.append(f"{start}-{end}")
+            start = ms_to_hms(ch["start"])
+            end = ms_to_hms(ch["end"])
+            parts_list.append(f"{start}-{end}")
 
-        # Output pattern: chapter title as filename
-        output_pattern = VIDEOS / "{name}_chapter.mkv"
-
-        # One single mkvmerge command — reads the file ONCE
+        # One single mkvmerge command — perfect HH:MM:SS ranges
         run([
-            MKVMERGE, "-o", str(output_pattern),
-            "--split", f"parts:{','.join(parts_ranges)}",
+            MKVMERGE, "-o", str(VIDEOS / "%title%.mkv"),
+            "--split", f"parts:{','.join(parts_list)}",
             str(src)
         ])
 
-        # Process each extracted chapter
+        # Process each chapter
         for chapter_mkv in VIDEOS.glob("*.mkv"):
             if not chapter_mkv.name.endswith(".mkv"):
                 continue
@@ -131,7 +130,7 @@ Prefetch()
 
         print(f"Finished: {src.name}\n")
 
-    print("All done — one disk read per tape, perfect chapters")
+    print("All done — perfect HH:MM:SS chapter splits")
 
 if __name__ == "__main__":
     main()
