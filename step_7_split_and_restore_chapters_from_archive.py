@@ -145,9 +145,7 @@ def main():
                     "-metadata", f"comment=Chapter from {src.name} @ {start_hms}-{end_hms}",
                     "-metadata", f"creation_time={ctime}",
                     "-metadata", f"com.apple.quicktime.creationdate={ctime}",
-                    "-metadata", f"date={date}",
-                    "-metadata:s:s:0", "language=eng",
-                    "-metadata:s:a:0", "language=eng"
+                    "-metadata", f"date={date}"
                ]
 
             if location:
