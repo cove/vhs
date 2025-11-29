@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# vhs_c_csv_split_mkv_to_mp4.py
-# Split .mkv → chapter MKVs → QTGMC → final .mp4
+# vhs_c_sequential_chapter_process.py
+# Safe, sequential, perfect chapter extraction + QTGMC
 
 import subprocess
 from pathlib import Path
@@ -30,13 +30,15 @@ def parse_chapters(path):
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line == "[CHAPTER]":
-            if cur: chapters.append(cur)
+            if cur:
+                chapters.append(cur)
             cur = {}
             continue
         if "=" in line:
             k, v = line.split("=", 1)
             cur[k.lower()] = v.strip()
-    if cur: chapters.append(cur)
+    if cur:
+        chapters.append(cur)
     return chapters
 
 def main():
@@ -55,49 +57,36 @@ def main():
 
         print(f"Processing: {src.name} ({len(chapters)} chapters)")
 
-        # Build CSV segment list
-        csv_lines = []
-        for ch in chapters:
-            title = ch.get("title", "Untitled")
-            safe_title = safe(title)
+        for i, ch in enumerate(chapters):
+            title = ch.get("title", f"Chapter {i+1}")
             start_ms = int(ch["start"])
             end_ms = int(ch["end"])
             start_sec = start_ms / 1000
             end_sec = end_ms / 1000
-            # Intermediate = MKV, final = MP4
-            csv_lines.append(f"{VIDEOS}/{safe_title}.mkv,{start_sec:.3f},{end_sec:.3f}")
+            ctime = ch.get("creation_time", "")
 
-        csv_file = VIDEOS / f"{src.stem}_segments.csv"
-        csv_file.write_text("\n".join(csv_lines), encoding="utf-8")
-
-        # One FFmpeg command — splits into chapter MKVs
-        run([
-            FFMPEG, "-v", "error",
-            "-i", str(src),
-            "-map", "0", "-c", "copy",
-            "-f", "segment",
-            "-segment_list", str(csv_file),
-            "-segment_list_type", "csv",
-            "-reset_timestamps", "1",
-            "-y", "-segment_list_entry_prefix" f"{VIDEOS}/%s"
-        ])
-
-        # Process each chapter MKV → final MP4
-        for chapter_mkv in VIDEOS.glob("*.mkv"):
-            if not chapter_mkv.name.endswith(".mkv"):
-                continue
-            title = chapter_mkv.stem
             final = VIDEOS / f"{safe(title)}.mp4"
-
             if final.exists():
                 print(f"  Skipping {final.name}")
-                chapter_mkv.unlink(missing_ok=True)
                 continue
 
-            print(f"  Encoding: {title}")
+            temp_raw = VIDEOS / f"temp_raw_{i+1:02d}.mkv"
+            avs_file = VIDEOS / "qtgmc.avs"
 
-            avs = VIDEOS / "qtgmc.avs"
-            avs.write_text(f'''
+            print(f"  → {title} ({start_sec:.3f}s → {end_sec:.3f}s)")
+
+            # Extract chapter (stream copy)
+            run([
+                FFMPEG, "-v", "error",
+                "-ss", f"{start_sec:.3f}", "-to", f"{end_sec:.3f}",
+                "-i", str(src),
+                "-map", "0:v", "-map", "0:a?",
+                "-c", "copy", "-avoid_negative_ts", "make_zero",
+                "-y", str(temp_raw)
+            ])
+
+            # QTGMC script
+            avs_file.write_text(f'''
 LoadPlugin("{QTGMC_DIR}/ffms2.dll")
 LoadPlugin("{QTGMC_DIR}/masktools2.dll")
 LoadPlugin("{QTGMC_DIR}/Rgtools.dll")
@@ -109,7 +98,7 @@ LoadPlugin("{QTGMC_DIR}/LoadDLL64.dll")
 LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll")
 Import("{QTGMC_DIR}/Zs_RF_Shared.avsi")
 Import("{QTGMC_DIR}/QTGMC.avsi")
-FFmpegSource2("{chapter_mkv.name}", atrack=-1)
+FFmpegSource2("{temp_raw.name}", atrack=-1)
 AssumeFPS(30000,1001)
 ConvertToYV12(matrix="Rec601")
 QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3)
@@ -122,23 +111,26 @@ LanczosResize(640,480)
 Prefetch()
 ''', encoding="ascii")
 
+            # Final encode
             run([
-                FFMPEG, "-i", avs, "-i", chapter_mkv,
+                FFMPEG, "-i", str(avs_file), "-i", str(temp_raw),
                 "-map", "0:v", "-map", "1:a?", "-map_metadata", "-1",
                 "-metadata", f"title={title}",
+                "-metadata", f"creation_time={ctime}",
+                "-metadata", f"com.apple.quicktime.creationdate={ctime}",
                 "-c:v", "libx265", "-preset", "fast", "-crf", "18",
                 "-profile:v", "main10", "-pix_fmt", "yuv420p10le",
                 "-tag:v", "hvc1", "-movflags", "+faststart+write_colr", "-brand", "mp42",
                 "-c:a", "aac", "-b:a", "48k",
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
                 "-threads", str(THREADS),
-                "-y", final
-            ], cwd=VIDEOS)
+                "-y", str(final)
+            ])
 
-            chapter_mkv.unlink(missing_ok=True)
-            avs.unlink(missing_ok=True)
+            # Cleanup
+            temp_raw.unlink(missing_ok=True)
+            avs_file.unlink(missing_ok=True)
 
-        csv_file.unlink(missing_ok=True)
         print(f"Finished: {src.name}\n")
 
     print("All done — perfect chapters in ../Videos")
