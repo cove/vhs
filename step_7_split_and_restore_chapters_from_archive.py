@@ -95,7 +95,7 @@ def main():
                 continue
 
             temp_raw = VIDEOS / f"temp_raw_{i+1:02d}.mkv"
-            avs_file = VIDEOS / "qtgmc.avs"
+            avs_file = VIDEOS / f"qtgmc_{i+1:02d}.avs"
 
             print(f"  → {title} ({start_sec:.3f}s → {end_sec:.3f}s)")
 
@@ -137,15 +137,18 @@ def main():
             '''
             avs_file.write_text(avs_script, encoding="ascii")
 
-            cmd = [FFMPEG, "-i", str(avs_file), "-i", str(temp_raw),
-                "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
-                "-metadata", f"title={title}",
-                "-metadata", f"comment=Chapter from {src.name} @ {start_hms}-{end_hms}",
-                "-metadata", f"creation_time={ctime}",
-                "-metadata", f"com.apple.quicktime.creationdate={ctime}",
-                "-metadata", f"date={date}",
-                "-metadata:s:s:0", "language=eng",
-                "-metadata:s:a:0", "language=eng"]
+            cmd = [
+                    FFMPEG, "-v", "warning",
+                    "-i", str(avs_file), "-i", str(temp_raw),
+                    "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
+                    "-metadata", f"title={title}",
+                    "-metadata", f"comment=Chapter from {src.name} @ {start_hms}-{end_hms}",
+                    "-metadata", f"creation_time={ctime}",
+                    "-metadata", f"com.apple.quicktime.creationdate={ctime}",
+                    "-metadata", f"date={date}",
+                    "-metadata:s:s:0", "language=eng",
+                    "-metadata:s:a:0", "language=eng"
+               ]
 
             if location:
                 cmd += [
