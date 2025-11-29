@@ -1,4 +1,7 @@
-import sys
+#!/usr/bin/env python3
+# vhs_c_mkvmerge_videos_dir.py
+# Split chapters → QTGMC → MP4 → all work in ../Videos/
+
 import subprocess
 from pathlib import Path
 
@@ -7,7 +10,9 @@ FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
 MKVMERGE = BASE / "bin" / "mkvmerge.exe"
 QTGMC_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
 ARCHIVE = BASE.parent / "Archive"
-OUTPUT = BASE.parent  # final files go up one level
+VIDEOS = BASE.parent / "Videos"
+VIDEOS.mkdir(exist_ok=True)
+
 THREADS = 8
 
 if not MKVMERGE.exists():
@@ -29,12 +34,13 @@ def main():
             print(f"Skipping {src.name} — no metadata")
             continue
 
-        chapter_dir = src.parent / f"{name}_chapters"
+        # Chapter extraction folder goes directly into Videos/
+        chapter_dir = VIDEOS / f"{name}_chapters"
         chapter_dir.mkdir(exist_ok=True)
 
-        print(f"Splitting: {src.name}")
+        print(f"Splitting: {src.name} → {chapter_dir.name}/")
 
-        # Split with mkvmerge — 100% perfect chapter titles & timing
+        # Split with mkvmerge — into Videos/ folder
         run([
             MKVMERGE, "-o", str(chapter_dir / "%title%.mkv"),
             "--split", "chapters:all",
@@ -44,7 +50,7 @@ def main():
         # Process each chapter
         for chapter_mkv in chapter_dir.glob("*.mkv"):
             title = chapter_mkv.stem
-            final = OUTPUT / f"{safe(title)}.mp4"
+            final = VIDEOS / f"{safe(title)}.mp4"
 
             if final.exists():
                 print(f"  Skipping {final.name}")
@@ -95,14 +101,12 @@ Prefetch()
             chapter_mkv.unlink(missing_ok=True)
             avs.unlink(missing_ok=True)
 
-        # Move MP4s up one level and delete chapter folder
-        for mp4 in chapter_dir.glob("*.mp4"):
-            mp4.replace(OUTPUT / mp4.name)
+        # Delete chapter folder when done
         chapter_dir.rmdir()
 
         print(f"Finished: {src.name}\n")
 
-    print("All done — perfect chapters in ../")
+    print("All done — perfect chapters in ../Videos")
 
 if __name__ == "__main__":
     main()
