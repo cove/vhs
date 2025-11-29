@@ -1,9 +1,12 @@
-import subprocess, sys
+#!/usr/bin/env python3
+# vhs_c_csv_split_mkv_to_mp4.py
+# Split .mkv → chapter MKVs → QTGMC → final .mp4
+
+import subprocess
 from pathlib import Path
 
 BASE = Path(__file__).parent.resolve()
 FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
-MKVMERGE = BASE / "bin" / "mkvmerge.exe"
 QTGMC_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
 ARCHIVE = BASE.parent / "Archive"
 VIDEOS = BASE.parent / "Videos"
@@ -11,8 +14,8 @@ VIDEOS.mkdir(exist_ok=True)
 
 THREADS = 8
 
-if not MKVMERGE.exists():
-    print(f"ERROR: mkvmerge.exe not found at {MKVMERGE}")
+if not FFMPEG.exists():
+    print(f"ERROR: ffmpeg.exe not found at {FFMPEG}")
     sys.exit(1)
 
 def run(cmd, cwd=None):
@@ -20,16 +23,6 @@ def run(cmd, cwd=None):
 
 def safe(s):
     return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
-
-def seconds_to_hms(secs):
-    s = secs
-    if secs > 0:
-        s = int(secs) // 1
-    else:
-        s = 0
-    h, s = divmod(s, 3600)
-    m, s = divmod(s, 60)
-    return f"{h:02d}:{m:02d}:{s:02d}"
 
 def parse_chapters(path):
     chapters = []
@@ -62,21 +55,34 @@ def main():
 
         print(f"Processing: {src.name} ({len(chapters)} chapters)")
 
-        # Build HH:MM:SS range list
-        parts_list = []
+        # Build CSV segment list
+        csv_lines = []
         for ch in chapters:
-            start = seconds_to_hms(ch["START"])
-            end = seconds_to_hms(ch["END"])
-            parts_list.append(f"{start}-{end}")
+            title = ch.get("title", "Untitled")
+            safe_title = safe(title)
+            start_ms = int(ch["start"])
+            end_ms = int(ch["end"])
+            start_sec = start_ms / 1000
+            end_sec = end_ms / 1000
+            # Intermediate = MKV, final = MP4
+            csv_lines.append(f"{safe_title}.mkv,{start_sec:.3f},{end_sec:.3f}")
 
-        # One single mkvmerge command — perfect HH:MM:SS ranges
+        csv_file = VIDEOS / f"{name}_segments.csv"
+        csv_file.write_text("\n".join(csv_lines), encoding="utf-8")
+
+        # One FFmpeg command — splits into chapter MKVs
         run([
-            MKVMERGE, "-o", str(VIDEOS / f"{name}.mkv"),
-            "--split", f"parts:{','.join(parts_list)}",
-            str(src)
+            FFMPEG, "-v", "error",
+            "-i", str(src),
+            "-map", "0", "-c", "copy",
+            "-f", "segment",
+            "-segment_list", str(csv_file),
+            "-segment_list_type", "csv",
+            "-reset_timestamps", "1",
+            "-y", str(VIDEOS / "%s")
         ])
 
-        # Process each chapter
+        # Process each chapter MKV → final MP4
         for chapter_mkv in VIDEOS.glob("*.mkv"):
             if not chapter_mkv.name.endswith(".mkv"):
                 continue
@@ -132,9 +138,10 @@ Prefetch()
             chapter_mkv.unlink(missing_ok=True)
             avs.unlink(missing_ok=True)
 
+        csv_file.unlink(missing_ok=True)
         print(f"Finished: {src.name}\n")
 
-    print("All done — perfect HH:MM:SS chapter splits")
+    print("All done — perfect chapters in ../Videos")
 
 if __name__ == "__main__":
     main()
