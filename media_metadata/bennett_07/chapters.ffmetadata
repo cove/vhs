@@ -16,6 +16,30 @@ location=334.195427,-118.137059/
 
 [CHAPTER]
 TIMEBASE=1/1
+START=9
+END=89
+title=1992 - Morgan singing (November 29, 1992)
+creation_time=1992-11-29T00:00:00
+location=334.195427,-118.137059/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=90
+END=137
+title=1992 - Buddy's mask (November 29, 1992)
+creation_time=1992-11-29T00:00:00
+location=334.195427,-118.137059/
+
+[CHAPTER]
+TIMEBASE=1/1
+START=137
+END=236
+title=1992 - Asia's Minnie Mouse outfit (November 29, 1992)
+creation_time=1992-11-29T00:00:00
+location=334.195427,-118.137059/
+
+[CHAPTER]
+TIMEBASE=1/1
 START=243
 END=325
 title=1992 - Terra interview at 8 years old (November 29, 1992)
