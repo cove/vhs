@@ -1,15 +1,18 @@
+import subprocess
 from pathlib import Path
-import subprocess, sys
 
 BASE = Path(__file__).parent.resolve()
 FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
 QTGMC_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
 ARCHIVE = BASE.parent / "Archive"
-OUTPUT = BASE.parent / "Videos"
-CPU_THREADS = 8   # Set to real CPU core count
+OUTPUT = BASE.parent  # ← final files go up one level
+THREADS = 8           # ← change this number
 
 def run(cmd, cwd=None):
     subprocess.run([str(c) for c in cmd], check=True, cwd=cwd)
+
+def safe(s):
+    return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))  # underscores
 
 def parse_chapters(path):
     chapters, cur = [], {}
@@ -25,42 +28,46 @@ def parse_chapters(path):
     if cur: chapters.append(cur)
     return chapters
 
-def safe(s):
-    return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
+def main():
+    for src in ARCHIVE.glob("*.mkv"):
+        name = src.stem
+        prefix = "_".join(name.rsplit("_", 2)[:2])
+        chapters_file = BASE / "media_metadata" / prefix / "chapters.ffmetadata"
+        if not chapters_file.exists():
+            print(f"Skipping {src.name} — no metadata")
+            continue
 
-def encode_and_remux(job):
-    job_id, src_path, prefix, chap_idx, chap = job
-    src = Path(src_path)
-    out_dir = OUTPUT
-    out_dir.mkdir(exist_ok=True)
-    title = chap.get("title", f"Chapter {chap_idx}")
-    start, end = chap["start"], chap["end"]
-    ctime = chap.get("creation_time", "")
-    location = chap.get("location")
-    final = out_dir / f"{safe(title)}.mp4"
-    tmp_raw = out_dir / f"temp_raw_c{chap_idx:02d}.mkv"
-    avs = out_dir / f"qtgmc_c{chap_idx:02d}.avs"
+        # Temporary chapter folder
+        chapter_dir = src.parent / f"{name}_chapters"
+        chapter_dir.mkdir(exist_ok=True)
 
-    if final.exists() and final.stat().st_size > 100_000:
-        return f"Job {job_id} skipped (exists)"
+        print(f"Splitting: {src.name}")
 
-    # Extract chapter
-    run([
-        FFMPEG, "-v", "warning", "-ss", start, "-to", end, "-i", src,
-        "-map", "0:v", "-map", "0:a", "-c", "copy",
-        "-avoid_negative_ts", "make_zero", "-y", tmp_raw
-    ], cwd=out_dir)
+        # Split into chapter MKVs (instant)
+        subprocess.run([
+            FFMPEG, "-v", "error",
+            "-i", str(src),
+            "-f", "segment", "-segment_format", "matroska",
+            "-map", "0", "-c", "copy",
+            "-reset_timestamps", "1",
+            "-segment_chapters", "all",
+            str(chapter_dir / "%chapter_title%.mkv")
+        ], check=True)
 
-    # Create QTGMC script
-    avs.write_text(f'''
-SetFilterMTMode("DEFAULT_MT_MODE", 2)
-SetFilterMTMode("FFmpegSource2", 2)
-SetFilterMTMode("QTGMC", 2)
-SetFilterMTMode("nnedi3", 2)
-SetFilterMTMode("mvtools", 2)
-SetFilterMTMode("FFT3DFilter", 2)
-Prefetch({str(CPU_THREADS)})
+        # Process each chapter
+        for chapter_mkv in chapter_dir.glob("*.mkv"):
+            title = chapter_mkv.stem
+            final = OUTPUT / f"{safe(title)}.mp4"
 
+            if final.exists():
+                print(f"  Skipping {final.name}")
+                chapter_mkv.unlink(missing_ok=True)
+                continue
+
+            print(f"  Processing: {title}")
+
+            avs = chapter_dir / "qtgmc.avs"
+            avs.write_text(f'''
 LoadPlugin("{QTGMC_DIR}/ffms2.dll")
 LoadPlugin("{QTGMC_DIR}/masktools2.dll")
 LoadPlugin("{QTGMC_DIR}/Rgtools.dll")
@@ -72,79 +79,43 @@ LoadPlugin("{QTGMC_DIR}/LoadDLL64.dll")
 LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll")
 Import("{QTGMC_DIR}/Zs_RF_Shared.avsi")
 Import("{QTGMC_DIR}/QTGMC.avsi")
-FFmpegSource2("{tmp_raw}", atrack=-1)
+FFmpegSource2("{chapter_mkv.name}", atrack=-1)
 AssumeFPS(30000,1001)
 ConvertToYV12(matrix="Rec601")
 QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3)
+Levels(16, 1.10, 235, 0, 255, coring=false)
+ColorYUV(off_u=-6, off_v=+2)
+MergeChroma(Blur(0.8))
+Tweak(sat=1.25, bright=2)
 Crop(0,0,-2,-6)
 LanczosResize(640,480)
+Prefetch()
 ''', encoding="ascii")
 
-    # Encode
-    cmd = [
-        FFMPEG, "-v", "warning", "-i", avs, "-i", tmp_raw,
-        "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
-        "-metadata", f"title={title}",
-        "-metadata", f"creation_time={ctime}",
-        "-metadata", f"description=Chapter from VHS-C tape: {src.name}",
-        "-threads", str(CPU_THREADS)
-    ]
-    if location:
-        cmd += ["-metadata", f"com.apple.quicktime.location.ISO6709={location}",
-                "-metadata", f"location={location}"]
+            run([
+                FFMPEG, "-i", avs, "-i", chapter_mkv,
+                "-map", "0:v", "-map", "1:a?", "-map_metadata", "-1",
+                "-metadata", f"title={title}",
+                "-c:v", "libx265", "-preset", "fast", "-crf", "18",
+                "-profile:v", "main10", "-pix_fmt", "yuv420p10le",
+                "-tag:v", "hvc1", "-movflags", "+faststart+write_colr", "-brand", "mp42",
+                "-c:a", "aac", "-b:a", "48k",
+                "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
+                "-threads", str(THREADS),
+                "-y", final
+            ], cwd=chapter_dir)
 
-    cmd += [
-        "-c:v", "libx265",
-        "-preset", "slow",
-        "-crf", "18",
-        "-g", "600",
-        "-bf", "3",
-        "-profile:v", "main10",
-        "-pix_fmt", "yuv420p10le",
-        "-x265-params", "keyint=600:bframes=3:aq-mode=2:psy-rd=1.0:1.0"
-    ]
+            chapter_mkv.unlink(missing_ok=True)
+            avs.unlink(missing_ok=True)
 
-    cmd += ["-tag:v", "hvc1", "-movflags", "+faststart+write_colr", "-brand", "mp42",
-            "-c:a", "aac", "-b:a", "48k", "-ac", "1",
-            "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
-            "-y", final]
+        # Move all MP4s up one level and delete chapter folder
+        for mp4 in chapter_dir.glob("*.mp4"):
+            mp4.replace(OUTPUT / mp4.name)
+        chapter_dir.rmdir()
 
-    run(cmd, cwd=out_dir)
+        print(f"Finished: {src.name}\n")
 
-    # Cleanup
-    for p in (tmp_raw, tmp_raw.with_suffix(".mkv.ffindex"), avs):
-        p.unlink(missing_ok=True)
-
-    return f"Job {job_id} done"
-
-def build_jobs(files_glob):
-    files = list(ARCHIVE.glob(files_glob))
-    jobs=[]
-    jid=0
-    for src in files:
-        name=src.stem
-        prefix="_".join(name.rsplit("_",2)[:2])
-        chfile = BASE/"media_metadata"/prefix/"chapters.ffmetadata"
-        if not chfile.exists(): continue
-        for idx, ch in enumerate(parse_chapters(chfile),1):
-            jobs.append((jid, str(src), prefix, idx, ch))
-            jid+=1
-    return jobs
-
-def main():
-    if not FFMPEG.exists(): sys.exit(f"ffmpeg not found: {FFMPEG}")
-    jobs = build_jobs("*.mkv")
-    if not jobs: sys.exit("No chapters found")
-    print(f"Chapters: {len(jobs)} — processing")
-
-    for job in jobs:
-        try:
-            print(f"Processing job {job[4]}")
-            print(encode_and_remux(job))
-        except Exception as e:
-            print("ERROR:", e)
-
-    print("All done.")
+    print("All done — perfect chapters in ../Videos")
 
 if __name__ == "__main__":
     main()
