@@ -27,24 +27,34 @@ def safe(s):
 def parse_chapters(path):
     chapters = []
     cur = {}
-
-    filter_avs = path / "filter.avs"
-    if filter_avs.exists():
-        with filter_avs.open(encoding="utf-8") as f:
-            chapters.append({"filter_avs": f.read()})
+    in_chapter = False
 
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
+
+        # Start of a new chapter
         if line == "[CHAPTER]":
-            if cur:
+            if cur and in_chapter:          # save previous chapter
                 chapters.append(cur)
             cur = {}
+            in_chapter = True
             continue
-        if "=" in line:
+
+        # Only process lines that are inside a [CHAPTER] block
+        if in_chapter and "=" in line:
             k, v = line.split("=", 1)
             cur[k.lower()] = v.strip()
-    if cur:
+
+        # Optional: detect end of chapter section (blank line or next [CHAPTER])
+        if in_chapter and not line and cur:
+            chapters.append(cur)
+            cur = {}
+            in_chapter = False
+
+    # Don't forget the last chapter
+    if cur and in_chapter:
         chapters.append(cur)
+
     return chapters
 
 def main():
