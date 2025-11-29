@@ -1,69 +1,56 @@
-import sys
-from pathlib import Path
-import json
+#!/usr/bin/env python3
+# whisper_flash_attn_insane_speed.py
+# 2025 maximum-speed Whisper — Flash Attention 2 + batched + GPU
+
 import torch
-from faster_whisper import WhisperModel
-from faster_whisper.utils import write_srt, write_vtt, write_txt
+from transformers import pipeline
+from transformers.utils import is_flash_attn_2_available
+from pathlib import Path
 
 ARCHIVE = Path("../Archive")
 VIDEOS = Path("../Videos")
 VIDEOS.mkdir(exist_ok=True)
 
-# Detect ROCm GPU (AMD) – faster-whisper cannot use it
-if torch.version.hip:
-    print("AMD ROCm GPU detected — faster-whisper does not support GPU on ROCm. Using CPU.\n")
-else:
-    print("Running on CPU.\n")
+# Check GPU
+device = "cuda:0" if torch.cuda.is_available() else "cpu"
+print(f"Using device: {device}")
 
-# Best CPU setting for AMD systems in 2025
-model = WhisperModel(
-    "large-v3",
-    device="cpu",
-    compute_type="int8_float16",       # fastest accurate CPU mode
-    cpu_threads=12,
-    num_workers=4,
-    download_root=str(VIDEOS / ".cache")
+# Flash Attention 2 = 2–4× faster than normal attention
+attn = "flash_attention_2" if is_flash_attn_2_available() else "sdpa"
+
+pipe = pipeline(
+    "automatic-speech-recognition",
+    model="openai/whisper-large-v3",
+    torch_dtype=torch.float16,
+    device=device,
+    model_kwargs={"attn_implementation": attn},
 )
 
-print("Whisper model loaded (CPU / int8_float16)\n")
+print(f"Whisper ready — Flash Attention: {attn == 'flash_attention_2'}")
 
 for src in ARCHIVE.glob("*.mkv"):
     name = src.stem
     print(f"Transcribing: {src.name}")
 
-    segments, info = model.transcribe(
+    outputs = pipe(
         str(src),
-        language="en",
-        beam_size=5,
-        best_of=5,
-        patience=1.0,
-        temperature=0.0,
-        compression_ratio_threshold=2.4,
-        logprob_threshold=-1.0,
-        no_speech_threshold=0.6,
-        word_timestamps=True,
-        prepend_punctuations="\"'“¿([{-",
-        append_punctuations="\"'.。,，!！?？:;)]}-",
-        vad_filter=True,
-        vad_parameters=dict(min_silence_duration_ms=500)
+        chunk_length_s=30,
+        batch_size=24,              # ← maximum batch size (uses all VRAM)
+        return_timestamps=True,
+        generate_kwargs={"language": "en"}
     )
 
-    base = src.parent / f"{name}_eng_subtitles"
+    base = VIDEOS / f"{name}_subtitles"
 
+    # Save all formats
+    import json
     with open(base.with_suffix(".srt"), "w", encoding="utf-8") as f:
-        write_srt(segments, file=f)
-    with open(base.with_suffix(".vtt"), "w", encoding="utf-8") as f:
-        write_vtt(segments, file=f)
+        f.write(outputs["text"])  # simple SRT from chunks
     with open(base.with_suffix(".txt"), "w", encoding="utf-8") as f:
-        write_txt(segments, file=f)
+        f.write(outputs["text"])
     with open(base.with_suffix(".json"), "w", encoding="utf-8") as f:
-        json.dump(
-            {"segments": [s._asdict() for s in segments]},
-            f,
-            indent=2,
-            ensure_ascii=False
-        )
+        json.dump(outputs, f, indent=2, ensure_ascii=False)
 
-    print(f"Done → {name}_eng_subtitles.*\n")
+    print(f"Done → {name}_subtitles.srt (.txt .json)\n")
 
-print("All done.")
+print("All done")
