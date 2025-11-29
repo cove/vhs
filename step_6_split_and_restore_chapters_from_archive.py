@@ -61,13 +61,13 @@ def main():
         # Build HH:MM:SS range list
         parts_list = []
         for ch in chapters:
-            start = ms_to_hms(ch["start"])
-            end = ms_to_hms(ch["end"])
+            start = ms_to_hms(ch["START"])
+            end = ms_to_hms(ch["END"])
             parts_list.append(f"{start}-{end}")
 
         # One single mkvmerge command — perfect HH:MM:SS ranges
         run([
-            MKVMERGE, "-o", str(VIDEOS / "%title%.mkv"),
+            MKVMERGE, "-o", str(VIDEOS / f"{name}.mkv"),
             "--split", f"parts:{','.join(parts_list)}",
             str(src)
         ])
