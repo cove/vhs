@@ -1,4 +1,11 @@
 ;FFMETADATA1
+composer=Terrance J. Bennett
+title=Bennett 06 Archive
+artist=Terrance J. Bennett
+album=Bennett 06 Archive (file bennett_06_archive.mkv)
+genre=Home Video
+date=1996
+
 [CHAPTER]
 TIMEBASE=1/1
 START=11
@@ -19,7 +26,7 @@ location=34.138095,-118.1356458/
 TIMEBASE=1/1
 START=4061
 END=5414
-title=1996 - Christmas (December 24-25, 1996)
+title=1996 - Christmas (December 24, 1996)
 creation_time=1996-12-24T00:00:00
 location=334.195427,-118.137059/
 

@@ -1,4 +1,11 @@
 ;FFMETADATA1
+composer=Terrance J. Bennett
+title=Bennett 01 Archive
+artist=Terrance J. Bennett
+album=Bennett 01 Archive (file bennett_01_archive.mkv)
+genre=Home Video
+date=1995
+
 [CHAPTER]
 TIMEBASE=1/1
 START=6
@@ -75,7 +82,7 @@ location=34.194989,-118.137183/
 TIMEBASE=1/1
 START=2565
 END=3865
-title=1995 - Christmas (December 24-25, 1995)
+title=1995 - Christmas (December 24, 1995)
 creation_time=1995-12-24T20:12:00
 location=334.195427,-118.137059/
 
@@ -83,5 +90,5 @@ location=334.195427,-118.137059/
 TIMEBASE=1/1
 START=3872
 END=3935
-title=1995 - Patio gathering with Glenda (1995)
+title=1995 - Patio gathering with Glenda (1995?)
 creation_time=1995-01-01T00:00:00

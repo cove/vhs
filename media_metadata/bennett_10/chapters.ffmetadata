@@ -1,9 +1,16 @@
 ;FFMETADATA1
+composer=Terrance J. Bennett
+title=Bennett 10 Archive
+artist=Terrance J. Bennett
+album=Bennett 10 Archive (file bennett_10_archive.mkv)
+genre=Home Video
+date=1992
+
 [CHAPTER]
 TIMEBASE=1/1
 START=8
 END=493
-title=1992 - Asia's 5th Birthday at Gerrish Swim & Tennis Club Part 2 (August 13, 1992)
+title=1992 - Asia's 5th Birthday at Gerrish Swim & Tennis Club #2 (August 13, 1992)
 creation_time=1992-08-13T00:00:00
 location=34.174082,-118.094512/
 
@@ -11,20 +18,20 @@ location=34.174082,-118.094512/
 TIMEBASE=1/1
 START=495
 END=530
-title=1992 - Kim & Rhett Butler (1992)
+title=1992 - Arizona trip to Kim & Rhett Butler (1992)
 creation_time=1992-01-01T00:00:00
 
 [CHAPTER]
 TIMEBASE=1/1
 START=532
 END=690
-title=1992 - Lance and Jan's Backyard (1992)
+title=1992 - Arizona trip to Lance and Jan's Backyard (1992)
 creation_time=1992-01-01T00:00:00
 
 [CHAPTER]
 TIMEBASE=1/1
 START=691
 END=781
-title=1992 - Red Rock State Park, Sedona, Arizona (1992)
+title=1992 - Arizona trip to Red Rock State Park, Sedona (1992)
 creation_time=1992-01-01T00:00:00
 location=34.8115779,-111.8292620/

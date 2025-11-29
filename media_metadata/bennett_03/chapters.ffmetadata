@@ -1,9 +1,16 @@
 ;FFMETADATA1
+composer=Terrance J. Bennett
+title=Bennett 03 Archive
+artist=Terrance J. Bennett
+album=Bennett 03 Archive (file bennett_03_archive.mkv)
+genre=Home Video
+date=1994
+
 [CHAPTER]
 TIMEBASE=1/1
 START=9
 END=52
-title=1994 - Christmas Playing Ask Zandar Board Game (December 25, 1994)
+title=1994 - Christmas Playing "Ask Zandar" Board Game (December 25, 1994)
 creation_time=1994-12-25T00:00:00
 location=334.195427,-118.137059/
 
@@ -11,7 +18,7 @@ location=334.195427,-118.137059/
 TIMEBASE=1/1
 START=63
 END=67
-title=1994 - Rainbow (1994?)
+title=1994 - Rainbow over Poppyfields (1994?)
 creation_time=1994-12-25T00:00:00
 location=334.195427,-118.137059/
 

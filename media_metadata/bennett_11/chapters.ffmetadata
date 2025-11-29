@@ -1,9 +1,16 @@
 ;FFMETADATA1
+composer=Ralph L.
+title=Bennett 11 Archive
+artist=Ralph L.
+album=Bennett 11 Archive (file bennett_11_archive.mkv)
+genre=Home Video
+date=1997
+
 [CHAPTER]
 TIMEBASE=1/1
 START=4
 END=280
-title=1997 - Ralph Visit (October, 1997)
+title=1997 - Ralph Visit (October ?, 1997)
 creation_time=1997-10-01T00:00:00
 location=334.195427,-118.137059/
 
@@ -11,7 +18,7 @@ location=334.195427,-118.137059/
 TIMEBASE=1/1
 START=282
 END=430
-title=1997 - Ralph Visiting Pier 39, San Francisco, California (October, 1997)
+title=1997 - Ralph Visiting Pier 39, San Francisco, California (October ?, 1997)
 creation_time=1997-10-01T00:00:00
 location=37.8109485,-122.4107248/
 
@@ -19,7 +26,7 @@ location=37.8109485,-122.4107248/
 TIMEBASE=1/1
 START=432
 END=1128
-title=1997 - Ralph, Gene & Monica visit to Sebastiani Sonoma Cask Cellars (October, 1997)
+title=1997 - Ralph, Gene & Monica visit to Sebastiani Sonoma Cask Cellars (October ?, 1997)
 creation_time=1997-10-01T00:00:00
 location=38.2932135,-122.4493420/
 

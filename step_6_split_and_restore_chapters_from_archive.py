@@ -12,6 +12,12 @@ if not FFMPEG.exists():
     print(f"ERROR: ffmpeg.exe not found at {FFMPEG}")
     sys.exit(1)
 
+def format_hms(seconds):
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
 def run(cmd, cwd=None):
     subprocess.run([str(c) for c in cmd], check=True, cwd=cwd)
 
@@ -21,6 +27,12 @@ def safe(s):
 def parse_chapters(path):
     chapters = []
     cur = {}
+
+    filter_avs = path / "filter.avs"
+    if filter_avs.exists():
+        with filter_avs.open(encoding="utf-8") as f:
+            chapters.append({"filter_avs": f.read()})
+
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line == "[CHAPTER]":
@@ -63,7 +75,9 @@ def main():
             start_sec = int(ch["start"])
             end_sec = int(ch["end"])
             ctime = ch.get("creation_time", "")
+            date = ctime[:4]
             location = ch.get("location", "")
+            filter_avs = ch.get("filter_avs", "")
 
             final = VIDEOS / f"{safe(title)}.mp4"
             if final.exists():
@@ -85,38 +99,41 @@ def main():
                 "-y", str(temp_raw)
             ])
 
+            start_hms = format_hms(start_sec)
+            end_hms = format_hms(end_sec)
+
             # QTGMC script
-            avs_file.write_text(f'''
-SetFilterMTMode("DEFAULT_MT_MODE", 2)
-LoadPlugin("{QTGMC_DIR}/ffms2.dll")
-LoadPlugin("{QTGMC_DIR}/masktools2.dll")
-LoadPlugin("{QTGMC_DIR}/Rgtools.dll")
-LoadPlugin("{QTGMC_DIR}/mvtools2.dll")
-LoadPlugin("{QTGMC_DIR}/nnedi3.dll")
-LoadPlugin("{QTGMC_DIR}/yadifmod2.dll")
-LoadPlugin("{QTGMC_DIR}/fft3dfilter.dll")
-LoadPlugin("{QTGMC_DIR}/LoadDLL64.dll")
-LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll")
-Import("{QTGMC_DIR}/Zs_RF_Shared.avsi")
-Import("{QTGMC_DIR}/QTGMC.avsi")
-FFmpegSource2("{temp_raw.name}", atrack=-1)
-AssumeFPS(30000,1001)
-ConvertToYV12(matrix="Rec601")
-QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3)
-Levels(16, 1.10, 235, 0, 255, coring=false)
-ColorYUV(off_u=-6, off_v=+2)
-MergeChroma(Blur(0.8))
-Tweak(sat=1.25, bright=2)
-Crop(0,0,-2,-6)
-LanczosResize(640,480)
-Prefetch()
-''', encoding="ascii")
+            avs_script = f'''
+            SetFilterMTMode("DEFAULT_MT_MODE", 2)
+            LoadPlugin("{QTGMC_DIR}/ffms2.dll")
+            LoadPlugin("{QTGMC_DIR}/masktools2.dll")
+            LoadPlugin("{QTGMC_DIR}/Rgtools.dll")
+            LoadPlugin("{QTGMC_DIR}/mvtools2.dll")
+            LoadPlugin("{QTGMC_DIR}/nnedi3.dll")
+            LoadPlugin("{QTGMC_DIR}/yadifmod2.dll")
+            LoadPlugin("{QTGMC_DIR}/fft3dfilter.dll")
+            LoadPlugin("{QTGMC_DIR}/LoadDLL64.dll")
+            LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll")
+            Import("{QTGMC_DIR}/Zs_RF_Shared.avsi")
+            Import("{QTGMC_DIR}/QTGMC.avsi")
+            FFmpegSource2("{temp_raw.name}", atrack=-1)
+            AssumeFPS(30000,1001)
+            ConvertToYV12(matrix="Rec601")
+            QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3)
+            {filter_avs}
+            Crop(0,0,-2,-6)
+            LanczosResize(640,480)
+            Prefetch()
+            '''
+            avs_file.write_text(avs_script, encoding="ascii")
 
             cmd = [FFMPEG, "-i", str(avs_file), "-i", str(temp_raw),
                 "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
                 "-metadata", f"title={title}",
+                "-metadata", f"comment=Chapter from {src.name} @ {start_hms}-{end_hms}",
                 "-metadata", f"creation_time={ctime}",
                 "-metadata", f"com.apple.quicktime.creationdate={ctime}",
+                "-metadata", f"date={date}",
                 "-metadata:s:s:0", "language=eng",
                 "-metadata:s:a:0", "language=eng"]
 

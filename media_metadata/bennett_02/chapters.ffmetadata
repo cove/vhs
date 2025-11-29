@@ -1,11 +1,19 @@
 ;FFMETADATA1
+composer=Terrance J. Bennett
+title=Bennett 02 Archive
+artist=Terrance J. Bennett
+album=Bennett 02 Archive (file bennett_02_archive.mkv)
+genre=Home Video
+date=1992
+
 [CHAPTER]
 TIMEBASE=1/1
 START=8
 END=436
-title=1992 - T.J. Bennett at 45 (April 2, 1992)
+title=1992 - T.J. Bennett at 45 years old (April 2, 1992)
 creation_time=1992-04-02T21:28:00
 location=334.195427,-118.137059/
+filter_avs=Tweak(sat=.8)
 
 [CHAPTER]
 TIMEBASE=1/1

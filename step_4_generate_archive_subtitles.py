@@ -19,7 +19,7 @@ for src in ARCHIVE.glob("*.mkv"):
         fp16=False,           # True = faster on GPU, False = stable on CPU
     )
 
-    base = src.parent / f"{name}_en_subtitles"
+    base = src.parent / f"{name}_eng_subtitles"
 
     # SRT
     with open(base.with_suffix(".srt"), "w", encoding="utf-8") as f:
@@ -40,4 +40,4 @@ for src in ARCHIVE.glob("*.mkv"):
 
     print(f"Done → {name}.srt (and .vtt .txt .json)\n")
 
-print("All done — pure Python Whisper!")
+print("All done")
