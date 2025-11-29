@@ -19,8 +19,7 @@ for src in ARCHIVE.glob("*.mkv"):
         fp16=False,           # True = faster on GPU, False = stable on CPU
     )
 
-    # Save all formats with "_subtitles" suffix
-    base = src.parent / name
+    base = src.parent / f"{name}_en_subtitles"
 
     # SRT
     with open(base.with_suffix(".srt"), "w", encoding="utf-8") as f:
