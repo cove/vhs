@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-# vhs_c_final_title_based.py
-# Uses real chapter titles from metadata — perfect filenames
+# vhs_c_parts_single_pass.py
+# One mkvmerge pass with exact START/END ranges → all chapters in one read
 
 import subprocess
 from pathlib import Path
@@ -31,15 +31,13 @@ def parse_chapters(path):
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line == "[CHAPTER]":
-            if cur:
-                chapters.append(cur)
+            if cur: chapters.append(cur)
             cur = {}
             continue
         if "=" in line:
             k, v = line.split("=", 1)
             cur[k.lower()] = v.strip()
-    if cur:
-        chapters.append(cur)
+    if cur: chapters.append(cur)
     return chapters
 
 def main():
@@ -51,27 +49,35 @@ def main():
             print(f"Skipping {src.name} — no metadata")
             continue
 
-        # Parse real chapter titles from metadata
         chapters = parse_chapters(chapters_file)
         if not chapters:
-            print(f"No chapters found in metadata for {src.name}")
+            print(f"No chapters for {src.name}")
             continue
 
-        chapter_dir = VIDEOS / f"{name}_chapters"
-        chapter_dir.mkdir(exist_ok=True)
+        print(f"Processing: {src.name} ({len(chapters)} chapters)")
 
-        print(f"Splitting: {src.name}")
+        # Build comma-separated parts list from metadata
+        parts_ranges = []
+        for ch in chapters:
+            start = int(ch["start"]) // 1000
+            end = int(ch["end"]) // 1000
+            parts_ranges.append(f"{start}-{end}")
 
-        # Split with mkvmerge — uses real titles
+        # Output pattern: chapter title as filename
+        output_pattern = VIDEOS / "{name}_chapter.mkv"
+
+        # One single mkvmerge command — reads the file ONCE
         run([
-            MKVMERGE, "-o", str(chapter_dir / "chapter.mkv"),
-            "--split", "chapters:all",
+            MKVMERGE, "-o", str(output_pattern),
+            "--split", f"parts:{','.join(parts_ranges)}",
             str(src)
-        ], cwd=chapter_dir)
+        ])
 
-        # Process each chapter
-        for i, chapter_mkv in enumerate(sorted(chapter_dir.glob("*.mkv"))):
-            title = chapters[i].get("title", chapter_mkv.stem)
+        # Process each extracted chapter
+        for chapter_mkv in VIDEOS.glob("*.mkv"):
+            if not chapter_mkv.name.endswith(".mkv"):
+                continue
+            title = chapter_mkv.stem
             final = VIDEOS / f"{safe(title)}.mp4"
 
             if final.exists():
@@ -79,9 +85,9 @@ def main():
                 chapter_mkv.unlink(missing_ok=True)
                 continue
 
-            print(f"  Processing: {title}")
+            print(f"  Encoding: {title}")
 
-            avs = chapter_dir / "qtgmc.avs"
+            avs = VIDEOS / "qtgmc.avs"
             avs.write_text(f'''
 LoadPlugin("{QTGMC_DIR}/ffms2.dll")
 LoadPlugin("{QTGMC_DIR}/masktools2.dll")
@@ -118,15 +124,14 @@ Prefetch()
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
                 "-threads", str(THREADS),
                 "-y", final
-            ], cwd=chapter_dir)
+            ], cwd=VIDEOS)
 
             chapter_mkv.unlink(missing_ok=True)
             avs.unlink(missing_ok=True)
 
-        chapter_dir.rmdir()
         print(f"Finished: {src.name}\n")
 
-    print("All done — perfect titled chapters in ../Videos")
+    print("All done — one disk read per tape, perfect chapters")
 
 if __name__ == "__main__":
     main()
