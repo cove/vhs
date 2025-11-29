@@ -165,22 +165,7 @@ def main():
                 "-pix_fmt", "yuv420p10le",
 
                 # — Perceptual & detail-preserving tuning —
-                "-x265-params", (
-                    "profile=main10:"
-                    "psy-rd=2.0:"       # ← keeps grain & detail
-                    "psy-rq=1.0:"
-                    "aq-mode=3:"        # ← best quality distribution
-                    "aq-strength=1.0:"
-                    "deblock=-1:-1:"    # ← preserve edges
-                    "merange=57:"       # ← better motion search
-                    "ref=6:"            # ← more reference frames
-                    "bframes=8:"        # ← better compression
-                    "keyint=600:"       # ← 10 sec GOP at 59.94 fps
-                    "rc-lookahead=80:"  # ← huge quality boost
-                    "no-sao=0:"         # ← keep SAO on (helps banding)
-                    "no-strong-intra-smoothing=0"
-                ),
-
+                "-x265-params", "psy-rd=2.0:aq-mode=3:aq-strength=1.0:deblock=-1:-1:merange=57:ref=6:bframes=8:keyint=600:rc-lookahead=80:no-sao=0:no-strong-intra-smoothing=0"
                 # — Apple / compatibility —
                 "-tag:v", "hvc1",
                 "-movflags", "+faststart+write_colr",
