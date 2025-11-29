@@ -77,7 +77,7 @@ def main():
 
             # Extract chapter (stream copy)
             run([
-                FFMPEG, "-v", "error",
+                FFMPEG, "-v", "warning",
                 "-ss", f"{start_sec:.3f}", "-to", f"{end_sec:.3f}",
                 "-i", str(src),
                 "-map", "0:v", "-map", "0:a",
