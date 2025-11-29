@@ -1,43 +1,45 @@
-import subprocess, sys
+import whisper
 from pathlib import Path
 
-ARCHIVE = Path(__file__).parent.parent / "Archive"
-MODEL = "large-v3"          # ← best quality (tiny/base/small/medium also work)
-LANGUAGE = "en"             # ← change if needed
+# Load model once (large-v3 = best quality)
+model = whisper.load_model("large-v3")
 
-if not ARCHIVE.exists():
-    print(f"ERROR: Archive folder not found at {ARCHIVE}")
-    sys.exit(1)
+ARCHIVE = Path("../Archive")
+VIDEOS = Path("../Videos")
+VIDEOS.mkdir(exist_ok=True)
 
-mkv_files = list(ARCHIVE.glob("*.mkv"))
-if not mkv_files:
-    print("No .mkv files found in Archive/")
-    sys.exit(0)
-
-print(f"Found {len(mkv_files)} files — transcribing with Whisper {MODEL}\n")
-
-for src in mkv_files:
+for src in ARCHIVE.glob("*.mkv"):
+    name = src.stem
     print(f"Transcribing: {src.name}")
 
-    # Whisper command — outputs all formats next to the file
-    subprocess.run([
-        "whisper", str(src),
-        "--model", MODEL,
-        "--language", LANGUAGE,
-        "--output_dir", str(src.parent),
-        "--output_format", "all",        # ← .srt .vtt .txt .json .tsv
-        "--word_timestamps", "True",     # ← optional: word-level timing
-        "--highlight_words", "True"
-    ], check=True)
+    # Transcribe directly in Python
+    result = model.transcribe(
+        str(src),
+        language="en",
+        word_timestamps=True,
+        fp16=False,           # True = faster on GPU, False = stable on CPU
+    )
 
-    # Add "_subtitles" to every output file
-    stem = src.stem
-    for ext in ["srt", "vtt", "txt", "json", "tsv"]:
-        old = src.parent / f"{stem}.{ext}"
-        new = src.parent / f"{stem}_subtitles.{ext}"
-        if old.exists():
-            old.rename(new)
+    # Save all formats with "_subtitles" suffix
+    base = src.parent / name
 
-    print(f"Done → {stem}_subtitles.srt (and .vtt .txt .json .tsv)\n")
+    # SRT
+    with open(base.with_suffix("_subtitles.srt"), "w", encoding="utf-8") as f:
+        whisper.utils.write_srt(result["segments"], file=f)
 
-print("All transcriptions complete!")
+    # VTT
+    with open(base.with_suffix("_subtitles.vtt"), "w", encoding="utf-8") as f:
+        whisper.utils.write_vtt(result["segments"], file=f)
+
+    # Plain text
+    with open(base.with_suffix("_subtitles.txt"), "w", encoding="utf-8") as f:
+        f.write(result["text"])
+
+    # JSON (full data)
+    import json
+    with open(base.with_suffix("_subtitles.json"), "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False)
+
+    print(f"Done → {name}_subtitles.srt (and .vtt .txt .json)\n")
+
+print("All done — pure Python Whisper!")
