@@ -8,8 +8,6 @@ ARCHIVE = BASE.parent / "Archive"
 VIDEOS = BASE.parent / "Videos"
 VIDEOS.mkdir(exist_ok=True)
 
-THREADS = 8
-
 if not FFMPEG.exists():
     print(f"ERROR: ffmpeg.exe not found at {FFMPEG}")
     sys.exit(1)
@@ -51,13 +49,21 @@ def main():
             print(f"No chapters for {src.name}")
             continue
 
-        print(f"Processing: {src.name} ({len(chapters)} chapters)")
+        for ch in chapters:
+            start = int(ch.get("start", 0))
+            end = int(ch.get("end", 0))
+            ch["duration"] = end - start
+
+        chapters.sort(key=lambda x: x["duration"])
+
+        print(f"Processing: {src.name} ({len(chapters)} chapters, shortest first)")
 
         for i, ch in enumerate(chapters):
             title = ch.get("title", f"Chapter {i+1}")
             start_sec = int(ch["start"])
             end_sec = int(ch["end"])
             ctime = ch.get("creation_time", "")
+            location = ch.get("location", "")
 
             final = VIDEOS / f"{safe(title)}.mp4"
             if final.exists():
@@ -106,34 +112,42 @@ LanczosResize(640,480)
 Prefetch()
 ''', encoding="ascii")
 
-            run([
-                FFMPEG, "-i", str(avs_file), "-i", str(temp_raw),
+            cmd = [FFMPEG, "-i", str(avs_file), "-i", str(temp_raw),
                 "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
                 "-metadata", f"title={title}",
                 "-metadata", f"creation_time={ctime}",
                 "-metadata", f"com.apple.quicktime.creationdate={ctime}",
+                "-metadata:s:s:0", "language=eng",
+                "-metadata:s:a:0", "language=eng"]
 
-                # — 2025 gold-standard x265 quality settings —
+            if location:
+                cmd += [
+                    "-metadata", f"com.apple.quicktime.location.ISO6709={location}",
+                    "-metadata", f"location={location}"
+                ]
+
+            cmd += [
+                # — 2025 x265 quality settings —
                 "-c:v", "libx265",
                 "-preset", "veryslow",  # ← biggest single quality jump
-                "-crf", "16",  # ← 16 = visually lossless for VHS
+                "-crf", "16",           # ← 16 = visually lossless for VHS
                 "-profile:v", "main10",
                 "-pix_fmt", "yuv420p10le",
 
                 # — Perceptual & detail-preserving tuning —
                 "-x265-params", (
                     "profile=main10:"
-                    "psy-rd=2.0:"  # ← keeps grain & detail
+                    "psy-rd=2.0:"       # ← keeps grain & detail
                     "psy-rq=1.0:"
-                    "aq-mode=3:"  # ← best quality distribution
+                    "aq-mode=3:"        # ← best quality distribution
                     "aq-strength=1.0:"
-                    "deblock=-1:-1:"  # ← preserve edges
-                    "merange=57:"  # ← better motion search
-                    "ref=6:"  # ← more reference frames
-                    "bframes=8:"  # ← better compression
-                    "keyint=600:"  # ← 10 sec GOP at 59.94 fps
+                    "deblock=-1:-1:"    # ← preserve edges
+                    "merange=57:"       # ← better motion search
+                    "ref=6:"            # ← more reference frames
+                    "bframes=8:"        # ← better compression
+                    "keyint=600:"       # ← 10 sec GOP at 59.94 fps
                     "rc-lookahead=80:"  # ← huge quality boost
-                    "no-sao=0:"  # ← keep SAO on (helps banding)
+                    "no-sao=0:"         # ← keep SAO on (helps banding)
                     "no-strong-intra-smoothing=0"
                 ),
 
@@ -146,9 +160,8 @@ Prefetch()
                 "-c:a", "aac", "-b:a", "64k", "-ac", "1",
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
 
-                "-threads", "8",  # ← use all cores
-                "-y", str(final)
-            ], cwd=VIDEOS)
+                "-y", str(final)]
+            run(cmd, cwd=VIDEOS)
 
             # Cleanup
             temp_raw.unlink(missing_ok=True)
@@ -156,7 +169,7 @@ Prefetch()
 
         print(f"Finished: {src.name}\n")
 
-    print("All done — perfect chapters in ../Videos")
+    print("All done")
 
 if __name__ == "__main__":
     main()
