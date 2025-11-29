@@ -29,10 +29,16 @@ for src in ARCHIVE.glob("*.mkv"):
     run([
         FFMPEG, "-v", "error",
         "-i", str(src),
-        "-vf", "scale=iw/2:ih/2",              # exactly ½ size
-        "-preset", "fast",
-        "-crf", "28",                          # tiny file, still clear
-        "-c:a", "aac", "-b:a", "32k",
+        "-vf", "scale=iw/2:ih/2",  # ½ size
+        "-c:v", "libx265",
+        "-preset", "ultrafast",  # ← fastest preset
+        "-crf", "28",  # ← 28 = tiny but still clear enough
+        "-tune", "fastdecode",  # ← smaller file, faster decode
+        "-x265-params", "no-sao=1:rect=0:strong-intra-smoothing=0",
+        "-pix_fmt", "yuv420p",  # 8-bit (10-bit = waste for proxy)
+        "-c:a", "aac", "-b:a", "16k",  # ← 16 kbps mono = almost nothing
+        "-ac", "1",  # force mono
+        "-movflags", "+faststart",
         "-y", str(proxy)
     ])
 
