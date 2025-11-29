@@ -1,32 +1,24 @@
+import sys
 import subprocess
 from pathlib import Path
 
 BASE = Path(__file__).parent.resolve()
 FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
+MKVMERGE = BASE / "bin" / "mkvmerge.exe"
 QTGMC_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
 ARCHIVE = BASE.parent / "Archive"
-OUTPUT = BASE.parent  # ← final files go up one level
-THREADS = 8           # ← change this number
+OUTPUT = BASE.parent  # final files go up one level
+THREADS = 8
+
+if not MKVMERGE.exists():
+    print(f"ERROR: mkvmerge.exe not found at {MKVMERGE}")
+    sys.exit(1)
 
 def run(cmd, cwd=None):
     subprocess.run([str(c) for c in cmd], check=True, cwd=cwd)
 
 def safe(s):
-    return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))  # underscores
-
-def parse_chapters(path):
-    chapters, cur = [], {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line == "[CHAPTER]":
-            if cur: chapters.append(cur)
-            cur = {}
-            continue
-        if "=" in line:
-            k, v = line.split("=", 1)
-            cur[k.lower()] = v.strip()
-    if cur: chapters.append(cur)
-    return chapters
+    return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
 
 def main():
     for src in ARCHIVE.glob("*.mkv"):
@@ -37,22 +29,17 @@ def main():
             print(f"Skipping {src.name} — no metadata")
             continue
 
-        # Temporary chapter folder
         chapter_dir = src.parent / f"{name}_chapters"
         chapter_dir.mkdir(exist_ok=True)
 
         print(f"Splitting: {src.name}")
 
-        # Split into chapter MKVs (instant)
-        subprocess.run([
-            FFMPEG, "-v", "error",
-            "-i", str(src),
-            "-f", "segment", "-segment_format", "matroska",
-            "-map", "0", "-c", "copy",
-            "-reset_timestamps", "1",
-            "-segment_chapters", "all",
-            str(chapter_dir / "%chapter_title%.mkv")
-        ], check=True)
+        # Split with mkvmerge — 100% perfect chapter titles & timing
+        run([
+            MKVMERGE, "-o", str(chapter_dir / "%title%.mkv"),
+            "--split", "chapters:all",
+            str(src)
+        ], cwd=chapter_dir)
 
         # Process each chapter
         for chapter_mkv in chapter_dir.glob("*.mkv"):
@@ -108,14 +95,14 @@ Prefetch()
             chapter_mkv.unlink(missing_ok=True)
             avs.unlink(missing_ok=True)
 
-        # Move all MP4s up one level and delete chapter folder
+        # Move MP4s up one level and delete chapter folder
         for mp4 in chapter_dir.glob("*.mp4"):
             mp4.replace(OUTPUT / mp4.name)
         chapter_dir.rmdir()
 
         print(f"Finished: {src.name}\n")
 
-    print("All done — perfect chapters in ../Videos")
+    print("All done — perfect chapters in ../")
 
 if __name__ == "__main__":
     main()
