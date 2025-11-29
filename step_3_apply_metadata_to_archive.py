@@ -25,7 +25,7 @@ def duration(path):
         return 0
 
 for mkv in files:
-    if mkv.endswith("_metadata.mkv"):
+    if mkv.endswith("_metadata_temp.mkv"):
         print("Skipping:", mkv)
         continue
 
@@ -38,17 +38,30 @@ for mkv in files:
     comment = (meta_dir / "comment.txt").read_text().strip()
     chapters = meta_dir / "chapters.ffmetadata"
     cover = meta_dir / "cover.jpg"
+    subtitle_file = p.with_name(f"{name}_subtitles.srt")
 
-    temp = p.with_name(f"{name}_metadata.mkv")
+    temp = p.with_name(f"{name}_metadata_temp.mkv")
     final = p
 
     print(f"Processing: {p.name}")
 
-    r = subprocess.run([
+
+    cmd = [
         str(FFMPEG), "-nostdin", "-v", "warning", "-stats",
         "-i", str(p), "-f", "ffmetadata", "-i", str(chapters),
         "-map", "0:v:0", "-map", "0:a",
-        "-map_metadata", "0", "-map_chapters", "-1", "-map_chapters", "1",
+        "-map_metadata", "0", "-map_chapters", "-1", "-map_chapters", "1"]
+
+    if subtitle_file.exists():
+        cmd += [
+            "-i", str(subtitle_file),
+            "-map", "2:s?",  # subtitle stream from SRT
+            "-c:s", "srt",   # keep as SRT
+            "-metadata:s:s:0", "language=eng",
+            "-metadata:s:s:0", "title=English"
+        ]
+
+    cmd +=[
         "-c", "copy",
         "-metadata:s:v:0", "avg_frame_rate=30000/1001",
         "-metadata:s:a:0", "channel_layout=mono",
@@ -60,7 +73,9 @@ for mkv in files:
         "-color_primaries:v", "6", "-color_trc:v", "6", "-colorspace:v", "5",
         "-aspect", "4:3",
         "-f", "matroska", "-y", str(temp),
-        ], capture_output=True, text=True)
+        ]
+
+    r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode:
         print("FFmpeg failed:\n", r.stderr)
         temp.unlink(missing_ok=True)
