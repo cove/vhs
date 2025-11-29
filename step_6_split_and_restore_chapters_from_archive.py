@@ -81,6 +81,7 @@ def main():
 
             # QTGMC script
             avs_file.write_text(f'''
+SetFilterMTMode("DEFAULT_MT_MODE", 2)
 LoadPlugin("{QTGMC_DIR}/ffms2.dll")
 LoadPlugin("{QTGMC_DIR}/masktools2.dll")
 LoadPlugin("{QTGMC_DIR}/Rgtools.dll")
@@ -105,26 +106,49 @@ LanczosResize(640,480)
 Prefetch()
 ''', encoding="ascii")
 
-            # Final encode
             run([
                 FFMPEG, "-i", str(avs_file), "-i", str(temp_raw),
-                "-threads", "0",
-                "-thread_type", "frame+slice",
-                "-cpu-used", "-1",
-                "-tile-columns", "6",
-                "-tile-rows", "4",
-                "-x265-params", "pools=*",
-                "-map", "0:v", "-map", "1:a?", "-map_metadata", "-1",
+                "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
                 "-metadata", f"title={title}",
                 "-metadata", f"creation_time={ctime}",
                 "-metadata", f"com.apple.quicktime.creationdate={ctime}",
-                "-c:v", "libx265", "-preset", "fast", "-crf", "18",
-                "-profile:v", "main10", "-pix_fmt", "yuv420p10le",
-                "-tag:v", "hvc1", "-movflags", "+faststart+write_colr", "-brand", "mp42",
-                "-c:a", "aac", "-b:a", "48k",
+
+                # — 2025 gold-standard x265 quality settings —
+                "-c:v", "libx265",
+                "-preset", "veryslow",  # ← biggest single quality jump
+                "-crf", "16",  # ← 16 = visually lossless for VHS
+                "-profile:v", "main10",
+                "-pix_fmt", "yuv420p10le",
+
+                # — Perceptual & detail-preserving tuning —
+                "-x265-params", (
+                    "profile=main10:"
+                    "psy-rd=2.0:"  # ← keeps grain & detail
+                    "psy-rq=1.0:"
+                    "aq-mode=3:"  # ← best quality distribution
+                    "aq-strength=1.0:"
+                    "deblock=-1:-1:"  # ← preserve edges
+                    "merange=57:"  # ← better motion search
+                    "ref=6:"  # ← more reference frames
+                    "bframes=8:"  # ← better compression
+                    "keyint=600:"  # ← 10 sec GOP at 59.94 fps
+                    "rc-lookahead=80:"  # ← huge quality boost
+                    "no-sao=0:"  # ← keep SAO on (helps banding)
+                    "no-strong-intra-smoothing=0"
+                ),
+
+                # — Apple / compatibility —
+                "-tag:v", "hvc1",
+                "-movflags", "+faststart+write_colr",
+                "-brand", "mp42",
+
+                # — Audio —
+                "-c:a", "aac", "-b:a", "64k", "-ac", "1",
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
+
+                "-threads", "8",  # ← use all cores
                 "-y", str(final)
-            ])
+            ], cwd=VIDEOS)
 
             # Cleanup
             temp_raw.unlink(missing_ok=True)
