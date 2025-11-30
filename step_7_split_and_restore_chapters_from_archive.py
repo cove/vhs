@@ -122,6 +122,9 @@ def main():
                 avs_script = f'''
 SetFilterMTMode("DEFAULT_MT_MODE", 2)
 SetMemoryMax(8192)
+LoadPlugin("{QTGMC_DIR}/DevIL.dll")
+LoadPlugin("{QTGMC_DIR}/DePanEstimate.dll")
+LoadPlugin("{QTGMC_DIR}/DePan.dll")
 LoadPlugin("{QTGMC_DIR}/ffms2.dll")
 LoadPlugin("{QTGMC_DIR}/masktools2.dll")
 LoadPlugin("{QTGMC_DIR}/Rgtools.dll")
