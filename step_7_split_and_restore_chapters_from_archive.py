@@ -144,6 +144,8 @@ def main():
                     "-metadata", f"title={title}",
                     "-metadata", f"comment=Chapter from {src.name} @ {start_hms}-{end_hms}",
                     "-metadata", f"creation_time={ctime}",
+                    "-metadata", f"CreateDate={ctime}",
+                    "-metadata", f"MediaCreateDate={ctime}",
                     "-metadata", f"com.apple.quicktime.creationdate={ctime}",
                     "-metadata", f"date={date}"
             ]
@@ -151,7 +153,9 @@ def main():
             if location:
                 cmd += [
                     "-metadata", f"com.apple.quicktime.location.ISO6709={location}",
-                    "-metadata", f"location={location}"
+                    "-metadata", f"location={location}",
+                    "-metadata", f"location-eng={location}",
+                    "-metadata", f"GPSCoordinates={location.replace('/', '')}",
                 ]
 
             cmd += [
