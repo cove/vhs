@@ -116,29 +116,70 @@ def main():
             start_hms = format_hms(start_sec)
             end_hms = format_hms(end_sec)
 
-            # QTGMC script
-            avs_script = f'''
-            SetFilterMTMode("DEFAULT_MT_MODE", 2)
-            LoadPlugin("{QTGMC_DIR}/ffms2.dll")
-            LoadPlugin("{QTGMC_DIR}/masktools2.dll")
-            LoadPlugin("{QTGMC_DIR}/Rgtools.dll")
-            LoadPlugin("{QTGMC_DIR}/mvtools2.dll")
-            LoadPlugin("{QTGMC_DIR}/nnedi3.dll")
-            LoadPlugin("{QTGMC_DIR}/yadifmod2.dll")
-            LoadPlugin("{QTGMC_DIR}/fft3dfilter.dll")
-            LoadPlugin("{QTGMC_DIR}/LoadDLL64.dll")
-            LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll")
-            Import("{QTGMC_DIR}/Zs_RF_Shared.avsi")
-            Import("{QTGMC_DIR}/QTGMC.avsi")
-            FFmpegSource2("{temp_raw.name}", atrack=-1)
-            AssumeFPS(30000,1001)
-            ConvertToYV12(matrix="Rec601")
-            QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3)
-            {filter_avs}
-            Crop(0,0,-2,-6)
-            LanczosResize(640,480)
-            Prefetch()
-            '''
+            avs_script = None
+
+            if True:
+                avs_script = f'''
+SetFilterMTMode("DEFAULT_MT_MODE", 2)
+SetMemoryMax(8192)                     # helps very slow preset on large captures
+LoadPlugin("{QTGMC_DIR}/ffms2.dll")
+LoadPlugin("{QTGMC_DIR}/masktools2.dll")
+LoadPlugin("{QTGMC_DIR}/Rgtools.dll")
+LoadPlugin("{QTGMC_DIR}/mvtools2.dll")
+LoadPlugin("{QTGMC_DIR}/nnedi3.dll")
+LoadPlugin("{QTGMC_DIR}/yadifmod2.dll")
+LoadPlugin("{QTGMC_DIR}/fft3dfilter.dll")
+LoadPlugin("{QTGMC_DIR}/LoadDLL64.dll")
+LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll")
+Import("{QTGMC_DIR}/Zs_RF_Shared.avsi")
+Import("{QTGMC_DIR}/QTGMC.avsi")
+LWLibavVideoSource("{temp_raw.name}", cache=false, fpsnum=30000, fpsden=1001)
+AssumeBFF()                            # flip to BFF only if your capture card records bottom-first
+ConvertToYV12(matrix="Rec601", interlaced=true)
+Crop(12, 8, -12, -34)                  # removes ALL head-switching noise + side junk
+DepanEstimate(range=6, trust=1.2, pixaspect=0.9091)   # 0.9091 = NTSC non-square
+DepanStabilize(data=last, cutoff=1.2, mirror=12, prev=1, next=1)
+QTGMC(
+    Preset="Very Slow",
+    SourceMatch=3, Lossless=2, TR2=3,           # maximum original-frame recovery
+    Sharpness=0.7,                              # 0.8 → 0.7 to avoid ringing on residual edges
+    SLMode=2, SLRad=3,                          # stronger spatial luma smoothing only where needed
+    EZDenoise=0.4, EZKeepGrain=1.2,             # tiny bit more denoising, slightly more grain retention
+    GrainRestore=0.4,                           # brings back natural VHS grain after SourceMatch
+    Border=4,                                   # prevents QTGMC from hallucinating at frame edges
+    EdiThreads=2)                               # stability improvement on multi-core
+SeparateFields()
+nnedi3(field=-2, dh=true, nsize=4, nns=4, qual=2)   # high-quality preset
+Weave()
+MergeChroma(last.QTGMC_chroma, last)        # keep QTGMC’s luma, replace chroma only
+# Usually 2–6 pixels on any side – check one frame in VirtualDub/AvsPmod
+Crop(4, 4, -4, -4)                     # safe default; adjust or comment out if not needed
+LanczosResize(640,480)                 # or 720×540 / 720×534 for square-pixel output
+Prefetch()
+'''
+            else:
+                avs_script = f'''
+SetFilterMTMode("DEFAULT_MT_MODE", 2)
+LoadPlugin("{QTGMC_DIR}/ffms2.dll")
+LoadPlugin("{QTGMC_DIR}/masktools2.dll")
+LoadPlugin("{QTGMC_DIR}/Rgtools.dll")
+LoadPlugin("{QTGMC_DIR}/mvtools2.dll")
+LoadPlugin("{QTGMC_DIR}/nnedi3.dll")
+LoadPlugin("{QTGMC_DIR}/yadifmod2.dll")
+LoadPlugin("{QTGMC_DIR}/fft3dfilter.dll")
+LoadPlugin("{QTGMC_DIR}/LoadDLL64.dll")
+LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll")
+Import("{QTGMC_DIR}/Zs_RF_Shared.avsi")
+Import("{QTGMC_DIR}/QTGMC.avsi")
+FFmpegSource2("{temp_raw.name}", atrack=-1)
+AssumeFPS(30000,1001)
+ConvertToYV12(matrix="Rec601")
+QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3)
+{filter_avs}
+Crop(0,0,-2,-6)
+LanczosResize(640,480)
+Prefetch()
+'''
             avs_file.write_text(avs_script, encoding="ascii")
 
             cmd = [
@@ -161,7 +202,7 @@ def main():
 
             if location:
                 iso6709 = location.rstrip("/") + "/"
-                gpscoords = location.replace("/", "")
+                gpscoords = location.rstrip("/")
                 longitude, latitude = gpscoords.split(",")
 
                 cmd += [
