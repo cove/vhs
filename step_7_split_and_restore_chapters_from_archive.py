@@ -137,7 +137,6 @@ ConvertToYV12(matrix="Rec601")
 DepanEstimate(range=6, trust=1.2, pixaspect=0.9091)
 DepanStabilize(data=last, cutoff=1.2, mirror=12, prev=1, next=1)
 QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3)
-{filter_avs}
 Crop(0,0,-2,-6)
 LanczosResize(640,480)
 Prefetch()
