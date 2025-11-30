@@ -146,7 +146,7 @@ def main():
                     "-metadata", f"creation_time={ctime}",
                     "-metadata", f"com.apple.quicktime.creationdate={ctime}",
                     "-metadata", f"date={date}"
-               ]
+            ]
 
             if location:
                 cmd += [
@@ -163,21 +163,21 @@ def main():
                 "-pix_fmt", "yuv420p10le",
 
                 # — Perceptual & detail-preserving tuning —
-                "-x265-params",
-                "merange=57:psy-rd=2.0:aq-mode=3:aq-strength=1.0:bframes=8:keyint=600:rc-lookahead=80:no-sao=0:no-strong-intra-smoothing=0",
+                "-x265-params", "merange=57:psy-rd=2.0:aq-mode=3:aq-strength=1.0:bframes=8:keyint=600:rc-lookahead=80:no-sao=0:no-strong-intra-smoothing=0",
                 "-x265-params", "deblock=-1:-1",
                 "-x265-params", "ref=6",
 
                 # — Apple / compatibility —
                 "-tag:v", "hvc1",
-                "-movflags", "+faststart+write_colr",
+                "-movflags", "+faststart+write_colr+use_metadata_tags",
                 "-brand", "mp42",
 
                 # — Audio —
                 "-c:a", "aac", "-b:a", "64k", "-ac", "1",
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
 
-                "-y", str(final)]
+                "-y", str(final)
+            ]
             run(cmd, cwd=VIDEOS)
 
             # Cleanup
