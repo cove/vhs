@@ -160,11 +160,18 @@ def main():
             ]
 
             if location:
+                iso6709 = location.rstrip("/") + "/"
+                gpscoords = location.replace("/", "")
+
                 cmd += [
-                    "-metadata", f"com.apple.quicktime.location.ISO6709={location}",
-                    "-metadata", f"location={location}",
-                    "-metadata", f"location-eng={location}",
-                    "-metadata", f"GPSCoordinates={location.replace('/', '')}",
+                    "-metadata", "com.apple.quicktime.location.ISO6709=",  # clear existing
+                    "-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}",
+                    "-metadata", "location=",
+                    "-metadata", f"location={iso6709}",
+                    "-metadata", "location-eng=",
+                    "-metadata", f"location-eng={iso6709}",
+                    "-metadata", "GPSCoordinates=",
+                    "-metadata", f"GPSCoordinates={gpscoords}",
                 ]
 
             cmd += [
