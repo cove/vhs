@@ -12,7 +12,7 @@ START=9
 END=52
 title=1994 - Christmas Playing "Ask Zandar" Board Game (December 25, 1994)
 creation_time=1994-12-25T00:00:00
-location=334.195427,-118.137059/
+location=+334.195427,-118.137059/
 uuid=d68c6c19-e17a-4e88-a7a2-eff89924c934
 
 [CHAPTER]
@@ -21,7 +21,7 @@ START=63
 END=67
 title=1994 - Rainbow over Poppyfields (1994?)
 creation_time=1994-12-25T00:00:00
-location=334.195427,-118.137059/
+location=+334.195427,-118.137059/
 uuid=132e6a2b-ba93-4db9-b441-42ab45ab812a
 
 [CHAPTER]
@@ -30,7 +30,7 @@ START=77
 END=437
 title=1995 - Camera practice, acting, yahtzee, and feeding Hampsty (October 1, 1995)
 creation_time=1995-10-01T14:14:00
-location=334.195427,-118.137059/
+location=+334.195427,-118.137059/
 uuid=f3085c60-01e8-4c40-8536-65bcff56d877
 
 [CHAPTER]
@@ -39,5 +39,5 @@ START=460
 END=3127
 title=1996 - High Point Academy Johnny Appleseed Play with Buddy (November 20, 1996)
 creation_time=1996-11-20T20:41:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 uuid=9d2bd6e1-5141-4213-9c74-a6dac1696502

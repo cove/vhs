@@ -12,7 +12,7 @@ START=12
 END=672
 title=1992 - Morgan Flynn at 1 & playing outside (April 18, 1992)
 creation_time=1992-04-18T00:00:00
-location=334.195427,-118.137059/
+location=+334.195427,-118.137059/
 uuid=f35f2f98-e2e1-46f5-81d1-dcdeaf09d44b
 
 [CHAPTER]
@@ -21,7 +21,7 @@ START=278
 END=294
 title=1992 - Terry Filming Self in Mirror (April 18, 1992)
 creation_time=1992-04-18T00:00:00
-location=334.195427,-118.137059/
+location=+334.195427,-118.137059/
 uuid=dde5531d-e1a7-4171-a1a7-35334a1ea0a5
 
 [CHAPTER]
@@ -30,7 +30,7 @@ START=677
 END=931
 title=1992 - Easter and playing with Morgan (April 19, 1992)
 creation_time=1992-04-19T00:00:00
-location=334.195427,-118.137059/
+location=+334.195427,-118.137059/
 uuid=10a12572-0b3a-438e-a723-98814ab09b94
 
 [CHAPTER]
@@ -39,5 +39,5 @@ START=937
 END=1614
 title=1992 - Dennis The Menace Playground in Monterey, California #1 (June 23, 1992)
 creation_time=1992-06-23T00:00:00
-location=36.597562,-121.886724/
+location=+36.597562,-121.886724/
 uuid=5b200e58-46fd-444b-94e4-34a38e5f50ca

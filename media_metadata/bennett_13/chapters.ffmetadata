@@ -12,7 +12,7 @@ START=24
 END=3757
 title=2000 - High Point Academy "A Holiday to Remember" - 00 Full Program (December 19, 2000)
 creation_time=2000-12-19T00:00:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 uuid=2855cb37-0ba2-4884-b661-9587af7a4052
 
 [CHAPTER]
@@ -21,7 +21,7 @@ START=30
 END=125
 title=2000 - High Point Academy "A Holiday to Remember" - 01 Gloria in Excelsis Deo on Flute & Piano (December 19, 2000)
 creation_time=2000-12-19T00:00:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 uuid=e42f106a-5869-4c2f-8e6d-19af5f520faa
 
 [CHAPTER]
@@ -30,7 +30,7 @@ START=143
 END=330
 title=2000 - High Point Academy "A Holiday to Remember" - 02 A Holiday to Remember with Buddy & Morgan (December 19, 2000)
 creation_time=2000-12-19T00:00:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 uuid=e76bc110-306d-4cab-9fe3-3544a1a5cab1
 
 [CHAPTER]
@@ -39,7 +39,7 @@ START=380
 END=630
 title=2000 - High Point Academy "A Holiday to Remember" - 03 Cookie Snatcher (December 19, 2000)
 creation_time=2000-12-19T00:00:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 uuid=36e4d9df-2b60-42bd-b967-92728683a6d5
 
 [CHAPTER]
@@ -48,7 +48,7 @@ START=667
 END=936
 title=2000 - High Point Academy "A Holiday to Remember" - 04 Santa Song (December 19, 2000)
 creation_time=2000-12-19T00:00:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 uuid=e702bad4-3781-4939-949e-ccf6bacbf8f2
 
 [CHAPTER]
@@ -57,7 +57,7 @@ START=971
 END=1159
 title=2000 - High Point Academy "A Holiday to Remember" - 05 Happy Kwanzaa (December 19, 2000)
 creation_time=2000-12-19T00:00:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 uuid=acc328f7-d5f9-482f-912e-bef746210ddc
 
 [CHAPTER]
@@ -66,7 +66,7 @@ START=1174
 END=1324
 title=2000 - High Point Academy "A Holiday to Remember" - 06 Feliz Navidad (December 19, 2000)
 creation_time=2000-12-19T00:00:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 uuid=d79cdb30-6cf2-4256-b427-243edc363baa
 
 [CHAPTER]
@@ -75,7 +75,7 @@ START=1360
 END=1513
 title=2000 - High Point Academy "A Holiday to Remember" - 07 Santa Claus Is Comin' To Town Boogie Woogie with Buddy, Morgan & Asia (December 19, 2000)
 creation_time=2000-12-19T00:00:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 uuid=58b59160-b5a1-4849-9a06-0c8a7827b0fe
 
 [CHAPTER]
@@ -84,7 +84,7 @@ START=1543
 END=1905
 title=2000 - High Point Academy "A Holiday to Remember" - 08 Carol Medley (December 19, 2000)
 creation_time=2000-12-19T00:00:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 uuid=b6970285-510b-4e23-902d-9949b9e46691
 
 [CHAPTER]
@@ -93,7 +93,7 @@ START=1915
 END=2135
 title=2000 - High Point Academy "A Holiday to Remember" - 09 Santa Baby (December 19, 2000)
 creation_time=2000-12-19T00:00:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 uuid=3701b68f-a3e8-49ba-b6f4-4f1aa40c03ec
 
 [CHAPTER]
@@ -102,7 +102,7 @@ START=2165
 END=2350
 title=2000 - High Point Academy "A Holiday to Remember" - 10 Hanukkah Song (December 19, 2000)
 creation_time=2000-12-19T00:00:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 uuid=124a9b50-04c9-4f3b-abba-c8556ec212dc
 
 [CHAPTER]
@@ -111,7 +111,7 @@ START=2356
 END=2580
 title=2000 - High Point Academy "A Holiday to Remember" - 11 O Holy Night duet (December 19, 2000)
 creation_time=2000-12-19T00:00:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 uuid=2689829a-f770-43de-8cd2-c91325177671
 
 [CHAPTER]
@@ -120,7 +120,7 @@ START=2583
 END=2791
 title=2000 - High Point Academy "A Holiday to Remember" - 12 On the Way to Bethlehem with Buddy, Morgan & Asia (December 19, 2000)
 creation_time=2000-12-19T00:00:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 uuid=08594a6c-ad67-493e-b313-776b712deb59
 
 [CHAPTER]
@@ -129,7 +129,7 @@ START=2795
 END=3055
 title=2000 - High Point Academy "A Holiday to Remember" - 13 Angels We Have Heard on High Buddy, Morgan & Asia (December 19, 2000)
 creation_time=2000-12-19T00:00:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 uuid=b7a884fa-5d9a-448d-bd0d-241cf7dac479
 
 [CHAPTER]
@@ -138,7 +138,7 @@ START=3083
 END=3326
 title=2000 - High Point Academy "A Holiday to Remember" - 14 Away in a Manger & Do You See What I See with Buddy, Morgan & Asia (December 19, 2000)
 creation_time=2000-12-19T00:00:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 uuid=b739ee7e-3f24-4261-a064-10d74f3d701a
 
 [CHAPTER]
@@ -147,7 +147,7 @@ START=3327
 END=3534
 title=2000 - High Point Academy "A Holiday to Remember" - 15 Instruments of Your Peace with Buddy, Morgan & Asia (December 19, 2000)
 creation_time=2000-12-19T00:00:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 uuid=2aedcea1-c301-42b7-b046-a8c9a8423471
 
 [CHAPTER]
@@ -156,6 +156,6 @@ START=3557
 END=3732
 title=2000 - High Point Academy "A Holiday to Remember" - 16 Outro with Buddy, Morgan & Asia (December 19, 2000)
 creation_time=2000-12-19T00:00:00
-location=34.1751588,-118.0924703/
+location=+34.1751588,-118.0924703/
 grouping=High Point Academy "A Holiday to Remember"
 uuid=2a8e55e1-7b61-44df-b6fd-8209dda83033

@@ -12,7 +12,7 @@ START=4
 END=280
 title=1997 - Ralph Lombardi Visit (October ?, 1997)
 creation_time=1997-10-01T00:00:00
-location=334.195427,-118.137059/
+location=+334.195427,-118.137059/
 uuid=2bb5f198-f20f-4487-b562-002af2890184
 
 [CHAPTER]
@@ -53,7 +53,7 @@ START=282
 END=430
 title=1997 - Ralph Lombardi Visiting Pier 39, San Francisco, California (October ?, 1997)
 creation_time=1997-10-01T00:00:00
-location=37.8109485,-122.4107248/
+location=+37.8109485,-122.4107248/
 uuid=feb9a576-5d06-42b0-a903-d8ab4289ce88
 
 [CHAPTER]
@@ -62,7 +62,7 @@ START=432
 END=1128
 title=1997 - Ralph Lombardi, Gene & Monica visit to Sebastiani Sonoma Cask Cellars (October ?, 1997)
 creation_time=1997-10-01T00:00:00
-location=38.2932135,-122.4493420/
+location=+38.2932135,-122.4493420/
 uuid=c33d66a0-d58c-4cd8-a072-b73e942dbb3c
 
 [CHAPTER]

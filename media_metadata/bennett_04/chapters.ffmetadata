@@ -12,7 +12,7 @@ START=6
 END=399
 title=1992 - Christmas (December 25, 1992)
 creation_time=1992-12-25T07:37:00
-location=334.195427,-118.137059/
+location=+334.195427,-118.137059/
 uuid=8ba0e953-abb4-4858-a619-52c4ba91f691
 
 [CHAPTER]
@@ -21,7 +21,7 @@ START=380
 END=399
 title=1992 - Christmas - Morgan asleep (December 25, 1992)
 creation_time=1992-12-25T10:55:00
-location=334.195427,-118.137059/
+location=+334.195427,-118.137059/
 uuid=3a787d32-f9ae-4224-a3e8-27276fd721c8
 
 [CHAPTER]
@@ -30,7 +30,7 @@ START=34
 END=196
 title=1992 - Christmas - Terra & Buddy Shaving (December 25, 1992)
 creation_time=1992-12-25T09:09:00
-location=334.195427,-118.137059/
+location=+334.195427,-118.137059/
 uuid=4876ac8c-7e1f-47eb-808c-393cd408419b
 
 [CHAPTER]
@@ -39,7 +39,7 @@ START=344
 END=378
 title=1992 - Christmas - Terry playing guitar (December 25, 1992)
 creation_time=1992-12-25T09:09:00
-location=334.195427,-118.137059/
+location=+334.195427,-118.137059/
 uuid=43c4a8bc-7bc6-4115-af51-63a102d03d27
 
 [CHAPTER]
@@ -56,7 +56,7 @@ START=473
 END=1741
 title=1993 - Glenda's 38th Birthday Party (March 28, 1993)
 creation_time=1993-03-28T14:31:00
-location=334.195427,-118.137059/
+location=+334.195427,-118.137059/
 uuid=78323ced-6c0c-49c4-b487-657568def80b
 
 [CHAPTER]
@@ -65,5 +65,5 @@ START=511
 END=567
 title=1993 - Glenda's 38th Birthday Party - Kids Photo (March 28, 1993)
 creation_time=1993-03-28T14:31:00
-location=334.195427,-118.137059/
+location=+334.195427,-118.137059/
 uuid=54662d78-2e94-42ae-86de-a7ef5b5386c4

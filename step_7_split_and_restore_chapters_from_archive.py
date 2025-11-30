@@ -164,13 +164,9 @@ def main():
                 gpscoords = location.replace("/", "")
 
                 cmd += [
-                    "-metadata", "com.apple.quicktime.location.ISO6709=",  # clear existing
                     "-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}",
-                    "-metadata", "location=",
                     "-metadata", f"location={iso6709}",
-                    "-metadata", "location-eng=",
                     "-metadata", f"location-eng={iso6709}",
-                    "-metadata", "GPSCoordinates=",
                     "-metadata", f"GPSCoordinates={gpscoords}",
                 ]
 

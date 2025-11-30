@@ -12,7 +12,7 @@ START=8
 END=493
 title=1992 - Asia's 5th Birthday at Gerrish Swim & Tennis Club #2 (August 13, 1992)
 creation_time=1992-08-13T00:00:00
-location=34.174082,-118.094512/
+location=+34.174082,-118.094512/
 uuid=372803f8-977d-4770-8d1a-5efa8a6fa036
 
 [CHAPTER]
@@ -21,7 +21,7 @@ START=495
 END=530
 title=1992 - Kim & Rhett Butler interview in back house (1992)
 creation_time=1992-01-01T00:00:00
-location=334.195427,-118.137059/
+location=+334.195427,-118.137059/
 uuid=be3ae3df-b8b5-44b0-a451-afa35d277f96
 
 [CHAPTER]
@@ -38,5 +38,5 @@ START=691
 END=781
 title=1992 - Arizona trip to Red Rock State Park, Sedona (1992)
 creation_time=1992-01-01T00:00:00
-location=34.8115779,-111.8292620/
+location=+34.8115779,-111.8292620/
 uuid=8ab24e2e-d73e-44a7-9b23-bf88ad07edfe
