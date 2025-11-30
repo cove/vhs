@@ -38,7 +38,9 @@ for src in ARCHIVE.glob("*.mkv"):
         "-pix_fmt", "yuv420p",  # 8-bit (10-bit = waste for proxy)
         "-c:a", "aac", "-b:a", "16k",  # ← 16 kbps mono = almost nothing
         "-ac", "1",  # force mono
-        "-movflags", "+faststart",
+        "-tag:v", "hvc1",
+        "-brand", "mp42",
+        "-movflags", "+faststart+write_colr+use_metadata_tags",
         "-y", str(proxy)
     ])
 
