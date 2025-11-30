@@ -26,36 +26,40 @@ def safe(s):
 
 def parse_chapters(path):
     chapters = []
+    globals = {}
     cur = {}
     in_chapter = False
+    seen_chapter = False
 
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
 
-        # Start of a new chapter
+        if not seen_chapter and "=" in line and not line.startswith(("[", ";")):
+            k, v = line.split("=", 1)
+            globals[k.strip().lower()] = v.strip()
+            continue
+
         if line == "[CHAPTER]":
+            seen_chapter = True
             if cur and in_chapter:          # save previous chapter
                 chapters.append(cur)
             cur = {}
             in_chapter = True
             continue
 
-        # Only process lines that are inside a [CHAPTER] block
         if in_chapter and "=" in line:
             k, v = line.split("=", 1)
             cur[k.lower()] = v.strip()
 
-        # Optional: detect end of chapter section (blank line or next [CHAPTER])
         if in_chapter and not line and cur:
             chapters.append(cur)
             cur = {}
             in_chapter = False
 
-    # Don't forget the last chapter
     if cur and in_chapter:
         chapters.append(cur)
 
-    return chapters
+    return globals, chapters
 
 def main():
     for src in ARCHIVE.glob("*.mkv"):
@@ -66,7 +70,7 @@ def main():
             print(f"Skipping {src.name} — no metadata")
             continue
 
-        chapters = parse_chapters(chapters_file)
+        globals, chapters = parse_chapters(chapters_file)
         if not chapters:
             print(f"No chapters for {src.name}")
             continue
@@ -147,7 +151,12 @@ def main():
                     "-metadata", f"CreateDate={ctime}",
                     "-metadata", f"MediaCreateDate={ctime}",
                     "-metadata", f"com.apple.quicktime.creationdate={ctime}",
-                    "-metadata", f"date={date}"
+                    "-metadata", f"com.apple.quicktime.uuid={globals.get('uuid', '')}",
+                    "-metadata", f"date={date}",
+                    "-metadata", f"genre={globals.get('genre', '')}",
+                    "-metadata", f"composer={globals.get('composer', '')}",
+                    "-metadata", f"artist={globals.get('artist', '')}",
+                    "-metadata", f"album={globals.get('album', '')}",
             ]
 
             if location:

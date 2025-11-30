@@ -13,6 +13,7 @@ END=280
 title=1997 - Ralph Lombardi Visit (October ?, 1997)
 creation_time=1997-10-01T00:00:00
 location=334.195427,-118.137059/
+uuid=2bb5f198-f20f-4487-b562-002af2890184
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -20,6 +21,7 @@ START=47
 END=67
 title=1997 - Ralph Lombardi interviewing Buddy in Beau Brummell pose (October ?, 1997)
 creation_time=1997-10-01T00:00:00
+uuid=caaa9d17-10dc-4c5b-a8b2-e159ce8ca2d1
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -27,6 +29,7 @@ START=70
 END=101
 title=1997 - Ralph Lombardi interviewing Asia, peace dude (October ?, 1997)
 creation_time=1997-10-01T00:00:00
+uuid=a0b2c5e6-0d1b-4dcf-9aa6-a0475e6cd64e
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -34,6 +37,7 @@ START=108
 END=136
 title=1997 - Ralph Lombardi interviewing Terra & Glenda and comparing height (October ?, 1997)
 creation_time=1997-10-01T00:00:00
+uuid=c2cefeca-541e-4159-aac0-df69bd248ca3
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -41,6 +45,7 @@ START=137
 END=280
 title=1997 - Ralph Lombardi interviewing Terra, future Governor of California (October ?, 1997)
 creation_time=1997-10-01T00:00:00
+uuid=2fa5d6f1-c89c-4a43-ba24-6d70a0570536
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -49,6 +54,7 @@ END=430
 title=1997 - Ralph Lombardi Visiting Pier 39, San Francisco, California (October ?, 1997)
 creation_time=1997-10-01T00:00:00
 location=37.8109485,-122.4107248/
+uuid=feb9a576-5d06-42b0-a903-d8ab4289ce88
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -57,6 +63,7 @@ END=1128
 title=1997 - Ralph Lombardi, Gene & Monica visit to Sebastiani Sonoma Cask Cellars (October ?, 1997)
 creation_time=1997-10-01T00:00:00
 location=38.2932135,-122.4493420/
+uuid=c33d66a0-d58c-4cd8-a072-b73e942dbb3c
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -64,3 +71,4 @@ START=1131
 END=1828
 title=1997 - Ralph Lombardi interviewing Lynn and Craig in Oakland, California (October 19, 1997)
 creation_time=1997-10-19T00:00:00
+uuid=e0741a1a-74d1-47fd-8539-1aed64d05354
