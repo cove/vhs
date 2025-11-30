@@ -116,42 +116,7 @@ def main():
             start_hms = format_hms(start_sec)
             end_hms = format_hms(end_sec)
 
-            avs_script = None
-
-            if False:
-                avs_script = f'''
-SetFilterMTMode("DEFAULT_MT_MODE", 2)
-SetMemoryMax(8192)
-LoadPlugin("{QTGMC_DIR}/DePanEstimate.dll")
-LoadPlugin("{QTGMC_DIR}/DePan.dll")
-LoadPlugin("{QTGMC_DIR}/ffms2.dll")
-LoadPlugin("{QTGMC_DIR}/masktools2.dll")
-LoadPlugin("{QTGMC_DIR}/Rgtools.dll")
-LoadPlugin("{QTGMC_DIR}/mvtools2.dll")
-LoadPlugin("{QTGMC_DIR}/nnedi3.dll")
-LoadPlugin("{QTGMC_DIR}/yadifmod2.dll")
-LoadPlugin("{QTGMC_DIR}/fft3dfilter.dll")
-LoadPlugin("{QTGMC_DIR}/LoadDLL64.dll")
-LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll")
-Import("{QTGMC_DIR}/Zs_RF_Shared.avsi")
-Import("{QTGMC_DIR}/QTGMC.avsi")
-FFmpegSource2("{temp_raw.name}", atrack=-1)
-AssumeBFF()
-ConvertToYV12(matrix="Rec601", interlaced=true)
-Crop(12, 8, -12, -34)
-DepanEstimate(range=6, trust=1.2, pixaspect=0.9091)
-DepanStabilize(data=last, cutoff=1.2, mirror=12, prev=1, next=1)
-QTGMC(Preset="Very Slow",SourceMatch=3,Lossless=2,TR2=3,Sharpness=0.7,SLMode=2,SLRad=3,EZDenoise=0.4,GrainRestore=0.4,Border=true,EdiMode="")
-SeparateFields()
-nnedi3(field=-2, dh=true, nsize=4, nns=4, qual=2)
-Weave()
-MergeChroma(last.QTGMC_chroma, last)
-Crop(4, 4, -4, -4)
-LanczosResize(640,480)
-Prefetch()
-'''
-            else:
-                avs_script = f'''
+            avs_script = f'''
 SetFilterMTMode("DEFAULT_MT_MODE", 2)
 LoadPlugin("{QTGMC_DIR}/ffms2.dll")
 LoadPlugin("{QTGMC_DIR}/masktools2.dll")
