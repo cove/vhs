@@ -4,8 +4,8 @@ from pathlib import Path
 BASE = Path(__file__).parent.resolve()
 FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
 ARCHIVE = BASE.parent / "Archive"
-PROXIES = BASE.parent / "Proxies"
-PROXIES.mkdir(exist_ok=True)
+PROXY = BASE.parent / "Proxy"
+PROXY.mkdir(exist_ok=True)
 
 if not FFMPEG.exists():
     print(f"ERROR: ffmpeg not found at {FFMPEG}")
@@ -14,11 +14,11 @@ if not FFMPEG.exists():
 def run(cmd):
     subprocess.run([str(c) for c in cmd], check=True)
 
-print(f"Generating ½-size proxies → {PROXIES}\n")
+print(f"Generating ½-size PROXY → {PROXY}\n")
 
 for src in ARCHIVE.glob("*.mkv"):
     name = src.stem
-    proxy = PROXIES / f"{name}_proxy.mp4"
+    proxy = PROXY / f"{name}_proxy.mp4"
 
     if proxy.exists():
         print(f"Skipping {src.name} (proxy exists)")
@@ -44,4 +44,4 @@ for src in ARCHIVE.glob("*.mkv"):
         "-y", str(proxy)
     ])
 
-print("\nAll proxies done")
+print("\nAll PROXY done")

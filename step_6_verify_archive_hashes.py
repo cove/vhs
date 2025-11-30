@@ -14,7 +14,7 @@ if not MANIFEST.exists():
     print(f"ERROR: manifest not found: {MANIFEST}")
     sys.exit(1)
 
-print(f"Verifying: {MANIFEST}\n" + "-"*50)
+print(f"Verifying: {MANIFEST}\n")
 
 r = subprocess.run([str(B3SUM), "-c", str(MANIFEST)],
                    cwd=ARCHIVE, capture_output=True, text=True)
