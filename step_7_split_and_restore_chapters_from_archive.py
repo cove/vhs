@@ -162,12 +162,15 @@ def main():
             if location:
                 iso6709 = location.rstrip("/") + "/"
                 gpscoords = location.replace("/", "")
+                longitude, latitude = gpscoords.split(",")
 
                 cmd += [
                     "-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}",
                     "-metadata", f"location={iso6709}",
                     "-metadata", f"location-eng={iso6709}",
                     "-metadata", f"GPSCoordinates={gpscoords}",
+                    "-metadata", f"GPSLatitude={latitude}",
+                    "-metadata", f"GPSLongitude={longitude}",
                 ]
 
             cmd += [
