@@ -1,7 +1,7 @@
 ;FFMETADATA1
-composer=Ralph L.
+composer=Ralph Lombardi
 title=Bennett 11 Archive
-artist=Ralph L.
+artist=Ralph Lombardi
 album=Bennett 11 Archive (file bennett_11_archive.mkv)
 genre=Home Video
 date=1997
@@ -10,15 +10,43 @@ date=1997
 TIMEBASE=1/1
 START=4
 END=280
-title=1997 - Ralph Visit (October ?, 1997)
+title=1997 - Ralph Lombardi Visit (October ?, 1997)
 creation_time=1997-10-01T00:00:00
 location=334.195427,-118.137059/
 
 [CHAPTER]
 TIMEBASE=1/1
+START=47
+END=67
+title=1997 - Ralph Lombardi interviewing Buddy in Beau Brummell pose (October ?, 1997)
+creation_time=1997-10-01T00:00:00
+
+[CHAPTER]
+TIMEBASE=1/1
+START=70
+END=101
+title=1997 - Ralph Lombardi interviewing Asia, peace dude (October ?, 1997)
+creation_time=1997-10-01T00:00:00
+
+[CHAPTER]
+TIMEBASE=1/1
+START=108
+END=136
+title=1997 - Ralph Lombardi interviewing Terra & Glenda and comparing height (October ?, 1997)
+creation_time=1997-10-01T00:00:00
+
+[CHAPTER]
+TIMEBASE=1/1
+START=137
+END=280
+title=1997 - Ralph Lombardi interviewing Terra, future Governor of California (October ?, 1997)
+creation_time=1997-10-01T00:00:00
+
+[CHAPTER]
+TIMEBASE=1/1
 START=282
 END=430
-title=1997 - Ralph Visiting Pier 39, San Francisco, California (October ?, 1997)
+title=1997 - Ralph Lombardi Visiting Pier 39, San Francisco, California (October ?, 1997)
 creation_time=1997-10-01T00:00:00
 location=37.8109485,-122.4107248/
 
@@ -26,7 +54,7 @@ location=37.8109485,-122.4107248/
 TIMEBASE=1/1
 START=432
 END=1128
-title=1997 - Ralph, Gene & Monica visit to Sebastiani Sonoma Cask Cellars (October ?, 1997)
+title=1997 - Ralph Lombardi, Gene & Monica visit to Sebastiani Sonoma Cask Cellars (October ?, 1997)
 creation_time=1997-10-01T00:00:00
 location=38.2932135,-122.4493420/
 
@@ -34,5 +62,5 @@ location=38.2932135,-122.4493420/
 TIMEBASE=1/1
 START=1131
 END=1828
-title=1997 - Ralph interviewing Lynn and Craig in Oakland, California (October 19, 1997)
+title=1997 - Ralph Lombardi interviewing Lynn and Craig in Oakland, California (October 19, 1997)
 creation_time=1997-10-19T00:00:00
