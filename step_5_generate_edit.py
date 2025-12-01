@@ -32,7 +32,7 @@ for src in ARCHIVE.glob("*.mkv"):
         "-map_metadata", "0",
 
         # VIDEO: DNxHR LB (small, fully editable)
-        "-c:v", "dnxhr",
+        "-c:v", "dnxhd",
         "-profile:v", "lb",
         "-pix_fmt", "yuv422p",
 
