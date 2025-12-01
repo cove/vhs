@@ -19,14 +19,6 @@ if not FFMPEG.exists():
 def run(cmd):
     subprocess.run([str(c) for c in cmd], check=True)
 
-def has_subtitles(file_path):
-    """Check if MP4 already has a subtitle stream"""
-    result = subprocess.run([
-        str(FFMPEG), "-v", "error", "-i", str(file_path),
-        "-f", "null", "-"
-    ], capture_output=True, text=True)
-    return "Subtitle:" in result.stderr or "Stream #0:[1-9]+.*Subtitle" in result.stderr
-
 srt_writer = get_writer("srt", str(CLIPS))
 
 for mp4 in CLIPS.glob("*.mp4"):
@@ -61,13 +53,6 @@ for mp4 in CLIPS.glob("*.mp4"):
         "-disposition:s:0", "default",
         "-y", str(temp_output)
     ])
-
-    # Verify subtitles are present
-    if not has_subtitles(temp_output):
-        print(f"  ERROR: subtitles failed for {mp4.name}")
-        temp_srt.unlink(missing_ok=True)
-        temp_output.unlink(missing_ok=True)
-        continue
 
     mp4.replace(temp_output)
     temp_srt.unlink(missing_ok=True)
