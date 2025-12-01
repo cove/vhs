@@ -92,6 +92,7 @@ def main():
             date = ctime[:4]
             location = ch.get("location", "")
             filter_avs = ch.get("filter_avs", "")
+            uuid = ch.get("uuid", "")
 
             final = VIDEOS / f"{safe(title)}.mp4"
             if final.exists():
@@ -137,6 +138,7 @@ ConvertToYV12(matrix="Rec601")
 QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3)
 Crop(0,0,-2,-6)
 LanczosResize(640,480)
+{filter_avs}
 Prefetch()
 '''
             avs_file.write_text(avs_script, encoding="ascii")
@@ -146,60 +148,40 @@ Prefetch()
                     "-i", str(avs_file), "-i", str(temp_raw),
                     "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
                     "-metadata", f"title={title}",
-                    "-metadata", f"comment=Chapter from {src.name} @ {start_hms}-{end_hms}",
+                    "-metadata", f"comment=Chapter from file {src.name} ({globals.get('uuid', '')}) @ {start_hms}-{end_hms} )",
                     "-metadata", f"creation_time={ctime}",
-                    "-metadata", f"CreateDate={ctime}",
-                    "-metadata", f"MediaCreateDate={ctime}",
                     "-metadata", f"com.apple.quicktime.creationdate={ctime}",
-                    "-metadata", f"com.apple.quicktime.uuid={globals.get('uuid', '')}",
+                    "-metadata", f"com.apple.quicktime.uuid={uuid}",
                     "-metadata", f"date={date}",
                     "-metadata", f"genre={globals.get('genre', '')}",
-                    "-metadata", f"composer={globals.get('composer', '')}",
-                    "-metadata", f"artist={globals.get('artist', '')}",
-                    "-metadata", f"album={globals.get('album', '')}",
+                    "-metadata", f"videographer={globals.get('videographer', '')}",
+                    "-metadata", f"tape_id={globals.get('tape_id', '')}",
             ]
 
             if location:
                 iso6709 = location.rstrip("/") + "/"
-                gpscoords = location.rstrip("/")
-                longitude, latitude = gpscoords.split(",")
-
                 cmd += [
                     "-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}",
-                    "-metadata", f"location={iso6709}",
-                    "-metadata", f"location-eng={iso6709}",
-                    "-metadata", f"GPSCoordinates={gpscoords}",
-                    "-metadata", f"GPSLatitude={latitude}",
-                    "-metadata", f"GPSLongitude={longitude}",
                 ]
 
             cmd += [
-                # — 2025 x265 quality settings —
                 "-c:v", "libx265",
-                "-preset", "veryslow",  # ← biggest single quality jump
-                "-crf", "16",           # ← 16 = visually lossless for VHS
+                "-preset", "veryslow",
+                "-crf", "16",
                 "-profile:v", "main10",
                 "-pix_fmt", "yuv420p10le",
-
-                # — Perceptual & detail-preserving tuning —
                 "-x265-params", "merange=57:psy-rd=2.0:aq-mode=3:aq-strength=1.0:bframes=8:keyint=600:rc-lookahead=80:no-sao=0:no-strong-intra-smoothing=0",
                 "-x265-params", "deblock=-1:-1",
                 "-x265-params", "ref=6",
-
-                # — Apple / compatibility —
                 "-tag:v", "hvc1",
                 "-movflags", "+faststart+write_colr+use_metadata_tags",
                 "-brand", "mp42",
-
-                # — Audio —
                 "-c:a", "aac", "-b:a", "64k", "-ac", "1",
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
-
                 "-y", str(final)
             ]
             run(cmd, cwd=VIDEOS)
 
-            # Cleanup
             temp_raw.unlink(missing_ok=True)
             avs_file.unlink(missing_ok=True)
 

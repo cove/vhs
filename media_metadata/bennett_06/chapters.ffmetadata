@@ -1,10 +1,10 @@
 ;FFMETADATA1
-composer=Terrance J. Bennett
-title=Bennett 06 Archive
-artist=Terrance J. Bennett
-album=Bennett 06 Archive (file bennett_06_archive.mkv)
+videographer=Terrance J. Bennett
+title=Bennett VHS-C Tape 06
+tape_id=06
 genre=Home Video
 date=1996
+uuid=f9a81878-178a-4e7b-b8dd-7e0bb959655d
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -12,7 +12,7 @@ START=11
 END=2483
 title=1997 - Terra's 6th Grade Egyptian HPA Play (1997)
 creation_time=1997-01-01T00:00:00
-location=+34.1751588,-118.0924703/
+location=+34.1751588-118.0924703+303.58/
 uuid=e0a6993f-d2ed-4f05-b323-ff690fa1d987
 
 [CHAPTER]
@@ -21,7 +21,7 @@ START=2495
 END=4041
 title=1996 - Flag Football at Eliot Middle School field (December 7, 1996)
 creation_time=1996-12-07T09:08:00
-location=+34.138095,-118.1356458/
+location=+34.138095-118.1356458+239.573/
 uuid=4fdb0a7c-cdff-4757-bb55-affca255b074
 
 [CHAPTER]
@@ -30,5 +30,5 @@ START=4061
 END=5414
 title=1996 - Christmas (December 24, 1996)
 creation_time=1996-12-24T00:00:00
-location=+334.195427,-118.137059/
+location=+34.194989-118.137183+449.58/
 uuid=dea17730-906f-4425-94bb-924f3471d217

@@ -1,10 +1,10 @@
 ;FFMETADATA1
-composer=Terrance J. Bennett
-title=Bennett 10 Archive
-artist=Terrance J. Bennett
-album=Bennett 10 Archive (file bennett_10_archive.mkv)
+videographer=Terrance J. Bennett
+title=Bennett VHS-C Tape 10
+tape_id=10
 genre=Home Video
 date=1992
+uuid=5838dd8a-f790-48ca-b68a-2e2241eb2ab3
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -12,7 +12,7 @@ START=8
 END=493
 title=1992 - Asia's 5th Birthday at Gerrish Swim & Tennis Club #2 (August 13, 1992)
 creation_time=1992-08-13T00:00:00
-location=+34.174082,-118.094512/
+location=+34.174082-118.094512+283.09/
 uuid=372803f8-977d-4770-8d1a-5efa8a6fa036
 
 [CHAPTER]
@@ -21,7 +21,7 @@ START=495
 END=530
 title=1992 - Kim & Rhett Butler interview in back house (1992)
 creation_time=1992-01-01T00:00:00
-location=+334.195427,-118.137059/
+location=+34.194989-118.137183+449.58/
 uuid=be3ae3df-b8b5-44b0-a451-afa35d277f96
 
 [CHAPTER]
@@ -38,5 +38,5 @@ START=691
 END=781
 title=1992 - Arizona trip to Red Rock State Park, Sedona (1992)
 creation_time=1992-01-01T00:00:00
-location=+34.8115779,-111.8292620/
+location=+34.8115779-111.8292620+1188.78/
 uuid=8ab24e2e-d73e-44a7-9b23-bf88ad07edfe

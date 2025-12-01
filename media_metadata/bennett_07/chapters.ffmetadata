@@ -1,10 +1,10 @@
 ;FFMETADATA1
-composer=Terrance J. Bennett
-title=Bennett 07 Archive
-artist=Terrance J. Bennett
-album=Bennett 07 Archive (file bennett_07_archive.mkv)
+videographer=Terrance J. Bennett
+title=Bennett VHS-C Tape 07
+tape_id=07
 genre=Home Video
 date=1992
+uuid=123c09ec-bfda-472c-851e-acebec3e9423
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -12,7 +12,7 @@ START=9
 END=235
 title=1992 - Morgan singing, Buddy's mask, Asia's Minnie Mouse outfit (November 29, 1992)
 creation_time=1992-11-29T00:00:00
-location=+334.195427,-118.137059/
+location=+34.194989-118.137183+449.58/
 uuid=feb76999-b775-4b17-803f-244835034051
 
 [CHAPTER]
@@ -21,7 +21,7 @@ START=9
 END=89
 title=1992 - Morgan singing (November 29, 1992)
 creation_time=1992-11-29T00:00:00
-location=+334.195427,-118.137059/
+location=+34.194989-118.137183+449.58/
 uuid=7a40d02f-f747-4ae8-aa43-ffa17559e51b
 
 [CHAPTER]
@@ -30,7 +30,7 @@ START=90
 END=137
 title=1992 - Buddy's mask (November 29, 1992)
 creation_time=1992-11-29T00:00:00
-location=+334.195427,-118.137059/
+location=+34.194989-118.137183+449.58/
 uuid=723da345-9983-449a-9840-53d3b0101023
 
 [CHAPTER]
@@ -39,7 +39,7 @@ START=137
 END=236
 title=1992 - Asia's Minnie Mouse outfit (November 29, 1992)
 creation_time=1992-11-29T00:00:00
-location=+334.195427,-118.137059/
+location=+34.194989-118.137183+449.58/
 uuid=5218a600-bd09-41a0-a555-92a564075476
 
 [CHAPTER]
@@ -48,7 +48,7 @@ START=243
 END=325
 title=1992 - Terra interview at 8 years old (November 29, 1992)
 creation_time=1992-11-29T00:00:00
-location=+334.195427,-118.137059/
+location=+34.194989-118.137183+449.58/
 uuid=d961746c-77eb-4645-9db3-d20d58ae94aa
 
 [CHAPTER]
@@ -57,7 +57,7 @@ START=343
 END=512
 title=1992 - Hazel & Asia dancing (December 18, 1992)
 creation_time=1992-12-18T19:03:00
-location=+334.195427,-118.137059/
+location=+34.194989-118.137183+449.58/
 uuid=7f4aea55-f32e-42e1-9bb5-0aeb626e2850
 
 [CHAPTER]
@@ -66,7 +66,7 @@ START=516
 END=569
 title=1992 - Buddy somersault (December 18, 1992)
 creation_time=1992-12-18T19:03:00
-location=+334.195427,-118.137059/
+location=+34.194989-118.137183+449.58/
 uuid=d6303504-867e-4e81-acb6-58f521c54ba6
 
 [CHAPTER]
@@ -75,7 +75,7 @@ START=574
 END=1202
 title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 00 Full Program (December 18, 1992)
 creation_time=1992-12-18T20:33:00
-location=+34.194989,-118.137183/
+location=+34.194989-118.137183+449.58/
 uuid=993e3e6b-d172-4fa6-ab75-78cf02895e97
 
 [CHAPTER]
@@ -84,7 +84,7 @@ START=576
 END=665
 title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 01 Pre-show Line Up (December 18, 1992)
 creation_time=1992-12-18T20:33:00
-location=+34.194989,-118.137183/
+location=+34.194989-118.137183+449.58/
 uuid=8cde2966-7081-4514-9625-0326c69a5d68
 
 [CHAPTER]
@@ -93,7 +93,7 @@ START=577
 END=665
 title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 02 Jingle Bells (December 18, 1992)
 creation_time=1992-12-18T20:33:00
-location=+34.194989,-118.137183/
+location=+34.194989-118.137183+449.58/
 uuid=0c4b1b7c-1a72-4216-a433-b1a925572e8c
 
 [CHAPTER]
@@ -102,7 +102,7 @@ START=738
 END=778
 title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 03 Funga Alafia (December 18, 1992)
 creation_time=1992-12-18T20:33:00
-location=+34.194989,-118.137183/
+location=+34.194989-118.137183+449.58/
 uuid=a7d49abc-b4bd-4f6c-8e32-67f683cdf932
 
 [CHAPTER]
@@ -111,7 +111,7 @@ START=780
 END=861
 title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 04 Love Love Love Love (December 18, 1992)
 creation_time=1992-12-18T20:33:00
-location=+34.194989,-118.137183/
+location=+34.194989-118.137183+449.58/
 uuid=6655b9a9-ac6b-4e97-98dd-78001f41a706
 
 [CHAPTER]
@@ -120,7 +120,7 @@ START=863
 END=942
 title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 05 Gracias A La Vida (December 18, 1992)
 creation_time=1992-12-18T20:33:00
-location=+34.194989,-118.137183/
+location=+34.194989-118.137183+449.58/
 uuid=fb2864e6-197b-4b85-877d-37971bb75a88
 
 [CHAPTER]
@@ -129,7 +129,7 @@ START=943
 END=1003
 title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 06 Rudolph the Red-Nosed Reindeer (December 18, 1992)
 creation_time=1992-12-18T20:33:00
-location=+34.194989,-118.137183/
+location=+34.194989-118.137183+449.58/
 uuid=6126fbd0-e392-4f55-96a9-7464d8a0f9ee
 
 [CHAPTER]
@@ -138,7 +138,7 @@ START=1010
 END=1040
 title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 07 Asia helps Buddy with laurel wreath (December 18, 1992)
 creation_time=1992-12-18T20:33:00
-location=+34.194989,-118.137183/
+location=+34.194989-118.137183+449.58/
 uuid=077bab06-5d29-4117-9099-266bc13f8053
 
 [CHAPTER]
@@ -147,7 +147,7 @@ START=1021
 END=1085
 title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 08 In a Little Stable (December 18, 1992)
 creation_time=1992-12-18T20:33:00
-location=+34.194989,-118.137183/
+location=+34.194989-118.137183+449.58/
 uuid=bdb876a5-b136-4e54-be3b-96ed4bc4dfd8
 
 [CHAPTER]
@@ -156,7 +156,7 @@ START=1091
 END=1139
 title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 09 Let's Make A Snowman (December 18, 1992)
 creation_time=1992-12-18T20:33:00
-location=+34.194989,-118.137183/
+location=+34.194989-118.137183+449.58/
 uuid=38539ffd-8443-486e-9e83-7da17203a77f
 
 [CHAPTER]
@@ -165,7 +165,7 @@ START=1140
 END=1195
 title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 10 We Wish You a Merry Christmas (December 18, 1992)
 creation_time=1992-12-18T20:33:00
-location=+34.194989,-118.137183/
+location=+34.194989-118.137183+449.58/
 uuid=b60f9b7d-8a9e-49e4-8883-ee01ae5ddf2a
 
 [CHAPTER]
@@ -174,7 +174,7 @@ START=1086
 END=1197
 title=1992 - Christmas Program at Children's Country House with Terra, Buddy & Asia - 11 Final Applause (December 18, 1992)
 creation_time=1992-12-18T20:33:00
-location=+34.194989,-118.137183/
+location=+34.194989-118.137183+449.58/
 uuid=b06eb008-162c-4e20-825d-8270bc02ab9a
 
 [CHAPTER]
@@ -183,6 +183,6 @@ START=1203
 END=1857
 title=1992 - Christmas (December 25, 1992)
 creation_time=1992-12-25T07:04:00
-location=+334.195427,-118.137059/
+location=+34.194989-118.137183+449.58/
 uuid=35d44a57-cbe6-4121-be3e-14db4ea61c2d
 

@@ -1,10 +1,10 @@
 ;FFMETADATA1
-composer=Terrance J. Bennett
-title=Bennett 09 Archive
-artist=Terrance J. Bennett
-album=Bennett 09 Archive (file bennett_09_archive.mkv)
+videographer=Terrance J. Bennett
+title=Bennett VHS-C Tape 09
+tape_id=09
 genre=Home Video
 date=1992
+uuid=1adcd546-fe80-4354-ace9-702efa0ee825
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -12,7 +12,7 @@ START=6
 END=267
 title=1992 - Dennis The Menace Playground in Monterey, California #2 (1992)
 creation_time=1992-01-01T00:00:00
-location=+36.597562,-121.886724/
+location=+36.597562-121.886724+4.2672/
 
 uuid=e7b768ff-ccd9-4727-8806-9a421804b48b
 [CHAPTER]
@@ -37,5 +37,5 @@ START=1478
 END=1755
 title=1992 - Asia's 5th Birthday at Gerrish Swim & Tennis Club #1 (August 13, 1992)
 creation_time=1992-08-131T00:00:00
-location=+34.174082,-118.094512/
+location=+34.174082-118.094512+283.09/
 uuid=088261d7-c71f-4036-80d2-7094bc700e38
