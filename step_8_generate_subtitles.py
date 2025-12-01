@@ -1,4 +1,4 @@
-import subprocess, sys
+import subprocess, sys, os
 from pathlib import Path
 import whisper
 from whisper.utils import get_writer
@@ -7,7 +7,9 @@ from whisper.utils import get_writer
 model = whisper.load_model("turbo")
 
 CLIPS = Path("../Clips")
-FFMPEG = Path("software/FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe")
+FFMPEG_DIR = Path("software/FFmpeg-QTGMC Easy 2025.01.11/")
+FFMPEG = FFMPEG_DIR / "ffmpeg.exe"
+os.environ["PATH"] = str(FFMPEG_DIR) + os.pathsep + os.environ.get("PATH", "")
 
 if not FFMPEG.exists():
     print(f"ERROR: ffmpeg not found at {FFMPEG}")
