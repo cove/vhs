@@ -18,7 +18,7 @@ print(f"Generating ProRes edit versions → {EDIT_VERSIONS}\n")
 
 for src in ARCHIVE.glob("*.mkv"):
     name = src.stem
-    final = EDIT_VERSIONS / f"{name}_edit.mov"
+    final = EDIT_VERSIONS / f"{name.replace("_archive", "_edit")}.mov"
 
     if final.exists():
         print(f"Skipping {src.name} (edit version exists)")
