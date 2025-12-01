@@ -14,7 +14,7 @@ if not FFMPEG.exists():
 def run(cmd):
     subprocess.run([str(c) for c in cmd], check=True)
 
-print(f"Generating ProRes edit versions → {EDIT_VERSIONS}\n")
+print(f"Generating edit versions → {EDIT_VERSIONS}\n")
 
 for src in ARCHIVE.glob("*.mkv"):
     name = src.stem
@@ -30,10 +30,15 @@ for src in ARCHIVE.glob("*.mkv"):
         "ffmpeg",
         "-i", str(src),
         "-map_metadata", "0",
-        "-c:v", "prores_ks",
-        "-profile:v", "3",  # ProRes 422 LT (mathematically lossless)
-        "-vendor", "ap10",  # helps compatibility
+
+        # VIDEO: DNxHR LB (small, fully editable)
+        "-c:v", "dnxhr",
+        "-profile:v", "lb",
+        "-pix_fmt", "yuv422p",
+
+        # AUDIO
         "-c:a", "pcm_s16le",
+
         "-y",
         str(final)
     ], check=True)
