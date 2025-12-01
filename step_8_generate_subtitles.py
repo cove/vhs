@@ -46,7 +46,7 @@ for mp4 in CLIPS.glob("*.mp4"):
         "-i", str(mp4),
         "-i", str(temp_srt),
         "-map_chapters", "-1",
-        "-map", "0", "-map", "1",
+        "-map", "0:v", "-map", "0:a",  "-map", "0:s?",
         "-c", "copy",
         "-c:s", "mov_text",
         "-metadata:s:s:0", "language=eng",
