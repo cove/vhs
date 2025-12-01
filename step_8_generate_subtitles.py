@@ -68,8 +68,8 @@ for mp4 in CLIPS.glob("*.mp4"):
     #     temp_output.unlink(missing_ok=True)
     #     continue
 
-    mp4.replace(temp_output)
-    temp_srt.unlink(missing_ok=True)
+    #mp4.replace(temp_output)
+    #temp_srt.unlink(missing_ok=True)
 
     print(f"  Done → {mp4.name} now has subtitles\n")
 
