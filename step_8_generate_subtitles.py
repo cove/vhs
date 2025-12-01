@@ -44,9 +44,10 @@ for mp4 in CLIPS.glob("*.mp4"):
     )
 
     # Output SRT path
-    temp_srt = CLIPS / "temp_subtitles.srt"
+    temp_srt = CLIPS / mp4.with_name(f"{mp4.stem}_subtitles_temp.srt")
     temp_output = mp4.with_name(f"{mp4.stem}_subtitles_temp.mp4")
     srt_writer(result, str(temp_srt))
+    srt_writer.close()
 
     # Mux subtitles into MP4
     run([
@@ -58,18 +59,19 @@ for mp4 in CLIPS.glob("*.mp4"):
         "-c:s", "mov_text",
         "-metadata:s:s:0", "language=eng",
         "-metadata:s:s:0", "title=English",
+        "-disposition:s:0", "default",
         "-y", str(temp_output)
     ])
 
-    # # Verify subtitles are present
-    # if not has_subtitles(temp_output):
-    #     print(f"  ERROR: subtitles failed for {mp4.name}")
-    #     temp_srt.unlink(missing_ok=True)
-    #     temp_output.unlink(missing_ok=True)
-    #     continue
+    # Verify subtitles are present
+    if not has_subtitles(temp_output):
+        print(f"  ERROR: subtitles failed for {mp4.name}")
+        temp_srt.unlink(missing_ok=True)
+        temp_output.unlink(missing_ok=True)
+        continue
 
-    #mp4.replace(temp_output)
-    #temp_srt.unlink(missing_ok=True)
+    mp4.replace(temp_output)
+    temp_srt.unlink(missing_ok=True)
 
     print(f"  Done → {mp4.name} now has subtitles\n")
 
