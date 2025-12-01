@@ -42,17 +42,21 @@ for mp4 in CLIPS.glob("*.mp4"):
 
     # Mux subtitles into MP4
     run([
-        FFMPEG, "-v", "error",
+        FFMPEG,
+        "-v", "error",
         "-i", str(mp4),
         "-i", str(temp_srt),
-        "-map_chapters", "-1",
-        "-map", "0:v", "-map", "0:a",  "-map", "0:s?",
-        "-c", "copy",
+        "-map", "0:v",  # all video
+        "-map", "0:a",  # all audio
+        "-map", "1",  # all subtitle streams from SRT
+        "-c:v", "copy",
+        "-c:a", "copy",
         "-c:s", "mov_text",
         "-metadata:s:s:0", "language=eng",
         "-metadata:s:s:0", "title=English",
         "-disposition:s:0", "default",
-        "-y", str(temp_output)
+        "-y",
+        str(temp_output)
     ])
 
     mp4.replace(temp_output)
