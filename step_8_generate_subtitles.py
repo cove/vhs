@@ -44,6 +44,7 @@ for mp4 in CLIPS.glob("*.mp4"):
     run([
         FFMPEG,
         "-v", "error",
+        "-ignore_chapters", "1",
         "-i", str(mp4),
         "-i", str(temp_srt),
         "-map", "0:v",
