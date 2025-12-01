@@ -29,6 +29,7 @@ for src in ARCHIVE.glob("*.mkv"):
     run([
         FFMPEG, "-v", "error",
         "-i", str(src),
+        "-map_metadata", "0",
         "-vf", "scale=iw/2:ih/2",  # ½ size
         "-c:v", "libx265",
         "-preset", "ultrafast",  # ← fastest preset

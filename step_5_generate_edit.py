@@ -29,6 +29,7 @@ for src in ARCHIVE.glob("*.mkv"):
     subprocess.run([
         "ffmpeg",
         "-i", str(src),
+        "-map_metadata", "0",
         "-c:v", "prores_ks",
         "-profile:v", "3",  # ProRes 422 LT (mathematically lossless)
         "-vendor", "ap10",  # helps compatibility
