@@ -1,8 +1,6 @@
 import subprocess, sys
 from pathlib import Path
 
-from scripts.truncate_video import duration
-
 BASE = Path(__file__).parent.resolve()
 FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
 QTGMC_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
@@ -30,7 +28,7 @@ def safe(s):
 
 def parse_chapters(path):
     chapters = []
-    globals = {}
+    ffmetadata = {}
     cur = {}
     in_chapter = False
     seen_chapter = False
@@ -40,7 +38,7 @@ def parse_chapters(path):
 
         if not seen_chapter and "=" in line and not line.startswith(("[", ";")):
             k, v = line.split("=", 1)
-            globals[k.strip().lower()] = v.strip()
+            ffmetadata[k.strip().lower()] = v.strip()
             continue
 
         if line == "[CHAPTER]":
@@ -63,7 +61,7 @@ def parse_chapters(path):
     if cur and in_chapter:
         chapters.append(cur)
 
-    return globals, chapters
+    return ffmetadata, chapters
 
 def main():
     for src in ARCHIVE.glob("*.mkv"):
@@ -74,7 +72,7 @@ def main():
             print(f"Skipping {src.name} — no metadata")
             continue
 
-        globals, chapters = parse_chapters(chapters_file)
+        ffmetadata, chapters = parse_chapters(chapters_file)
         if not chapters:
             print(f"No chapters for {src.name}")
             continue
@@ -97,6 +95,7 @@ def main():
             location = ch.get("location", "")
             filter_avs = ch.get("filter_avs", "")
             uuid = ch.get("uuid", "")
+            duration = ch.get("duration")
 
             final = VIDEOS / f"{safe(title)}.mp4"
             if final.exists():
@@ -152,14 +151,14 @@ Prefetch()
                     "-i", str(avs_file), "-i", str(temp_raw),
                     "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
                     "-metadata", f"title={title}",
-                    "-metadata", f"comment=Chapter from file {src.name} ({globals.get('uuid', '')}) @ {start_hms}-{end_hms} )",
+                    "-metadata", f"comment=Chapter from file {src.name} ({ffmetadata.get('uuid', '')}) @ {start_hms}-{end_hms} )",
                     "-metadata", f"creation_time={ctime}",
                     "-metadata", f"com.apple.quicktime.creationdate={ctime}",
                     "-metadata", f"com.apple.quicktime.uuid={uuid}",
                     "-metadata", f"date={date}",
-                    "-metadata", f"genre={globals.get('genre', '')}",
-                    "-metadata", f"videographer={globals.get('videographer', '')}",
-                    "-metadata", f"tape_id={globals.get('tape_id', '')}",
+                    "-metadata", f"genre={ffmetadata.get('genre', '')}",
+                    "-metadata", f"videographer={ffmetadata.get('videographer', '')}",
+                    "-metadata", f"tape_id={ffmetadata.get('tape_id', '')}",
             ]
 
             if location:
