@@ -1,13 +1,11 @@
 import subprocess, sys
 from pathlib import Path
 import whisper
-from whisper.utils import write_srt
-import io
+from whisper.utils import get_writer
 
 # Load model once
-model = whisper.load_model("large-v3")
+model = whisper.load_model("turbo")
 
-#VIDEOS = Path("../Videos")
 CLIPS = Path("../Clips")
 FFMPEG = Path("software/FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe")
 
@@ -27,6 +25,8 @@ def has_subtitles(file_path):
     ], capture_output=True, text=True)
     return "Subtitle:" in result.stderr or "Stream #0:[1-9]+.*Subtitle" in result.stderr
 
+srt_writer = get_writer("srt", str(CLIPS))
+
 for mp4 in CLIPS.glob("*.mp4"):
     if "_subtitles_temp" in mp4.name:
         print(f"Skipping {mp4.name}")
@@ -41,18 +41,11 @@ for mp4 in CLIPS.glob("*.mp4"):
         fp16=False
     )
 
-    # Generate SRT in memory
-    srt_buffer = io.StringIO()
-    write_srt(result["segments"], file=srt_buffer)
-    srt_content = srt_buffer.getvalue()
-
-    # Temp files
+    # Output SRT path
     temp_srt = CLIPS / "temp_subtitles.srt"
     temp_output = mp4.with_name(f"{mp4.stem}_subtitles_temp.mp4")
     final_output = mp4.with_name(f"{mp4.stem}.mp4")
-
-    # Save SRT
-    temp_srt.write_text(srt_content, encoding="utf-8")
+    srt_writer(result, str(temp_srt))
 
     # Mux subtitles into MP4
     run([
@@ -67,7 +60,7 @@ for mp4 in CLIPS.glob("*.mp4"):
         "-y", str(temp_output)
     ])
 
-    # Verify subtitles are really there
+    # Verify subtitles are present
     if not has_subtitles(temp_output):
         print(f"  ERROR: subtitles failed for {mp4.name}")
         temp_srt.unlink(missing_ok=True)
