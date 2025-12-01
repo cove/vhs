@@ -30,7 +30,7 @@ def has_subtitles(file_path):
 srt_writer = get_writer("srt", str(CLIPS))
 
 for mp4 in CLIPS.glob("*.mp4"):
-    if "_subtitles_temp" in mp4.name:
+    if "_temp" in mp4.name:
         print(f"Skipping {mp4.name}")
         continue
 
@@ -47,7 +47,6 @@ for mp4 in CLIPS.glob("*.mp4"):
     temp_srt = CLIPS / mp4.with_name(f"{mp4.stem}_subtitles_temp.srt")
     temp_output = mp4.with_name(f"{mp4.stem}_subtitles_temp.mp4")
     srt_writer(result, str(temp_srt))
-    srt_writer.close()
 
     # Mux subtitles into MP4
     run([
