@@ -1,12 +1,16 @@
 import subprocess, sys
 from pathlib import Path
 
+from scripts.truncate_video import duration
+
 BASE = Path(__file__).parent.resolve()
 FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11" / "ffmpeg.exe"
 QTGMC_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
 ARCHIVE = BASE.parent / "Archive"
 VIDEOS = BASE.parent / "Videos"
 VIDEOS.mkdir(exist_ok=True)
+CLIPS = BASE.parent / "Clips"
+CLIPS.mkdir(exist_ok=True)
 
 if not FFMPEG.exists():
     print(f"ERROR: ffmpeg.exe not found at {FFMPEG}")
@@ -180,7 +184,12 @@ Prefetch()
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
                 "-y", str(final)
             ]
-            run(cmd, cwd=VIDEOS)
+
+            final_dir = VIDEOS
+            if duration < 200:
+                final_dir = CLIPS
+
+            run(cmd, cwd=final_dir)
 
             temp_raw.unlink(missing_ok=True)
             avs_file.unlink(missing_ok=True)
