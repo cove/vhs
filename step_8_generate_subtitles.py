@@ -51,7 +51,7 @@ for mp4 in CLIPS.glob("*.mp4"):
         "-metadata:s:s:0", "language=eng",
         "-metadata:s:s:0", "title=English",
         "-disposition:s:0", "default",
-        "-map_chapters", "-1"
+        "-map_chapters", "-1",
         "-y", str(temp_output)
     ])
 
