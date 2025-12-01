@@ -77,13 +77,6 @@ def main():
             print(f"No chapters for {src.name}")
             continue
 
-        for ch in chapters:
-            start = int(ch.get("start", 0))
-            end = int(ch.get("end", 0))
-            ch["duration"] = end - start
-
-        chapters.sort(key=lambda x: x["duration"])
-
         print(f"Processing: {src.name} ({len(chapters)} chapters, shortest first)")
 
         for i, ch in enumerate(chapters):
@@ -182,6 +175,9 @@ Prefetch()
                 "-y", str(final)
             ]
 
+            start = int(ch.get("start", 0))
+            end = int(ch.get("end", 0))
+            duration = end - start
             final_dir = VIDEOS
             if duration < 200:
                 final_dir = CLIPS
