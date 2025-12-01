@@ -27,7 +27,7 @@ for src in ARCHIVE.glob("*.mkv"):
     print(f"Processing: {src.name} → {final.name}")
 
     subprocess.run([
-        "ffmpeg",
+        FFMPEG,
         "-i", str(src),
         "-map_metadata", "0",
         "-c:v", "prores_ks",
