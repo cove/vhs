@@ -77,6 +77,12 @@ def main():
             print(f"No chapters for {src.name}")
             continue
 
+        for ch in chapters:
+            start = int(ch.get("start", 0))
+            end = int(ch.get("end", 0))
+            ch["duration"] = end - start
+        chapters.sort(key=lambda x: x["duration"])
+
         print(f"Processing: {src.name} ({len(chapters)} chapters, shortest first)")
 
         for i, ch in enumerate(chapters):
@@ -90,13 +96,17 @@ def main():
             uuid = ch.get("uuid", "")
             duration = ch.get("duration")
 
-            final = VIDEOS / f"{safe(title)}.mp4"
-            if final.exists():
+            final_dir = VIDEOS
+            if duration < 200:
+                final_dir = CLIPS
+
+            final = final_dir / f"{safe(title)}.mp4"
+            if final.exists() and final.stat().st_size < 100_000:
                 print(f"  Skipping {final.name}")
                 continue
 
-            temp_raw = VIDEOS / f"temp_raw_{i+1:02d}.mkv"
-            avs_file = VIDEOS / f"qtgmc_{i+1:02d}.avs"
+            temp_raw = final_dir / f"temp_raw_{i+1:02d}.mkv"
+            avs_file = final_dir / f"qtgmc_{i+1:02d}.avs"
 
             print(f"  → {title} ({start_sec:.3f}s → {end_sec:.3f}s)")
 
@@ -174,13 +184,6 @@ Prefetch()
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
                 "-y", str(final)
             ]
-
-            start = int(ch.get("start", 0))
-            end = int(ch.get("end", 0))
-            duration = end - start
-            final_dir = VIDEOS
-            if duration < 200:
-                final_dir = CLIPS
 
             run(cmd, cwd=final_dir)
 
