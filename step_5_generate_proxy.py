@@ -18,7 +18,7 @@ print(f"Generating ½-size PROXY → {PROXY}\n")
 
 for src in ARCHIVE.glob("*.mkv"):
     name = src.stem
-    proxy = PROXY / f"{name.replace("_archive", "_proxy")}.mp4"
+    proxy = PROXY / f"{name.replace("_archive", "_small_proxy")}.mp4"
 
     if proxy.exists():
         print(f"Skipping {src.name} (proxy exists)")
