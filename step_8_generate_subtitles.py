@@ -45,13 +45,13 @@ for mp4 in CLIPS.glob("*.mp4"):
         FFMPEG, "-v", "error",
         "-i", str(mp4),
         "-i", str(temp_srt),
+        "-map_chapters", "-1",
         "-map", "0", "-map", "1",
         "-c", "copy",
         "-c:s", "mov_text",
         "-metadata:s:s:0", "language=eng",
         "-metadata:s:s:0", "title=English",
         "-disposition:s:0", "default",
-        "-map_chapters", "-1",
         "-y", str(temp_output)
     ])
 
