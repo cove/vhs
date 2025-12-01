@@ -7,7 +7,8 @@ import io
 # Load model once
 model = whisper.load_model("large-v3")
 
-VIDEOS = Path("../Videos")
+#VIDEOS = Path("../Videos")
+CLIPS = Path("../Clips")
 FFMPEG = Path("software/FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe")
 
 if not FFMPEG.exists():
@@ -26,7 +27,7 @@ def has_subtitles(file_path):
     ], capture_output=True, text=True)
     return "Subtitle:" in result.stderr or "Stream #0:[1-9]+.*Subtitle" in result.stderr
 
-for mp4 in VIDEOS.glob("*.mp4"):
+for mp4 in CLIPS.glob("*.mp4"):
     if "_subtitles_temp" in mp4.name:
         print(f"Skipping {mp4.name}")
         continue
@@ -46,7 +47,7 @@ for mp4 in VIDEOS.glob("*.mp4"):
     srt_content = srt_buffer.getvalue()
 
     # Temp files
-    temp_srt = VIDEOS / "temp_subtitles.srt"
+    temp_srt = CLIPS / "temp_subtitles.srt"
     temp_output = mp4.with_name(f"{mp4.stem}_subtitles_temp.mp4")
     final_output = mp4.with_name(f"{mp4.stem}.mp4")
 
