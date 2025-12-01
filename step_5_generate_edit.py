@@ -30,15 +30,11 @@ for src in ARCHIVE.glob("*.mkv"):
         "ffmpeg",
         "-i", str(src),
         "-map_metadata", "0",
-
-        # VIDEO: DNxHR LB (small, fully editable)
-        "-c:v", "dnxhd",
-        "-profile:v", "lb",
-        "-pix_fmt", "yuv422p",
-
-        # AUDIO
+        "-c:v", "prores_ks",
+        "-profile:v", "1",
+        "-vendor", "ap10",
         "-c:a", "pcm_s16le",
-
+        "-ac", "1",
         "-y",
         str(final)
     ], check=True)
