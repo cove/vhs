@@ -5,7 +5,7 @@ from whisper.utils import write_srt
 import io
 
 # Load model once
-model = whisper.load_model("openai/whisper-large-v3")
+model = whisper.load_model("large-v3")
 
 #VIDEOS = Path("../Videos")
 CLIPS = Path("../Clips")
