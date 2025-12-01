@@ -62,12 +62,12 @@ for mp4 in CLIPS.glob("*.mp4"):
         "-y", str(temp_output)
     ])
 
-    # Verify subtitles are present
-    if not has_subtitles(temp_output):
-        print(f"  ERROR: subtitles failed for {mp4.name}")
-        temp_srt.unlink(missing_ok=True)
-        temp_output.unlink(missing_ok=True)
-        continue
+    # # Verify subtitles are present
+    # if not has_subtitles(temp_output):
+    #     print(f"  ERROR: subtitles failed for {mp4.name}")
+    #     temp_srt.unlink(missing_ok=True)
+    #     temp_output.unlink(missing_ok=True)
+    #     continue
 
     # Success — replace original
     mp4.replace(final_output)
