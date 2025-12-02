@@ -65,9 +65,6 @@ def parse_chapters(path):
         chapters.append(cur)
     return ffmetadata, chapters
 
-model = whisper.load_model("large-v3")
-srt_writer = get_writer("srt", str(CLIPS))
-
 for src in ARCHIVE.glob("*.mkv"):
     prefix = "_".join(src.stem.rsplit("_", 2)[:2])
     chapters_file = BASE / "media_metadata" / prefix / "chapters.ffmetadata"
@@ -116,6 +113,8 @@ for src in ARCHIVE.glob("*.mkv"):
              "-avoid_negative_ts", "make_zero", "-y", str(temp_raw)])
 
         print(f"Transcribing audio: {title}")
+        model = whisper.load_model("large-v3")
+        srt_writer = get_writer("srt", str(SUBTITLES))
         result = model.transcribe(str(temp_raw), language="en", fp16=False)
         final_srt = SUBTITLES / f"{safe(title)}.srt"
         srt_writer(result, str(final_srt))
