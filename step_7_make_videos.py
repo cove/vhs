@@ -136,7 +136,7 @@ Import("{QTGMC_DIR}/QTGMC.avsi")
 FFmpegSource2("{temp_raw}", atrack=-1) 
 AssumeFPS(30000,1001) 
 ConvertToYV12(matrix="Rec601") 
-QTGMC(Preset="Slow",FPSDivisor=2,SourceMatch=3,Lossless=2,Sharpness=0.1)
+#QTGMC(Preset="Slow",FPSDivisor=2,SourceMatch=3,Lossless=2,Sharpness=0.1)
 Crop(4, 2, -8, -10)
 LanczosResize(640,480) 
 Prefetch()'''
