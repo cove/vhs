@@ -166,6 +166,9 @@ Prefetch()'''
             ]
 
         cmd += ["-map", "0:v", "-map", "0:a", "-map", "1", "-map_metadata", "-1",
+                "-tag:v", "hvc1",
+                "-brand", "mp42",
+                "-f", "mp4",
                 "-c:v", "libx265",
                 "-preset", "veryslow",
                 "-crf", "16",
@@ -188,9 +191,6 @@ Prefetch()'''
                 "-metadata:s:s:0", "language=eng",
                 "-disposition:s:0", "forced",
                 "-metadata:s:a:0", "language=eng",
-                "-tag:v", "hvc1",
-                "-brand", "mp42",
-                "-f", "mp4",
                 "-movflags", "+faststart+write_colr+use_metadata_tags",
                 "-y", str(final_file)]
         run(cmd, cwd=final_dir)
