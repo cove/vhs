@@ -198,12 +198,12 @@ Prefetch()'''
         srt_to_ass(temp_srt, temp_ass)
 
         # --- Encode MP4 with subtitles burned in ---
-        print(f"Encoding subtitles and final metadata: {final_file.name}")
+        print(f"Encoding final: {final_file.name}")
         cmd = [
             FFMPEG, "-v", "warning",
             "-i", str(temp_qtgmc), "-i", str(temp_ass), "-c", "copy", "-c:s", "mov_text",
             "-metadata", f"title={title}",
-            "-metadata", f"comment=Chapter from file {src.name} ({ffmetadata.get('uuid', '')}) @ {start_hms}-{end_hms} )",
+            "-metadata", f"comment=Chapter from file {src.name} @ {start_hms}-{end_hms} )",
             "-metadata", f"creation_time={ctime}",
             "-metadata", f"com.apple.quicktime.creationdate={ctime}",
             "-metadata", f"com.apple.quicktime.uuid={uuid}",
@@ -240,7 +240,8 @@ Prefetch()'''
                 "-y", str(final_file)]
         run(cmd, cwd=final_dir)
 
-        for each in [temp_raw, temp_srt, temp_ass, temp_qtgmc, temp_srt, temp_avs, f"{safe_name(title)}_temp_raw.mkv.ffindex"]:
+        for each in [temp_raw, temp_srt, temp_ass, temp_qtgmc, temp_srt, temp_avs,
+                     f"{safe_name(title)}_temp_raw.mkv.ffindex"]:
             each.unlink(missing_ok=True)
 
         print(f"  Done → {final_file.name}")
