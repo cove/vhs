@@ -133,6 +133,7 @@ for src in ARCHIVE.glob("*.mkv"):
         uuid = ch.get("uuid", "")
         start_hms = format_hms(start_sec)
         end_hms = format_hms(end_sec)
+        videographer = ch.get("videographer", ffmetadata.get('videographer', ''))
 
         final_dir = VIDEOS
         if duration < 200:
@@ -209,7 +210,7 @@ Prefetch()'''
             "-metadata", f"com.apple.quicktime.uuid={uuid}",
             "-metadata", f"date={ctime}",
             "-metadata", f"genre={ffmetadata.get('genre', '')}",
-            "-metadata", f"videographer={ffmetadata.get('videographer', '')}",
+            "-metadata", f"videographer={videographer}",
             "-metadata", f"tape_id={ffmetadata.get('tape_id', '')}",
         ]
 
