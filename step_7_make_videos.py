@@ -136,8 +136,12 @@ for src in ARCHIVE.glob("*.mkv"):
         final_dir = VIDEOS
         if duration < 200:
             final_dir = CLIPS
-
         archive_file = final_dir / f"{safe(title)}_archive.mkv"
+        final_file = final_dir / f"{safe(title)}.mp4"
+
+        if final_file.exists() and final_file.stat().st_size < 100_000:
+            print(f"  Skipping existing chapter: {title}")
+            continue
 
         # --- Extract chapter ---
         temp_raw = final_dir / f"{safe(title)}_temp_raw.mkv"
@@ -185,7 +189,6 @@ Prefetch()'''
             "-y", str(temp_qtgmc)])
 
         # --- Whisper transcription ---
-        final_file = final_dir / f"{safe(title)}.mp4"
         print(f"Transcribing audio: {title}")
         result = model.transcribe(str(temp_qtgmc), language="en", fp16=False)
         temp_srt = final_dir / f"{safe(title)}_subtitles.srt"
