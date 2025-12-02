@@ -229,6 +229,7 @@ Prefetch()'''
                 "-c:a", "aac", "-b:a", "48k", "-ac", "1",
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
                 "-y", str(final_file)]
+        run(cmd)
 
         temp_raw.unlink(missing_ok=True)
         temp_srt.unlink(missing_ok=True)
