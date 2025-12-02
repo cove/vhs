@@ -182,7 +182,7 @@ Prefetch()'''
         run([FFMPEG, "-v", "warning",
              "-i", str(temp_qtgmc.name),
              "-vf", f"ass={temp_ass.name}",
-             "-pix_fmt", "yuv422p",
+             "-pix_fmt", "yuv420p",
              "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
              "-c:a", "aac", "-b:a", "48k", "-ac", "1",
              "-movflags", "faststart",
