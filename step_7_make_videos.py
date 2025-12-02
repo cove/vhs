@@ -1,3 +1,4 @@
+import glob
 import subprocess, sys, os, re
 from pathlib import Path
 import whisper
@@ -157,10 +158,10 @@ Prefetch()'''
         print(f"Adding subtitles: {final_file.name}")
         run([FFMPEG, "-v", "warning",
              "-i", str(temp_qtgmc.name),
-             "-i", str(final_vtt),
              "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
              "-c:a", "aac", "-b:a", "48k", "-ac", "1",
-             "-tag:v", "hvc1", "-brand", "mp42"
+             "-tag:v", "hvc1", "-brand", "mp42",
+             "-i", str(final_vtt),
              "-c:s", "mov_text",
              "-metadata:s:s:0", "language=eng",
              "-disposition:s:0", "forced",
@@ -168,7 +169,9 @@ Prefetch()'''
              "-movflags", "+faststart+write_colr+use_metadata_tags",
              "-y", str(final_file)], cwd=final_dir)
 
+        Path(f"{temp_raw.name}.ffindex").unlink(missing_ok=True)
         temp_raw.unlink(missing_ok=True)
+        temp_qtgmc.unlink(missing_ok=True)
 
         print(f"  Done → {final_file.name}")
 
