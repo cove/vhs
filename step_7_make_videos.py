@@ -194,7 +194,6 @@ Prefetch()'''
         cmd = [
             FFMPEG, "-v", "warning",
             "-i", str(temp_qtgmc),
-            "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
             "-metadata", f"title={title}",
             "-metadata", f"comment=Chapter from file {src.name} ({ffmetadata.get('uuid', '')}) @ {start_hms}-{end_hms} )",
             "-metadata", f"creation_time={ctime}",
@@ -212,7 +211,9 @@ Prefetch()'''
                 "-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}"
             ]
 
-        cmd += ["-vf", f"ass={temp_ass.name}",
+        cmd += [
+                "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
+                "-vf", f"ass={temp_ass.name}",
                 "-c:v", "libx265",
                 "-preset", "veryslow",
                 "-crf", "16",
