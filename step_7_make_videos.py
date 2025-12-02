@@ -128,7 +128,9 @@ for src in ARCHIVE.glob("*.mkv"):
         ctime = ch.get("creation_time", "")
         location = ch.get("location", "")
 
-        final_dir = VIDEOS if duration >= 200 else final_dir = CLIPS
+        final_dir = VIDEOS
+        if duration < 200:
+            final_dir = CLIPS
         final_file = final_dir / f"{safe(title)}.mp4"
         archive_file = final_dir / f"{safe(title)}_archive.mkv"
 
