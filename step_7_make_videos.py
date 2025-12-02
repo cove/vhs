@@ -190,6 +190,7 @@ Prefetch()'''
                 "-metadata:s:a:0", "language=eng",
                 "-tag:v", "hvc1",
                 "-brand", "mp42",
+                "-f", "mp4",
                 "-movflags", "+faststart+write_colr+use_metadata_tags",
                 "-y", str(final_file)]
         run(cmd, cwd=final_dir)
