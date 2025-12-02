@@ -130,7 +130,9 @@ AssumeFPS(30000,1001)
 ConvertToYV12(matrix="Rec601") 
 QTGMC(Preset="Very Slow",FPSDivisor=2,EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3) 
 Crop(0,0,-2,-6) 
-LanczosResize(640,480) 
+LanczosResize(640,480)
+Tweak(sat=0.9)
+ConvertToYV12(interlaced=false)
 Prefetch()'''
         avs_file.write_text(avs_script, encoding="ascii")
 
