@@ -178,9 +178,10 @@ Prefetch()'''
         srt_to_ass(temp_srt, temp_ass)
 
         # --- Encode MP4 with subtitles burned in ---
+        #  "-vf", f"ass={temp_ass.name}",
         print(f"Applying subtitles: {final_file.name}")
         run([FFMPEG, "-v", "warning", "-i", str(temp_qtgmc.name),
-             "-vf", f"ass={temp_ass.name}",
+
              "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
              "-c:a", "aac", "-b:a", "48k", "-ac", "1",
              "-movflags", "faststart",
