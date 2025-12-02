@@ -217,7 +217,7 @@ QTGMC(Preset="Very Slow",FPSDivisor=2,EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=
 Crop(0,0,-2,-6)
 LanczosResize(640,480)
 {filter_avs}
-VSFilter("{temp_ass}")
+TextSub("{temp_ass}")
 Prefetch()
 '''
         avs_file.write_text(avs_script, encoding="ascii")
