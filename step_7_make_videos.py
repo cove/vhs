@@ -146,7 +146,7 @@ for src in ARCHIVE.glob("*.mkv"):
              "-i", str(src), "-map", "0:v", "-map", "0:a", "-c", "copy",
              "-avoid_negative_ts", "make_zero", "-y", str(temp_raw)])
 
-        avs_file = final_dir / f"{safe(title)}_temp.avs"
+        temp_avs = final_dir / f"{safe(title)}_temp.avs"
         avs_script = f'''
 SetFilterMTMode("DEFAULT_MT_MODE", 2)
 LoadPlugin("{QTGMC_DIR}/ffms2.dll") 
@@ -167,12 +167,12 @@ QTGMC(Preset="Very Slow",FPSDivisor=2,EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=
 Crop(4, 2, -8, -10)
 LanczosResize(640,480) 
 Prefetch()'''
-        avs_file.write_text(avs_script, encoding="ascii")
+        temp_avs.write_text(avs_script, encoding="ascii")
 
         # --- QTGMC → FFV1 ---
         print(f"Applying deinterlacing to chapter: {title}")
         temp_qtgmc = final_dir / f"{safe(title)}_temp_qtgmc.mkv"
-        run([FFMPEG, "-v", "warning", "-i", str(avs_file), "-i", str(temp_raw),
+        run([FFMPEG, "-v", "warning", "-i", str(temp_avs), "-i", str(temp_raw),
             "-pix_fmt", "yuv422p",
             "-color_primaries:v", "6",
             "-color_trc:v", "6",
@@ -243,6 +243,7 @@ Prefetch()'''
         temp_ass.unlink(missing_ok=True)
         temp_qtgmc.unlink(missing_ok=True)
         temp_srt.unlink(missing_ok=True)
+        temp_avs.unlink(missing_ok=True)
 
         print(f"  Done → {final_file.name}")
 
