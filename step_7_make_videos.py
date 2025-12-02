@@ -136,7 +136,7 @@ Import("{QTGMC_DIR}/QTGMC.avsi")
 FFmpegSource2("{temp_raw}", atrack=-1) 
 AssumeFPS(30000,1001) 
 ConvertToYV12(matrix="Rec601") 
-#QTGMC(Preset="Slow",FPSDivisor=2,SourceMatch=3,Lossless=2,Sharpness=0.1)
+QTGMC(Preset="Slow",FPSDivisor=2,SourceMatch=3,Lossless=2,Sharpness=0.1)
 Crop(4, 2, -8, -10)
 LanczosResize(640,480) 
 Prefetch()'''
@@ -164,9 +164,6 @@ Prefetch()'''
             ]
 
         cmd += ["-map", "0:v", "-map", "0:a", "-map", "1", "-map_metadata", "-1",
-                "-tag:v", "hvc1",
-                "-brand", "mp42",
-                "-f", "mp4",
                 "-c:v", "libx265",
                 "-preset", "veryslow",
                 "-crf", "16",
@@ -192,6 +189,9 @@ Prefetch()'''
                 "-metadata:s:s:0", "language=eng",
                 "-disposition:s:0", "forced",
                 "-metadata:s:a:0", "language=eng",
+                "-tag:v", "hvc1",
+                "-brand", "mp42",
+                "-f", "mp4",
                 "-movflags", "+faststart+write_colr+use_metadata_tags",
                 "-y", str(final_file)]
         run(cmd, cwd=final_dir)
