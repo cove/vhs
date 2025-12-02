@@ -223,9 +223,7 @@ Prefetch()'''
         if BURN_SUBTITLES_INTO_VIDEO:
             cmd += ["-vf", f"ass={temp_ass.name}"]
 
-        cmd += ["-map", "0:v", "-map", "0:a", "-map_metadata", "-1",
-                "-metadata:s:s:0", "language=eng",
-                "-c", "copy", "-c:s", "mov_text",
+        cmd += ["-map", "0:v", "-map", "0:a", "-map", "1", "-map_metadata", "-1",
                 "-c:v", "libx265",
                 "-preset", "veryslow",
                 "-crf", "16",
@@ -239,6 +237,8 @@ Prefetch()'''
                 "-brand", "mp42",
                 "-c:a", "aac", "-b:a", "48k", "-ac", "1",
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
+                "-c:s", "mov_text",
+                "-metadata:s:s:0", "language=eng",
                 "-movflags", "+faststart+write_colr+use_metadata_tags",
                 "-y", str(final_file)]
         run(cmd, cwd=final_dir)
