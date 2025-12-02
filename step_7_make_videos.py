@@ -192,7 +192,8 @@ Prefetch()'''
              "-vf", f"ass={temp_ass.name}",
              "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
              "-c:a", "aac", "-b:a", "48k", "-ac", "1",
-             "-movflags", "faststart",
+             "-tag:v", "hvc1", "-brand", "mp42"
+             "-movflags", "+faststart",
              "-y", str(final_file)], cwd=final_dir)
 
         temp_raw.unlink(missing_ok=True)
