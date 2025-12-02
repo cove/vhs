@@ -137,7 +137,6 @@ FFmpegSource2("{temp_raw}", atrack=-1)
 AssumeFPS(30000,1001) 
 ConvertToYV12(matrix="Rec601") 
 QTGMC(Preset="Slow",FPSDivisor=2,SourceMatch=0,Lossless=2,Sharpness=0.1)
-ConvertBits(16)
 Crop(4, 2, -8, -10)
 LanczosResize(640,480) 
 Prefetch()'''
