@@ -146,7 +146,8 @@ Prefetch()'''
 
         final_vtt = SUBTITLES / f"{title}.vtt"
         print(f"Transcribing audio: {final_file.name} to {final_vtt.name}")
-        model = whisper.load_model("large-v3")
+        #model = whisper.load_model("large-v3")
+        model = whisper.load_model("turbo")
         vtt_writer = get_writer("vtt", str(SUBTITLES))
         result = model.transcribe(str(temp_qtgmc), language="en", fp16=False)
         vtt_writer(result, str(final_vtt))
