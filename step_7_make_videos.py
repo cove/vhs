@@ -236,6 +236,8 @@ Prefetch()'''
         temp_raw.unlink(missing_ok=True)
         temp_srt.unlink(missing_ok=True)
         temp_ass.unlink(missing_ok=True)
+        temp_qtgmc.unlink(missing_ok=True)
+        temp_srt.unlink(missing_ok=True)
 
         print(f"  Done → {final_file.name}")
 
