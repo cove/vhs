@@ -147,7 +147,7 @@ Prefetch()'''
         print(f"Encoding: {final_file.name}")
         cmd = [
             FFMPEG,
-            "-i", str(temp_raw), "-i", str(temp_avs), "-i", str(final_vtt),
+            "-i", str(temp_raw), "-i", str(temp_avs),
             "-metadata", f"title={title}",
             "-metadata", f"comment=Chapter from file {src.name} @ {start_hms}-{end_hms}",
             "-metadata", f"creation_time={ctime}",
@@ -190,8 +190,7 @@ Prefetch()'''
                 "-af", "lowpass=f=14000",
                 "-af", "afftdn=nf=-28",
                 "-af", "dynaudnorm=g=15",
-                "-af", "equalizer=f=6000:t=p:w=0.01:g=-20",
-                "-af", "equalizer=f=12000:t=p:w=0.01:g=-15",
+                "-i", str(final_vtt),
                 "-c:s", "mov_text",
                 "-metadata:s:s:0", "language=eng",
                 "-disposition:s:0", "forced",
