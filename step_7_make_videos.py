@@ -64,7 +64,7 @@ def parse_chapters(path):
         chapters.append(cur)
     return ffmetadata, chapters
 
-def srt_to_ass(srt_path, ass_path, font="Calibri", fontsize=30):
+def srt_to_ass(srt_path, ass_path, font="Calibri", fontsize=40):
     srt_path = Path(srt_path)
     ass_path = Path(ass_path)
     ass_header = f"""[Script Info]
