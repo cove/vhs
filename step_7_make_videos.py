@@ -158,7 +158,7 @@ FFmpegSource2("{temp_raw}", atrack=-1)
 AssumeFPS(30000,1001) 
 ConvertToYV12(matrix="Rec601") 
 QTGMC(Preset="Very Slow",FPSDivisor=2,EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3) 
-#Crop(0,0,-2,-6) 
+Crop(0,0,-2,-6) 
 LanczosResize(640,480) 
 Prefetch()'''
         avs_file.write_text(avs_script, encoding="ascii")
@@ -166,9 +166,16 @@ Prefetch()'''
         # --- QTGMC → FFV1 (archive) ---
         temp_qtgmc = final_dir / f"temp_qtgmc_{i+1:02d}.mkv"
         run([FFMPEG, "-v", "warning", "-i", str(avs_file), "-i", str(temp_raw),
-             "-pix_fmt", "yuv420p",
-             "-c:v", "ffv1", "-level", "3", "-g", "1",
-             "-c:a", "aac", "-b:a", "48k", "-y", str(temp_qtgmc)])
+            "-pix_fmt", "yuv422p",
+            "-color_primaries:v", "6",
+            "-color_trc:v", "6",
+            "-colorspace:v", "5",
+            "-color_range:v", "1",
+            "-map", "0:v:0", "-c:v", "ffv1",
+            "-level", "3", "-g", "1", "-coder", "1", "-context", "1",
+            "-slices", "24", "-slicecrc", "1",
+            "-map", "0:a", "-c:a", "pcm_s16le",
+            "-c:a", "aac", "-b:a", "48k", "-y", str(temp_qtgmc)])
 
         # --- Whisper transcription ---
         print(f"Transcribing: {final_file.name}")
