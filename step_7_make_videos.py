@@ -166,6 +166,7 @@ Prefetch()'''
         # --- QTGMC → FFV1 (archive) ---
         temp_qtgmc = final_dir / f"temp_qtgmc_{i+1:02d}.mkv"
         run([FFMPEG, "-v", "warning", "-i", str(avs_file), "-i", str(temp_raw),
+             "-pix_fmt", "yuv420p",
              "-c:v", "ffv1", "-level", "3", "-g", "1",
              "-c:a", "aac", "-b:a", "48k", "-y", str(temp_qtgmc)])
 
@@ -182,7 +183,6 @@ Prefetch()'''
         run([FFMPEG, "-v", "warning",
              "-i", str(temp_qtgmc.name),
              "-vf", f"ass={temp_ass.name}",
-             "-pix_fmt", "yuv420p",
              "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
              "-c:a", "aac", "-b:a", "48k", "-ac", "1",
              "-movflags", "faststart",
