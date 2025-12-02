@@ -215,7 +215,7 @@ Prefetch()'''
 
         cmd += [
                 "-map", "0:v", "-map_metadata", "-1",
-                "-vf", f"ass={temp_ass}",
+                "-vf", f"ass={temp_ass.name}",
                 "-c:v", "libx265",
                 "-preset", "veryslow",
                 "-crf", "16",
@@ -231,7 +231,7 @@ Prefetch()'''
                 "-c:a", "aac", "-b:a", "48k", "-ac", "1",
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
                 "-y", str(final_file)]
-        run(cmd)
+        run(cmd, cwd=final_dir)
 
         temp_raw.unlink(missing_ok=True)
         temp_srt.unlink(missing_ok=True)
