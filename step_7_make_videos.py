@@ -104,7 +104,7 @@ for src in ARCHIVE.glob("*.mkv"):
              "-i", str(src), "-map", "0:v", "-map", "0:a", "-c", "copy",
              "-avoid_negative_ts", "make_zero", "-y", str(temp_extracted)])
 
-        avs_file = final_dir / f"{safe(title)}.avs"
+        temp_avs = final_dir / f"{safe(title)}.avs"
         avs_script = f'''
 SetFilterMTMode("DEFAULT_MT_MODE", 2)
 LoadPlugin("{QTGMC_DIR}/ffms2.dll") 
@@ -128,11 +128,11 @@ ConvertToYV12(interlaced=false)
 # Videos tend to be a little over saturated
 Tweak(sat=0.8)
 Prefetch()'''
-        avs_file.write_text(avs_script, encoding="ascii")
+        temp_avs.write_text(avs_script, encoding="ascii")
 
         print(f"Deinterlacing chapter: {title}")
         temp_qtgmc = final_dir / f"{safe(title)}_qtgmc.mkv"
-        run([FFMPEG, "-v", "warning", "-i", str(avs_file), "-i", str(temp_extracted),
+        run([FFMPEG, "-v", "warning", "-i", str(temp_avs), "-i", str(temp_extracted),
             "-pix_fmt", "yuv422p",
             "-color_primaries:v", "6",
             "-color_trc:v", "6",
@@ -173,11 +173,12 @@ Prefetch()'''
              "-movflags", "+faststart+write_colr+use_metadata_tags",
              "-y", str(final_file)], cwd=final_dir)
 
-        Path(f"{temp_extracted.name}.ffindex").unlink(missing_ok=True)
+        temp_extracted.with_suffix(".ffindex").unlink(missing_ok=True)
         temp_extracted.unlink(missing_ok=True)
         temp_qtgmc.unlink(missing_ok=True)
+        temp_avs.unlink(missing_ok=True)
 
-        print(f"  Done → {final_file.name}")
+        print(f"  Done  {final_file.name}")
 
 print("All done")
 
