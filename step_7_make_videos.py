@@ -3,7 +3,9 @@ from pathlib import Path
 import whisper
 from whisper.utils import get_writer
 
-# --- Paths / Environment ---
+# Write the subtitles into the video file additionally.
+BURN_SUBTITLES_INTO_VIDEO=False
+
 BASE = Path(__file__).parent.resolve()
 FFMPEG_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
 FFMPEG = FFMPEG_DIR / "ffmpeg.exe"
@@ -167,7 +169,7 @@ LanczosResize(640,480)
 Prefetch()'''
         avs_file.write_text(avs_script, encoding="ascii")
 
-        # --- QTGMC → FFV1 (archive) ---
+        # --- QTGMC → FFV1 ---
         print(f"Applying deinterlacing to chapter: {title}")
         temp_qtgmc = final_dir / f"{safe(title)}_temp_qtgmc.mkv"
         run([FFMPEG, "-v", "warning", "-i", str(avs_file), "-i", str(temp_raw),
@@ -186,8 +188,8 @@ Prefetch()'''
         final_file = final_dir / f"{safe(title)}.mp4"
         print(f"Transcribing audio: {title}")
         result = model.transcribe(str(temp_qtgmc), language="en", fp16=False)
-        temp_srt = final_dir / f"{final_dir.stem}_subtitles.srt"
-        temp_ass = final_dir / f"{final_dir.stem}_subtitles.ass"
+        temp_srt = final_dir / f"{safe(title)}_subtitles.srt"
+        temp_ass = final_dir / f"{safe(title)}_subtitles.ass"
         srt_writer(result, str(temp_srt))
         srt_to_ass(temp_srt, temp_ass)
 
@@ -213,9 +215,12 @@ Prefetch()'''
                 "-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}"
             ]
 
-        cmd += [
-                "-map", "0:v", "-map", "0:a", "-map_metadata", "-1",
-                "-vf", f"ass={temp_ass.name}",
+        cmd += [ "-i", "{temp_ass.name}", "-c", "copy", "-c:s", "mov_text" ]
+
+        if BURN_SUBTITLES_INTO_VIDEO:
+            cmd += ["-vf", f"ass={temp_ass.name}"]
+
+        cmd += ["-map", "0:v", "-map", "0:a", "-map_metadata", "-1",
                 "-c:v", "libx265",
                 "-preset", "veryslow",
                 "-crf", "16",
