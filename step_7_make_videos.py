@@ -153,6 +153,7 @@ Prefetch()'''
             "-vn",
             "-af", "highpass=f=120,lowpass=f=8000,afftdn=nf=-25,dynaudnorm=f=150:g=13,aresample=16000",
             "-c:a", "pcm_s16le",
+            "-y",
             str(temp_transcript)
         ], check=True)
 
