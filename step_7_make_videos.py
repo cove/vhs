@@ -174,7 +174,7 @@ Prefetch()'''
             "-map", "0:v:0", "-c:v", "ffv1",
             "-level", "3", "-g", "1", "-coder", "1", "-context", "1",
             "-slices", "24", "-slicecrc", "1",
-            "-map", "0:a", "-c:a", "pcm_s16le",
+            "-map", "0:a", "-c:a", "copy",
             "-y", str(temp_qtgmc)])
 
         # --- Whisper transcription ---
