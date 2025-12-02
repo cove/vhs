@@ -164,20 +164,22 @@ Prefetch()'''
         avs_file.write_text(avs_script, encoding="ascii")
 
         # --- QTGMC → FFV1 (archive) ---
-        run([FFMPEG, "-v", "warning", "-i", str(avs_file),
+        temp_qtgmc = final_dir / f"temp_qtgmc_{i+1:02d}.mkv"
+        run([FFMPEG, "-v", "warning", "-i", str(avs_file), "-i", str(temp_raw),
              "-c:v", "ffv1", "-level", "3", "-g", "1",
-             "-c:a", "copy", "-y", str(temp_raw)])
+             "-c:a", "copy", "-y", str(temp_qtgmc)])
 
         # --- Whisper transcription ---
-        print(f"Transcribing: {temp_raw.name}")
-        result = model.transcribe(str(temp_raw), language="en", fp16=False)
+        print(f"Transcribing: {final_file.name}")
+        result = model.transcribe(str(temp_qtgmc), language="en", fp16=False)
         temp_srt = final_dir / f"{final_dir.stem}_subtitles.srt"
         temp_ass = final_dir / f"{final_dir.stem}_subtitles.ass"
         srt_writer(result, str(temp_srt))
         srt_to_ass(temp_srt, temp_ass)
 
         # --- Encode MP4 with subtitles burned in ---
-        run([FFMPEG, "-v", "warning", "-i", str(archive_file),
+        print(f"Applying subtitles: {final_file.name}")
+        run([FFMPEG, "-v", "warning", "-i", str(temp_qtgmc),
              "-vf", f"ass={temp_ass}",
              "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
              "-c:a", "aac", "-b:a", "48k", "-ac", "1",
