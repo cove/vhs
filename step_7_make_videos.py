@@ -202,8 +202,7 @@ Prefetch()'''
         print(f"Encoding final: {final_file.name}")
         cmd = [
             FFMPEG, "-v", "warning",
-            "-i", str(temp_qtgmc), "-i", str(temp_ass), "-c", "copy", "-c:s", "mov_text",
-            "-metadata:s:s:0", "language=eng",
+            "-i", str(temp_qtgmc), "-i", str(temp_ass),
             "-metadata", f"title={title}",
             "-metadata", f"comment=Chapter from file {src.name} @ {start_hms}-{end_hms} )",
             "-metadata", f"creation_time={ctime}",
@@ -225,6 +224,8 @@ Prefetch()'''
             cmd += ["-vf", f"ass={temp_ass.name}"]
 
         cmd += ["-map", "0:v", "-map", "0:a", "-map_metadata", "-1",
+                "-metadata:s:s:0", "language=eng",
+                "-c", "copy", "-c:s", "mov_text",
                 "-c:v", "libx265",
                 "-preset", "veryslow",
                 "-crf", "16",
@@ -235,10 +236,10 @@ Prefetch()'''
                 "-x265-params", "deblock=-1:-1",
                 "-x265-params", "ref=6",
                 "-tag:v", "hvc1",
-                "-movflags", "+faststart+write_colr+use_metadata_tags",
                 "-brand", "mp42",
                 "-c:a", "aac", "-b:a", "48k", "-ac", "1",
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
+                "-movflags", "+faststart+write_colr+use_metadata_tags",
                 "-y", str(final_file)]
         run(cmd, cwd=final_dir)
 
