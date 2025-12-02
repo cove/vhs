@@ -184,7 +184,7 @@ Prefetch()'''
                 "-x265-params", "ref=6",
                 "-c:a", "aac", "-b:a", "48k", "-ac", "1",
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15,equalizer=f=6000:t=notch:w=1:g=-20,equalizer=f=12000:t=notch:w=1:g=-15"
-                "-c:s", "webvtt",
+                "-c:s", "mov_text",
                 "-metadata:s:s:0", "language=eng",
                 "-disposition:s:0", "forced",
                 "-metadata:s:a:0", "language=eng",
