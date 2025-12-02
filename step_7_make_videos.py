@@ -239,6 +239,7 @@ Prefetch()'''
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
                 "-c:s", "mov_text",
                 "-metadata:s:s:0", "language=eng",
+                "-disposition:s:0", "forced",
                 "-movflags", "+faststart+write_colr+use_metadata_tags",
                 "-y", str(final_file)]
         run(cmd, cwd=final_dir)
