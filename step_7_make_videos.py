@@ -191,10 +191,10 @@ Prefetch()'''
                 "-af", "afftdn=nf=-28",
                 "-af", "dynaudnorm=g=15",
                 "-c:s", "mov_text",
-                "-i", str(final_vtt),
                 "-metadata:s:s:0", "language=eng",
                 "-disposition:s:0", "forced",
                 "-metadata:s:a:0", "language=eng",
+                "-i", str(final_vtt),
                 "-movflags", "+faststart+write_colr+use_metadata_tags",
                 "-y", str(final_file)]
         run(cmd, cwd=final_dir)
