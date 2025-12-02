@@ -157,11 +157,11 @@ Prefetch()'''
         # --- Encode MP4 with subtitles burned in ---
         print(f"Adding subtitles: {final_file.name}")
         run([FFMPEG, "-v", "warning",
+             "-i", str(final_vtt),
              "-i", str(temp_qtgmc.name),
              "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
              "-c:a", "aac", "-b:a", "48k", "-ac", "1",
              "-tag:v", "hvc1", "-brand", "mp42",
-             "-i", str(final_vtt),
              "-c:s", "mov_text",
              "-metadata:s:s:0", "language=eng",
              "-disposition:s:0", "forced",
