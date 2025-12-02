@@ -128,9 +128,9 @@ for src in ARCHIVE.glob("*.mkv"):
         ctime = ch.get("creation_time", "")
         location = ch.get("location", "")
 
-        final_dir = VIDEOS if duration >= 200 else CLIPS
+        final_dir = VIDEOS if duration >= 200 else final_dir = CLIPS
+        final_file = final_dir / f"{safe(title)}.mp4"
         archive_file = final_dir / f"{safe(title)}_archive.mkv"
-        edit_file = final_dir / f"{safe(title)}.mp4"
 
         # --- Extract chapter ---
         temp_raw = final_dir / f"temp_raw_{i+1:02d}.mkv"
@@ -138,13 +138,36 @@ for src in ARCHIVE.glob("*.mkv"):
              "-i", str(src), "-map", "0:v", "-map", "0:a", "-c", "copy",
              "-avoid_negative_ts", "make_zero", "-y", str(temp_raw)])
 
+        avs_file = final_dir / f"qtgmc_{i + 1:02d}.avs"
+        avs_script = f'''
+SetFilterMTMode("DEFAULT_MT_MODE", 2)
+LoadPlugin("{QTGMC_DIR}/ffms2.dll") 
+LoadPlugin("{QTGMC_DIR}/masktools2.dll") 
+LoadPlugin("{QTGMC_DIR}/Rgtools.dll") 
+LoadPlugin("{QTGMC_DIR}/mvtools2.dll") 
+LoadPlugin("{QTGMC_DIR}/nnedi3.dll") 
+LoadPlugin("{QTGMC_DIR}/yadifmod2.dll") 
+LoadPlugin("{QTGMC_DIR}/fft3dfilter.dll") 
+LoadPlugin("{QTGMC_DIR}/LoadDLL64.dll") 
+LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll") 
+Import("{QTGMC_DIR}/Zs_RF_Shared.avsi") 
+Import("{QTGMC_DIR}/QTGMC.avsi") 
+FFmpegSource2("{temp_raw.name}", atrack=-1) 
+AssumeFPS(30000,1001) 
+ConvertToYV12(matrix="Rec601") 
+QTGMC(Preset="Very Slow",FPSDivisor=2,EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3) 
+Crop(0,0,-2,-6) 
+LanczosResize(640,480) 
+Prefetch()'''
+        avs_file.write_text(avs_script, encoding="ascii")
+
         # --- QTGMC → FFV1 (archive) ---
-        run([FFMPEG, "-v", "warning", "-i", str(temp_raw),
+        run([FFMPEG, "-v", "warning", "-i", str(avs_file),
              "-c:v", "ffv1", "-level", "3", "-g", "1",
-             "-c:a", "pcm_s16le", "-y", str(archive_file)])
+             "-c:a", "pcm_s16le", "-y", str(temp_raw)])
 
         # --- Whisper transcription ---
-        print(f"Transcribing: {edit_file.name}")
+        print(f"Transcribing: {temp_raw.name}")
         result = model.transcribe(str(temp_raw), language="en", fp16=False)
         temp_srt = final_dir / f"{final_dir.stem}_subtitles.srt"
         temp_ass = final_dir / f"{final_dir.stem}_subtitles.ass"
@@ -155,14 +178,14 @@ for src in ARCHIVE.glob("*.mkv"):
         run([FFMPEG, "-v", "warning", "-i", str(archive_file),
              "-vf", f"ass={temp_ass}",
              "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
-             "-c:a", "aac", "-b:a", "64k", "-ac", "1",
+             "-c:a", "aac", "-b:a", "48k", "-ac", "1",
              "-movflags", "faststart",
-             "-y", str(edit_file)])
+             "-y", str(final_file)])
 
         temp_raw.unlink(missing_ok=True)
         temp_srt.unlink(missing_ok=True)
         temp_ass.unlink(missing_ok=True)
 
-        print(f"  Done → {edit_file.name} (archive: {archive_file.name})")
+        print(f"  Done → {final_file.name}")
 
 print("All done")
