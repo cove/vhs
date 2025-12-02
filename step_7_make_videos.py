@@ -151,12 +151,12 @@ Prefetch()'''
             FFMPEG, "-v", "warning",
             "-i", str(temp_extracted),
             "-vn",
-            "-af", "highpass=f=120,lowpass=f=8000,afftdn=nf=-25,dynaudnorm=f=150:g=12,aresample=16000",
+            "-af", "highpass=f=120,lowpass=f=8000,afftdn=nf=-25,dynaudnorm=f=150:g=13,aresample=16000",
             "-c:a", "pcm_s16le",
             str(temp_transcript)
         ], check=True)
 
-        model = whisper.load_model("large-v3")
+        model = whisper.load_model("turbo")
         vtt_writer = get_writer("vtt", str(SUBTITLES))
         result = model.transcribe(str(temp_transcript), language="en", fp16=False)
         vtt_writer(result, str(final_vtt))
