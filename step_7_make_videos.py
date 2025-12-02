@@ -103,10 +103,10 @@ for src in ARCHIVE.glob("*.mkv"):
 
         # --- Extract chapter ---
         print(f"Extracting chapter: {title} ({format_hms(start_sec)} - {format_hms(end_sec)}) ")
-        temp_raw = final_dir / f"{safe(title)}.mkv"
+        temp_extracted = final_dir / f"{safe(title)}_extracted.mkv"
         run([FFMPEG, "-v", "warning", "-ss", f"{start_sec:.3f}", "-to", f"{end_sec:.3f}",
              "-i", str(src), "-map", "0:v", "-map", "0:a", "-c", "copy",
-             "-avoid_negative_ts", "make_zero", "-y", str(temp_raw)])
+             "-avoid_negative_ts", "make_zero", "-y", str(temp_extracted)])
 
         avs_file = final_dir / f"{safe(title)}.avs"
         avs_script = f'''
@@ -122,7 +122,7 @@ LoadPlugin("{QTGMC_DIR}/LoadDLL64.dll")
 LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll") 
 Import("{QTGMC_DIR}/Zs_RF_Shared.avsi") 
 Import("{QTGMC_DIR}/QTGMC.avsi") 
-FFmpegSource2("{temp_raw}", atrack=-1) 
+FFmpegSource2("{temp_extracted}", atrack=-1) 
 AssumeFPS(30000,1001) 
 ConvertToYV12(matrix="Rec601") 
 QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3)
@@ -136,7 +136,7 @@ Prefetch()'''
         # --- QTGMC → FFV1 ---
         print(f"Deinterlacing chapter: {title}")
         temp_qtgmc = final_dir / f"{safe(title)}_qtgmc.mkv"
-        run([FFMPEG, "-v", "warning", "-i", str(avs_file), "-i", str(temp_raw),
+        run([FFMPEG, "-v", "warning", "-i", str(avs_file), "-i", str(temp_extracted),
             "-pix_fmt", "yuv422p",
             "-color_primaries:v", "6",
             "-color_trc:v", "6",
@@ -161,6 +161,8 @@ Prefetch()'''
         run([FFMPEG, "-v", "warning",
              "-i", str(temp_qtgmc.name),
              "-i", str(final_vtt),
+             "-map_metadata", "-1",
+             "-map_chapters", "-1",
              "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
              "-c:a", "aac", "-b:a", "48k", "-ac", "1",
              "-tag:v", "hvc1", "-brand", "mp42",
@@ -174,8 +176,8 @@ Prefetch()'''
              "-movflags", "+faststart+write_colr+use_metadata_tags",
              "-y", str(final_file)], cwd=final_dir)
 
-        Path(f"{temp_raw.name}.ffindex").unlink(missing_ok=True)
-        temp_raw.unlink(missing_ok=True)
+        Path(f"{temp_extracted.name}.ffindex").unlink(missing_ok=True)
+        temp_extracted.unlink(missing_ok=True)
         temp_qtgmc.unlink(missing_ok=True)
 
         print(f"  Done → {final_file.name}")
