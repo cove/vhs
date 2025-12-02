@@ -146,8 +146,7 @@ Prefetch()'''
 
         final_vtt = SUBTITLES / f"{title}.vtt"
         print(f"Transcribing audio: {final_file.name} to {final_vtt.name}")
-        #model = whisper.load_model("large-v3")
-        model = whisper.load_model("turbo")
+        model = whisper.load_model("large-v3")
         vtt_writer = get_writer("vtt", str(SUBTITLES))
         result = model.transcribe(str(temp_qtgmc), language="en", fp16=False)
         vtt_writer(result, str(final_vtt))
@@ -162,7 +161,7 @@ Prefetch()'''
              "-pix_fmt", "yuv420p10le",
              "-x265-params", "no-open-gop=1:bframes=8",
              "-c:a", "aac", "-b:a", "48k", "-ac", "1",
-             "-af", "highpass=f=80,lowpass=f=14000",
+             "-af", "highpass=f=80,lowpass=f=14000,equalizer=f=2826:t=q:w=100:g=-80,afftdn=nf=-28,dynaudnorm=g=15",
              "-tag:v", "hvc1", "-brand", "mp42",
              "-map", "0:v:0",
              "-map", "0:a:0",
