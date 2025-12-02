@@ -167,7 +167,7 @@ Prefetch()'''
         temp_qtgmc = final_dir / f"temp_qtgmc_{i+1:02d}.mkv"
         run([FFMPEG, "-v", "warning", "-i", str(avs_file), "-i", str(temp_raw),
              "-c:v", "ffv1", "-level", "3", "-g", "1",
-             "-c:a", "copy", "-y", str(temp_qtgmc)])
+             "-c:a", "aac", "-b:a", "48k", "-y", str(temp_qtgmc)])
 
         # --- Whisper transcription ---
         print(f"Transcribing: {final_file.name}")
@@ -180,7 +180,6 @@ Prefetch()'''
         # --- Encode MP4 with subtitles burned in ---
         print(f"Applying subtitles: {final_file.name}")
         run([FFMPEG, "-v", "warning",
-             "-fflags", "+genpts",
              "-i", str(temp_qtgmc.name),
              "-vf", f"ass={temp_ass.name}",
              "-pix_fmt", "yuv422p",
