@@ -201,7 +201,7 @@ Prefetch()'''
         print(f"Encoding subtitles and final metadata: {final_file.name}")
         cmd = [
             FFMPEG, "-v", "warning",
-            "-i", str(temp_qtgmc),
+            "-i", str(temp_qtgmc), "-i", str(temp_ass), "-c", "copy", "-c:s", "mov_text",
             "-metadata", f"title={title}",
             "-metadata", f"comment=Chapter from file {src.name} ({ffmetadata.get('uuid', '')}) @ {start_hms}-{end_hms} )",
             "-metadata", f"creation_time={ctime}",
@@ -218,8 +218,6 @@ Prefetch()'''
             cmd += [
                 "-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}"
             ]
-
-        cmd += [ "-i", "{temp_ass}", "-c", "copy", "-c:s", "mov_text" ]
 
         if BURN_SUBTITLES_INTO_VIDEO:
             cmd += ["-vf", f"ass={temp_ass.name}"]
