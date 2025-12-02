@@ -106,12 +106,12 @@ for src in ARCHIVE.glob("*.mkv"):
         archive_file = final_dir / f"{safe(title)}_archive.mkv"
 
         # --- Extract chapter ---
-        temp_raw = final_dir / f"temp_raw_{i+1:02d}.mkv"
+        temp_raw = final_dir / f"{safe(title)}.mkv"
         run([FFMPEG, "-v", "warning", "-ss", f"{start_sec:.3f}", "-to", f"{end_sec:.3f}",
              "-i", str(src), "-map", "0:v", "-map", "0:a", "-c", "copy",
              "-avoid_negative_ts", "make_zero", "-y", str(temp_raw)])
 
-        avs_file = final_dir / f"qtgmc_{i + 1:02d}.avs"
+        avs_file = final_dir / f"{safe(title)}.avs"
         avs_script = f'''
 SetFilterMTMode("DEFAULT_MT_MODE", 2)
 LoadPlugin("{QTGMC_DIR}/ffms2.dll") 
@@ -128,11 +128,11 @@ Import("{QTGMC_DIR}/QTGMC.avsi")
 FFmpegSource2("{temp_raw}", atrack=-1) 
 AssumeFPS(30000,1001) 
 ConvertToYV12(matrix="Rec601") 
-QTGMC(Preset="Very Slow",FPSDivisor=2,EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3) 
+QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3)
 Crop(0,0,-2,-6) 
 LanczosResize(640,480)
-Tweak(sat=0.9)
 ConvertToYV12(interlaced=false)
+Tweak(sat=0.9)
 Prefetch()'''
         avs_file.write_text(avs_script, encoding="ascii")
 
