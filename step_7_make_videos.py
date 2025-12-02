@@ -65,7 +65,7 @@ def parse_chapters(path):
         chapters.append(cur)
     return ffmetadata, chapters
 
-model = whisper.load_model("turbo")
+model = whisper.load_model("large-v3")
 srt_writer = get_writer("srt", str(CLIPS))
 
 for src in ARCHIVE.glob("*.mkv"):
