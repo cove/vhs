@@ -4,7 +4,6 @@ from pathlib import Path
 import whisper
 from whisper.utils import get_writer
 
-# --- Paths / Environment ---
 BASE = Path(__file__).parent.resolve()
 FFMPEG_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
 FFMPEG = FFMPEG_DIR / "ffmpeg.exe"
@@ -24,7 +23,6 @@ if not FFMPEG.exists():
     print(f"ERROR: ffmpeg.exe not found at {FFMPEG}")
     sys.exit(1)
 
-# --- Helper Functions ---
 def run(cmd, cwd=None):
     subprocess.run([str(c) for c in cmd], check=True, cwd=cwd)
 
@@ -67,7 +65,6 @@ def parse_chapters(path):
         chapters.append(cur)
     return ffmetadata, chapters
 
-# --- Main ---
 for src in ARCHIVE.glob("*.mkv"):
     prefix = "_".join(src.stem.rsplit("_", 2)[:2])
     chapters_file = BASE / "media_metadata" / prefix / "chapters.ffmetadata"
@@ -101,7 +98,6 @@ for src in ARCHIVE.glob("*.mkv"):
         final_file = final_dir / f"{safe(title)}.mp4"
         archive_file = final_dir / f"{safe(title)}_archive.mkv"
 
-        # --- Extract chapter ---
         print(f"Extracting chapter: {title} ({format_hms(start_sec)} - {format_hms(end_sec)}) ")
         temp_extracted = final_dir / f"{safe(title)}_extracted.mkv"
         run([FFMPEG, "-v", "warning", "-ss", f"{start_sec:.3f}", "-to", f"{end_sec:.3f}",
@@ -129,11 +125,11 @@ QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,
 Crop(4,2,-8,-10)
 LanczosResize(640,480)
 ConvertToYV12(interlaced=false)
+# Videos tend to be a little over saturated
 Tweak(sat=0.8)
 Prefetch()'''
         avs_file.write_text(avs_script, encoding="ascii")
 
-        # --- QTGMC → FFV1 ---
         print(f"Deinterlacing chapter: {title}")
         temp_qtgmc = final_dir / f"{safe(title)}_qtgmc.mkv"
         run([FFMPEG, "-v", "warning", "-i", str(avs_file), "-i", str(temp_extracted),
@@ -148,16 +144,14 @@ Prefetch()'''
             "-map", "0:a", "-c:a", "copy",
             "-y", str(temp_qtgmc)])
 
-        # --- Whisper transcription ---
         final_vtt = SUBTITLES / f"{title}.vtt"
-        print(f"Transcribing: {final_file.name} to {final_vtt.name}")
+        print(f"Transcribing audio: {final_file.name} to {final_vtt.name}")
         model = whisper.load_model("large-v3")
         vtt_writer = get_writer("vtt", str(SUBTITLES))
         result = model.transcribe(str(temp_qtgmc), language="en", fp16=False)
         vtt_writer(result, str(final_vtt))
 
-        # --- Encode MP4 with subtitles burned in ---
-        print(f"Adding subtitles and final encoding: {final_file.name}")
+        print(f"Final encoding: {final_file.name}")
         run([FFMPEG, "-v", "warning",
              "-i", str(temp_qtgmc.name),
              "-i", str(final_vtt),
