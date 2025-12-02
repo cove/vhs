@@ -135,16 +135,16 @@ for src in ARCHIVE.glob("*.mkv"):
         if duration < 200:
             final_dir = CLIPS
 
-        final_file = final_dir / f"{safe(title)}.mp4"
         archive_file = final_dir / f"{safe(title)}_archive.mkv"
 
         # --- Extract chapter ---
-        temp_raw = final_dir / f"temp_raw_{i+1:02d}.mkv"
+        temp_raw = final_dir / f"{safe(title)}_temp_raw.mkv"
+        print(f"Extracting chapter: {title}")
         run([FFMPEG, "-v", "warning", "-ss", f"{start_sec:.3f}", "-to", f"{end_sec:.3f}",
              "-i", str(src), "-map", "0:v", "-map", "0:a", "-c", "copy",
              "-avoid_negative_ts", "make_zero", "-y", str(temp_raw)])
 
-        avs_file = final_dir / f"qtgmc_{i + 1:02d}.avs"
+        avs_file = final_dir / f"{safe(title)}_temp.avs"
         avs_script = f'''
 SetFilterMTMode("DEFAULT_MT_MODE", 2)
 LoadPlugin("{QTGMC_DIR}/ffms2.dll") 
@@ -168,7 +168,8 @@ Prefetch()'''
         avs_file.write_text(avs_script, encoding="ascii")
 
         # --- QTGMC → FFV1 (archive) ---
-        temp_qtgmc = final_dir / f"temp_qtgmc_{i+1:02d}.mkv"
+        print(f"Applying deinterlacing to chapter: {title}")
+        temp_qtgmc = final_dir / f"{safe(title)}_temp_qtgmc.mkv"
         run([FFMPEG, "-v", "warning", "-i", str(avs_file), "-i", str(temp_raw),
             "-pix_fmt", "yuv422p",
             "-color_primaries:v", "6",
@@ -182,7 +183,8 @@ Prefetch()'''
             "-y", str(temp_qtgmc)])
 
         # --- Whisper transcription ---
-        print(f"Transcribing: {final_file.name}")
+        final_file = final_dir / f"{safe(title)}.mp4"
+        print(f"Transcribing audio: {title}")
         result = model.transcribe(str(temp_qtgmc), language="en", fp16=False)
         temp_srt = final_dir / f"{final_dir.stem}_subtitles.srt"
         temp_ass = final_dir / f"{final_dir.stem}_subtitles.ass"
@@ -190,7 +192,7 @@ Prefetch()'''
         srt_to_ass(temp_srt, temp_ass)
 
         # --- Encode MP4 with subtitles burned in ---
-        print(f"Applying subtitles and do final encode: {final_file.name}")
+        print(f"Encoding subtitles and final metadata: {final_file.name}")
         cmd = [
             FFMPEG, "-v", "warning",
             "-i", str(temp_qtgmc),
@@ -213,7 +215,7 @@ Prefetch()'''
 
         cmd += [
                 "-map", "0:v", "-map_metadata", "-1",
-                "-vf", f"ass={temp_ass.name}",
+                "-vf", f"ass={temp_ass}",
                 "-c:v", "libx265",
                 "-preset", "veryslow",
                 "-crf", "16",
