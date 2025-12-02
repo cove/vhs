@@ -146,9 +146,19 @@ Prefetch()'''
 
         final_vtt = SUBTITLES / f"{title}.vtt"
         print(f"Transcribing audio: {final_file.name} to {final_vtt.name}")
+        temp_transcript = final_dir / f"{safe(title)}_transcript.wav"
+        subprocess.run([
+            FFMPEG, "-v", "warning",
+            "-i", str(temp_extracted),
+            "-vn",
+            "-af", "highpass=f=120,lowpass=f=8000,afftdn=nf=-25,dynaudnorm=f=150:g=12,aresample=16000",
+            "-c:a", "pcm_s16le",
+            str(temp_transcript)
+        ], check=True)
+
         model = whisper.load_model("large-v3")
         vtt_writer = get_writer("vtt", str(SUBTITLES))
-        result = model.transcribe(str(temp_qtgmc), language="en", fp16=False)
+        result = model.transcribe(str(temp_transcript), language="en", fp16=False)
         vtt_writer(result, str(final_vtt))
 
         print(f"Final encoding: {final_file.name}")
@@ -161,7 +171,7 @@ Prefetch()'''
              "-pix_fmt", "yuv420p10le",
              "-x265-params", "no-open-gop=1:bframes=8",
              "-c:a", "aac", "-b:a", "48k", "-ac", "1",
-             "-af", "highpass=f=80,lowpass=f=14000,equalizer=f=2826:t=q:w=100:g=-80,afftdn=nf=-28,dynaudnorm=g=15",
+             "-af", "highpass=f=80,lowpass=f=14000",
              "-tag:v", "hvc1", "-brand", "mp42",
              "-map", "0:v:0",
              "-map", "0:a:0",
@@ -173,10 +183,12 @@ Prefetch()'''
              "-movflags", "+faststart+write_colr+use_metadata_tags",
              "-y", str(final_file)], cwd=final_dir)
 
-        temp_extracted.with_suffix(".ffindex").unlink(missing_ok=True)
+        [p.unlink() for p in Path(final_dir).rglob('*.ffindex')]
+        #temp_extracted.with_suffix(".ffindex").unlink(missing_ok=True)
         temp_extracted.unlink(missing_ok=True)
         temp_qtgmc.unlink(missing_ok=True)
         temp_avs.unlink(missing_ok=True)
+        temp_transcript.unlink(missing_ok=True)
 
         print(f"  Done  {final_file.name}")
 
