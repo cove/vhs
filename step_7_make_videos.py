@@ -1,6 +1,7 @@
 import subprocess, sys, os, re
 from pathlib import Path
 import whisper
+from pkg_resources import safe_name
 from whisper.utils import get_writer
 
 # Write the subtitles into the video file additionally.
@@ -241,12 +242,8 @@ Prefetch()'''
                 "-y", str(final_file)]
         run(cmd, cwd=final_dir)
 
-        temp_raw.unlink(missing_ok=True)
-        temp_srt.unlink(missing_ok=True)
-        temp_ass.unlink(missing_ok=True)
-        temp_qtgmc.unlink(missing_ok=True)
-        temp_srt.unlink(missing_ok=True)
-        temp_avs.unlink(missing_ok=True)
+        for each in [temp_raw, temp_srt, temp_ass, temp_qtgmc, temp_srt, temp_avs, f"{safe_name(title)}_temp_raw.mkv.ffindex"]:
+            each.unlink(missing_ok=True)
 
         print(f"  Done → {final_file.name}")
 
