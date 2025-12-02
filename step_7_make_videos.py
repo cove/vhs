@@ -166,7 +166,7 @@ Prefetch()'''
         # --- QTGMC → FFV1 (archive) ---
         run([FFMPEG, "-v", "warning", "-i", str(avs_file),
              "-c:v", "ffv1", "-level", "3", "-g", "1",
-             "-c:a", "pcm_s16le", "-y", str(temp_raw)])
+             "-c:a", "copy", "-y", str(temp_raw)])
 
         # --- Whisper transcription ---
         print(f"Transcribing: {temp_raw.name}")
