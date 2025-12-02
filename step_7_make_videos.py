@@ -182,7 +182,7 @@ Prefetch()'''
         print(f"Applying subtitles: {final_file.name}")
         run([FFMPEG, "-v", "warning",
              "-i", str(temp_qtgmc.name),
-             "-vf", f"ass={temp_ass.name}",
+             "-vf", f"ass={temp_ass.name},scale=640:480",
              "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
              "-c:a", "aac", "-b:a", "48k", "-ac", "1",
              "-movflags", "faststart",
