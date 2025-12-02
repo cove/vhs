@@ -67,10 +67,6 @@ def parse_chapters(path):
         chapters.append(cur)
     return ffmetadata, chapters
 
-# --- Load Whisper model ---
-model = whisper.load_model("large-v3")
-vtt_writer = get_writer("vtt", str(CLIPS))
-
 # --- Main ---
 for src in ARCHIVE.glob("*.mkv"):
     prefix = "_".join(src.stem.rsplit("_", 2)[:2])
@@ -106,6 +102,7 @@ for src in ARCHIVE.glob("*.mkv"):
         archive_file = final_dir / f"{safe(title)}_archive.mkv"
 
         # --- Extract chapter ---
+        print(f"Extracting chapter: {title} ({format_hms(start_sec)} - {format_hms(end_sec)}) ")
         temp_raw = final_dir / f"{safe(title)}.mkv"
         run([FFMPEG, "-v", "warning", "-ss", f"{start_sec:.3f}", "-to", f"{end_sec:.3f}",
              "-i", str(src), "-map", "0:v", "-map", "0:a", "-c", "copy",
@@ -129,14 +126,15 @@ FFmpegSource2("{temp_raw}", atrack=-1)
 AssumeFPS(30000,1001) 
 ConvertToYV12(matrix="Rec601") 
 QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3)
-Crop(4, 2, -8, -10)
+Crop(4,2,-8,-10)
 LanczosResize(640,480)
 ConvertToYV12(interlaced=false)
-Tweak(sat=0.9)
+Tweak(sat=0.8)
 Prefetch()'''
         avs_file.write_text(avs_script, encoding="ascii")
 
         # --- QTGMC → FFV1 ---
+        print(f"Deinterlacing chapter: {title}")
         temp_qtgmc = final_dir / f"{safe(title)}_qtgmc.mkv"
         run([FFMPEG, "-v", "warning", "-i", str(avs_file), "-i", str(temp_raw),
             "-pix_fmt", "yuv422p",
@@ -151,19 +149,24 @@ Prefetch()'''
             "-y", str(temp_qtgmc)])
 
         # --- Whisper transcription ---
-        print(f"Transcribing: {final_file.name}")
-        result = model.transcribe(str(temp_qtgmc), language="en", fp16=False)
         final_vtt = SUBTITLES / f"{title}.vtt"
-        vtt_writer(result, final_vtt)
+        print(f"Transcribing: {final_file.name} to {final_vtt.name}")
+        model = whisper.load_model("large-v3")
+        vtt_writer = get_writer("vtt", str(SUBTITLES))
+        result = model.transcribe(str(temp_qtgmc), language="en", fp16=False)
+        vtt_writer(result, str(final_vtt))
 
         # --- Encode MP4 with subtitles burned in ---
-        print(f"Adding subtitles: {final_file.name}")
+        print(f"Adding subtitles and final encoding: {final_file.name}")
         run([FFMPEG, "-v", "warning",
-             "-i", str(final_vtt),
              "-i", str(temp_qtgmc.name),
+             "-i", str(final_vtt),
              "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
              "-c:a", "aac", "-b:a", "48k", "-ac", "1",
              "-tag:v", "hvc1", "-brand", "mp42",
+             "-map", "0:v:0",
+             "-map", "0:a:0",
+             "-map", "1:s:0",
              "-c:s", "mov_text",
              "-metadata:s:s:0", "language=eng",
              "-disposition:s:0", "forced",
