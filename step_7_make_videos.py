@@ -133,19 +133,19 @@ LoadPlugin("{QTGMC_DIR}/LoadDLL64.dll")
 LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll") 
 Import("{QTGMC_DIR}/Zs_RF_Shared.avsi") 
 Import("{QTGMC_DIR}/QTGMC.avsi") 
-# FFmpegSource2("{temp_raw}", atrack=-1) 
-# AssumeFPS(30000,1001) 
-# ConvertToYV12(matrix="Rec601") 
-# QTGMC(Preset="Slow",FPSDivisor=2,SourceMatch=0,Lossless=2,Sharpness=0.1)
-# Crop(4, 2, -8, -10)
-# LanczosResize(640,480) 
+FFmpegSource2("{temp_raw}", atrack=-1) 
+AssumeFPS(30000,1001) 
+ConvertToYV12(matrix="Rec601") 
+QTGMC(Preset="Slow",FPSDivisor=2,SourceMatch=0,Lossless=2,Sharpness=0.1)
+Crop(4, 2, -8, -10)
+LanczosResize(640,480) 
 Prefetch()'''
         temp_avs.write_text(avs_script, encoding="ascii")
-
+#        "-i", str(temp_avs),
         print(f"Encoding: {final_file.name}")
         cmd = [
             FFMPEG,
-            "-i", str(temp_raw), "-i", str(temp_avs), "-i", str(final_vtt),
+            "-i", str(temp_raw),  "-i", str(final_vtt),
             "-metadata", f"title={title}",
             "-metadata", f"comment=Excerpt from archive {src.name} @ {start_hms}-{end_hms}",
             "-metadata", f"creation_time={ctime}",
