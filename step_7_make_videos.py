@@ -114,10 +114,10 @@ for src in ARCHIVE.glob("*.mkv"):
 
         print(f"Transcribing audio: {title}")
         model = whisper.load_model("large-v3")
-        srt_writer = get_writer("srt", str(SUBTITLES))
+        vtt_writer = get_writer("vtt", str(SUBTITLES))
         result = model.transcribe(str(temp_raw), language="en", fp16=False)
-        final_srt = SUBTITLES / f"{safe(title)}.srt"
-        srt_writer(result, str(final_srt))
+        final_vtt = SUBTITLES / f"{safe(title)}.vtt"
+        vtt_writer(result, str(final_vtt))
 
         temp_avs = final_dir / f"{safe(title)}_temp.avs"
         avs_script = f'''
@@ -147,7 +147,7 @@ Prefetch()'''
         print(f"Encoding: {final_file.name}")
         cmd = [
             FFMPEG,
-            "-i", str(temp_raw), "-i", str(temp_avs), "-i", str(final_srt),
+            "-i", str(temp_raw), "-i", str(temp_avs), "-i", str(final_vtt),
             "-metadata", f"title={title}",
             "-metadata", f"comment=Chapter from file {src.name} @ {start_hms}-{end_hms}",
             "-metadata", f"creation_time={ctime}",
@@ -184,7 +184,7 @@ Prefetch()'''
                 "-x265-params", "ref=6",
                 "-c:a", "aac", "-b:a", "48k", "-ac", "1",
                 "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15,equalizer=f=6000:t=notch:w=1:g=-20,equalizer=f=12000:t=notch:w=1:g=-15"
-                "-c:s", "mov_text",
+                "-c:s", "webvtt",
                 "-metadata:s:s:0", "language=eng",
                 "-disposition:s:0", "forced",
                 "-metadata:s:a:0", "language=eng",
