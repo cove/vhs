@@ -245,7 +245,7 @@ Prefetch()'''
         run(cmd, cwd=final_dir)
 
         for each in [temp_raw, temp_srt, temp_ass, temp_qtgmc, temp_srt, temp_avs,
-                     Path(safe_name(title)+"_temp_raw.mkv.ffindex")]:
+                     Path(safe(title)+"_temp_raw.mkv.ffindex")]:
             each.unlink(missing_ok=True)
 
         print(f"  Done {final_file.name}")
