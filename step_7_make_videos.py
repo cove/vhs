@@ -203,6 +203,7 @@ Prefetch()'''
         cmd = [
             FFMPEG, "-v", "warning",
             "-i", str(temp_qtgmc), "-i", str(temp_ass), "-c", "copy", "-c:s", "mov_text",
+            "-metadata:s:s:0", "language=eng",
             "-metadata", f"title={title}",
             "-metadata", f"comment=Chapter from file {src.name} @ {start_hms}-{end_hms} )",
             "-metadata", f"creation_time={ctime}",
@@ -242,7 +243,7 @@ Prefetch()'''
         run(cmd, cwd=final_dir)
 
         for each in [temp_raw, temp_srt, temp_ass, temp_qtgmc, temp_srt, temp_avs,
-                     f"{safe_name(title)}_temp_raw.mkv.ffindex"]:
+                     Path(safe_name(title)+"_temp_raw.mkv.ffindex")]:
             each.unlink(missing_ok=True)
 
         print(f"  Done {final_file.name}")
