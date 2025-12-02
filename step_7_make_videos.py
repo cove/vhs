@@ -244,6 +244,6 @@ Prefetch()'''
                      f"{safe_name(title)}_temp_raw.mkv.ffindex"]:
             each.unlink(missing_ok=True)
 
-        print(f"  Done → {final_file.name}")
+        print(f"  Done {final_file.name}")
 
 print("All done")
