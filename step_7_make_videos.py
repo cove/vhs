@@ -212,7 +212,7 @@ Prefetch()'''
             ]
 
         cmd += [
-                "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
+                "-map", "0:v", "-map_metadata", "-1",
                 "-vf", f"ass={temp_ass.name}",
                 "-c:v", "libx265",
                 "-preset", "veryslow",
