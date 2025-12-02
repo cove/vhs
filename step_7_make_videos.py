@@ -198,6 +198,7 @@ for src in ARCHIVE.glob("*.mkv"):
         srt_to_ass(temp_srt, temp_ass)
         avs_script = f'''
 SetFilterMTMode("DEFAULT_MT_MODE", 2)
+LoadPlugin("{QTGMC_DIR}/VSFilterMod.dll")
 LoadPlugin("{QTGMC_DIR}/ffms2.dll")
 LoadPlugin("{QTGMC_DIR}/masktools2.dll")
 LoadPlugin("{QTGMC_DIR}/Rgtools.dll")
