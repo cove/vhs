@@ -179,12 +179,12 @@ Prefetch()'''
 
         # --- Encode MP4 with subtitles burned in ---
         print(f"Applying subtitles: {final_file.name}")
-        run([FFMPEG, "-v", "warning", "-i", str(temp_qtgmc),
-             "-vf", f"ass={temp_ass}:original_size=640x480",
+        run([FFMPEG, "-v", "warning", "-i", str(temp_qtgmc.name),
+             "-vf", f"ass={temp_ass.name}:original_size=640x480",
              "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
              "-c:a", "aac", "-b:a", "48k", "-ac", "1",
              "-movflags", "faststart",
-             "-y", str(final_file)])
+             "-y", str(final_file)], cwd=final_dir)
 
         temp_raw.unlink(missing_ok=True)
         temp_srt.unlink(missing_ok=True)
