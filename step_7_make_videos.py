@@ -137,7 +137,7 @@ Prefetch()'''
         avs_file.write_text(avs_script, encoding="ascii")
 
         # --- QTGMC → FFV1 ---
-        temp_qtgmc = final_dir / f"temp_qtgmc_{i+1:02d}.mkv"
+        temp_qtgmc = final_dir / f"{safe(title)}_qtgmc.mkv"
         run([FFMPEG, "-v", "warning", "-i", str(avs_file), "-i", str(temp_raw),
             "-pix_fmt", "yuv422p",
             "-color_primaries:v", "6",
