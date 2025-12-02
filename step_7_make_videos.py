@@ -215,7 +215,7 @@ Prefetch()'''
                 "-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}"
             ]
 
-        cmd += [ "-i", "{temp_ass.name}", "-c", "copy", "-c:s", "mov_text" ]
+        cmd += [ "-i", "{temp_ass}", "-c", "copy", "-c:s", "mov_text" ]
 
         if BURN_SUBTITLES_INTO_VIDEO:
             cmd += ["-vf", f"ass={temp_ass.name}"]
