@@ -161,7 +161,7 @@ Prefetch()'''
              "-pix_fmt", "yuv420p10le",
              "-x265-params", "no-open-gop=1:bframes=8",
              "-c:a", "aac", "-b:a", "48k", "-ac", "1",
-             "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15,equalizer=f=6000:t=p:w=0.01:g=-20,equalizer=f=12000:t=p:w=0.01:g=-15",
+             "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15,equalizer=f=6000:t=q:w=0.01:g=-20,equalizer=f=12000:t=q:w=0.01:g=-15",
              "-tag:v", "hvc1", "-brand", "mp42",
              "-map", "0:v:0",
              "-map", "0:a:0",
