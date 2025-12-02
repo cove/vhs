@@ -145,8 +145,7 @@ QTGMC(
     Sharpness=1.2,
     SourceMatch=3,
     Lossless=2,
-    TR2=3,
-    ThreadLevel=2
+    TR2=3
 )
 Crop(4, 2, -8, -10)
 LanczosResize(640,480) 
