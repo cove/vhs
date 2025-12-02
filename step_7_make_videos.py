@@ -175,7 +175,7 @@ Prefetch()'''
             "-level", "3", "-g", "1", "-coder", "1", "-context", "1",
             "-slices", "24", "-slicecrc", "1",
             "-map", "0:a", "-c:a", "pcm_s16le",
-            "-c:a", "aac", "-b:a", "48k", "-y", str(temp_qtgmc)])
+            "-y", str(temp_qtgmc)])
 
         # --- Whisper transcription ---
         print(f"Transcribing: {final_file.name}")
