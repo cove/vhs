@@ -148,7 +148,7 @@ Prefetch()'''
             FFMPEG,
             "-i", str(temp_raw), "-i", str(temp_avs), "-i", str(final_vtt),
             "-metadata", f"title={title}",
-            "-metadata", f"comment=Chapter from file {src.name} @ {start_hms}-{end_hms}",
+            "-metadata", f"comment=Excerpt from archive {src.name} @ {start_hms}-{end_hms}",
             "-metadata", f"creation_time={ctime}",
             "-metadata", f"date={ctime}",
             "-metadata", f"genre={ffmetadata.get('genre', '')}",
@@ -165,6 +165,7 @@ Prefetch()'''
             ]
 
         cmd += ["-map", "0:v", "-map", "0:a", "-map", "1", "-map_metadata", "-1",
+                "-f", "mp4",
                 "-c:v", "libx265",
                 "-preset", "veryslow",
                 "-crf", "16",
@@ -182,17 +183,13 @@ Prefetch()'''
                 "-x265-params", "deblock=-1:-1",
                 "-x265-params", "ref=6",
                 "-c:a", "aac", "-b:a", "48k", "-ac", "1",
-                "-af", "highpass=f=80",
-                "-af", "lowpass=f=14000",
-                "-af", "afftdn=nf=-28",
-                "-af", "dynaudnorm=g=15",
+                "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
                 "-c:s", "mov_text",
                 "-metadata:s:s:0", "language=eng",
                 "-disposition:s:0", "forced",
                 "-metadata:s:a:0", "language=eng",
                 "-tag:v", "hvc1",
                 "-brand", "mp42",
-                "-f", "mp4",
                 "-movflags", "+faststart+write_colr+use_metadata_tags",
                 "-y", str(final_file)]
         run(cmd, cwd=final_dir)
