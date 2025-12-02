@@ -147,7 +147,7 @@ Prefetch()'''
         print(f"Encoding: {final_file.name}")
         cmd = [
             FFMPEG,
-            "-i", str(temp_raw), "-i", str(temp_avs),
+            "-i", str(temp_raw), "-i", str(temp_avs), "-i", str(final_vtt),
             "-metadata", f"title={title}",
             "-metadata", f"comment=Chapter from file {src.name} @ {start_hms}-{end_hms}",
             "-metadata", f"creation_time={ctime}",
@@ -194,7 +194,6 @@ Prefetch()'''
                 "-metadata:s:s:0", "language=eng",
                 "-disposition:s:0", "forced",
                 "-metadata:s:a:0", "language=eng",
-                "-i", str(final_vtt),
                 "-movflags", "+faststart+write_colr+use_metadata_tags",
                 "-y", str(final_file)]
         run(cmd, cwd=final_dir)
