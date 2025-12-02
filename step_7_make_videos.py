@@ -127,10 +127,14 @@ for src in ARCHIVE.glob("*.mkv"):
         duration = ch.get("duration")
         ctime = ch.get("creation_time", "")
         location = ch.get("location", "")
+        uuid = ch.get("uuid", "")
+        start_hms = format_hms(start_sec)
+        end_hms = format_hms(end_sec)
 
         final_dir = VIDEOS
         if duration < 200:
             final_dir = CLIPS
+
         final_file = final_dir / f"{safe(title)}.mp4"
         archive_file = final_dir / f"{safe(title)}_archive.mkv"
 
@@ -186,15 +190,45 @@ Prefetch()'''
         srt_to_ass(temp_srt, temp_ass)
 
         # --- Encode MP4 with subtitles burned in ---
-        print(f"Applying subtitles: {final_file.name}")
-        run([FFMPEG, "-v", "warning",
-             "-i", str(temp_qtgmc.name),
-             "-vf", f"ass={temp_ass.name}",
-             "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
-             "-c:a", "aac", "-b:a", "48k", "-ac", "1",
-             "-tag:v", "hvc1", "-brand", "mp42"
-             "-movflags", "+faststart",
-             "-y", str(final_file)], cwd=final_dir)
+        print(f"Applying subtitles and do final encode: {final_file.name}")
+        cmd = [
+            FFMPEG, "-v", "warning",
+            "-i", str(temp_qtgmc),
+            "-map", "0:v", "-map", "1:a", "-map_metadata", "-1",
+            "-metadata", f"title={title}",
+            "-metadata",
+            f"comment=Chapter from file {src.name} ({ffmetadata.get('uuid', '')}) @ {start_hms}-{end_hms} )",
+            "-metadata", f"creation_time={ctime}",
+            "-metadata", f"com.apple.quicktime.creationdate={ctime}",
+            "-metadata", f"com.apple.quicktime.uuid={uuid}",
+            "-metadata", f"date={ctime}",
+            "-metadata", f"genre={ffmetadata.get('genre', '')}",
+            "-metadata", f"videographer={ffmetadata.get('videographer', '')}",
+            "-metadata", f"tape_id={ffmetadata.get('tape_id', '')}",
+        ]
+
+        if location:
+            iso6709 = location.rstrip("/") + "/"
+            cmd += [
+                "-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}"
+            ]
+
+        cmd += ["-vf", f"ass={temp_ass.name}",
+                "-c:v", "libx265",
+                "-preset", "veryslow",
+                "-crf", "16",
+                "-profile:v", "main10",
+                "-pix_fmt", "yuv420p10le",
+                "-x265-params",
+                "merange=57:psy-rd=2.0:aq-mode=3:aq-strength=1.0:bframes=8:keyint=600:rc-lookahead=80:no-sao=0:no-strong-intra-smoothing=0",
+                "-x265-params", "deblock=-1:-1",
+                "-x265-params", "ref=6",
+                "-tag:v", "hvc1",
+                "-movflags", "+faststart+write_colr+use_metadata_tags",
+                "-brand", "mp42",
+                "-c:a", "aac", "-b:a", "48k", "-ac", "1",
+                "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-28,dynaudnorm=g=15",
+                "-y", str(final_file)]
 
         temp_raw.unlink(missing_ok=True)
         temp_srt.unlink(missing_ok=True)
