@@ -19,8 +19,9 @@ all_videos = (f for folder in [VIDEOS, CLIPS] for f in folder.glob("*.mp4"))
 for src in all_videos:
     prefix = src.stem
     subtitle_file = SUBTITLES / f"{prefix}.vtt"
+    in_progress = src.with_suffix(".avs")  # path to corresponding .avs file
 
-    if src.name.endswith(".subtitle_temp.mp4") or Path(f"{src.name.endswith(".avs")}").exists():
+    if src.name.endswith(".subtitle_temp.mp4") or in_progress.exists():
         continue
 
     if not subtitle_file.exists():
