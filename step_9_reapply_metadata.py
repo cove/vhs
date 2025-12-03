@@ -62,8 +62,8 @@ def load_all_metadata():
         ffm, chapters = parse_chapters(chapters_file)
 
         # record uuid of archive
-        archive_uuid = ffm.get("uuid", "").strip()
-        archive_title = ffm.get("title", "").strip()
+        ch_uuid = chapters.get("uuid", "").strip()
+        ch_title = chapters.get("title", "").strip()
 
         entry = {
             "global": ffm,
@@ -71,10 +71,10 @@ def load_all_metadata():
             "path": chapters_file
         }
 
-        if archive_uuid:
-            metadata_by_uuid[archive_uuid] = entry
-        if archive_title:
-            metadata_by_title[archive_title.lower()] = entry
+        if ch_uuid:
+            metadata_by_uuid[ch_uuid] = entry
+        if ch_title:
+            metadata_by_title[ch_title.lower()] = entry
 
 def ffprobe_metadata_field(path, key):
     try:
