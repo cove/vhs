@@ -59,24 +59,22 @@ def load_all_metadata():
         if not chapters_file.exists():
             continue
 
-        ffm, chapters = parse_chapters(chapters_file)
+        global_meta, chapters = parse_chapters(chapters_file)
 
-        # record uuid of archive
-        ch_uuid = chapters.get("uuid", "").strip()
-        ch_title = chapters.get("title", "").strip()
+        for chap_title, chap_data in chapters.items():
+            ch_uuid = chap_data.get("uuid", "").strip()
+            ch_title = chap_data.get("title", "").strip()
 
-        entry = {
-            "global": ffm,
-            "chapters": chapters,
-            "path": chapters_file
-        }
+            entry = {
+                "global": global_meta,
+                "chapter": chap_data,   # <-- only this chapter
+                "path": chapters_file
+            }
 
-        pprint.pprint(entry)
-
-        if ch_uuid:
-            metadata_by_uuid[ch_uuid] = entry
-        if ch_title:
-            metadata_by_title[ch_title.lower()] = entry
+            if ch_uuid:
+                metadata_by_uuid[ch_uuid] = entry
+            if ch_title:
+                metadata_by_title[ch_title.lower()] = entry
 
 def ffprobe_metadata_field(path, key):
     try:
