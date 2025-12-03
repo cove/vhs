@@ -161,7 +161,7 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
          "-pix_fmt", "yuv420p10le",
          "-x265-params", "no-open-gop=1:bframes=8",
          "-c:a", "aac", "-b:a", "48k", "-ac", "1",
-         "-af", "highpass=f=80,lowpass=f=14000",
+         "-af", "highpass=f=80,lowpass=f=14000,loudnorm=I=-16:TP=-1.5:LRA=11",
          "-tag:v", "hvc1", "-brand", "mp42",
          "-map", "0:v:0",
          "-map", "0:a:0",
