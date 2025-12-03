@@ -151,8 +151,8 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset=None):
          "-v", "warning",
          "-threads", "1",
          "-f", "matroska",
-         "-i", str(temp_avs),
-         "-i", str(temp_extracted),
+         "-i", str(temp_avs.name),
+         "-i", str(temp_extracted.name),
          "-r", "30000 / 1001",
          "-pix_fmt", "yuv422p",
          "-color_primaries:v", "6",
@@ -164,7 +164,7 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset=None):
          "-slices", "24", "-slicecrc", "1",
          "-ac", "1",
          "-map", "0:a", "-c:a", "copy",
-         "-y", str(temp_qtgmc.name)], temp_qtgmc.parent, cpuset)
+         "-y", str(temp_qtgmc)], temp_qtgmc.parent, cpuset)
 
 def extract_audio(temp_extracted, temp_transcript, cpuset=None):
     run([
