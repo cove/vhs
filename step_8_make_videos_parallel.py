@@ -10,6 +10,8 @@ from whisper.utils import get_writer
 BASE = Path(__file__).parent.resolve()
 FFMPEG_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
 FFMPEG = FFMPEG_DIR / "ffmpeg.exe"
+FFPROBE = BASE / "bin" / "ffprobe.exe"
+
 QTGMC_DIR = FFMPEG_DIR
 
 ARCHIVE = BASE.parent / "Archive"
@@ -37,6 +39,29 @@ def format_hms(seconds):
     m = int((seconds % 3600) // 60)
     s = int(seconds % 60)
     return f"{h:02d}:{m:02d}:{s:02d}"
+
+def get_video_duration(path):
+    try:
+        out = subprocess.check_output([
+            FFPROBE,
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            str(path)
+        ], text=True)
+        return float(out.strip())
+    except Exception:
+        return None
+
+def is_chapter_done(final_file, expected_duration):
+    if not final_file.exists():
+        return False
+    actual_duration = get_video_duration(final_file)
+    if actual_duration is None:
+        return False
+    # allow small rounding difference (0.5s)
+    return abs(actual_duration - expected_duration) < 0.5
 
 def parse_chapters(path):
     chapters = []
@@ -181,7 +206,7 @@ def process_chapter(chapter_job, cpus):
 
     final_dir = VIDEOS if duration >= 200 else CLIPS
     final_file = final_dir / f"{safe(title)}.mp4"
-    if final_file.exists() and final_file.stat().st_size > 100_000:
+    if is_chapter_done(final_file, duration):
         return f"Skipped existing: {title}"
 
     temp_extracted = final_dir / f"{safe(title)}_extracted.mkv"
