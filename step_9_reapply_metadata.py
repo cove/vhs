@@ -162,7 +162,7 @@ for src in all_videos:
         "-metadata", f"date={ctime}",
         "-metadata", f"genre={genre}",
         "-metadata", f"videographer={videographer}",
-        "-metadata", f"tape_id={tape_id}"
+        "-metadata", f"tape_id={tape_id}",
         "-metadata:s:v:0", "language=eng",
         "-metadata:s:s:0", "language=eng",
         "-disposition:s:0", "default",
