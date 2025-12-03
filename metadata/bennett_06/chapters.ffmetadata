@@ -118,14 +118,6 @@ location=+34.138095-118.1356458+239.573/
 
 [CHAPTER]
 TIMEBASE=1/1
-START=
-END=
-title=1996 - Christmas - Morgan opens stocking (December 25, 1996)
-creation_time=1996-12-25T00:00:00-08:00
-location=+34.138095-118.1356458+239.573/
-
-[CHAPTER]
-TIMEBASE=1/1
 START=4801
 END=4831
 title=1996 - Christmas - Buddy & Morgan open presents (December 25, 1996)
