@@ -157,7 +157,7 @@ for src in all_videos:
     final_file = src
     temp_file = src.with_suffix(".subtitle_temp.mp4")
 
-    pprint.pprint(metadata_by_title)
+    pprint.pprint(metadata_by_title.keys())
     ffm, ch = load_metadata_for_video(src)
     if not ch:
         print(f"No chapters for {title}")
