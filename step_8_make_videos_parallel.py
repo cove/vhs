@@ -195,7 +195,7 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
            "-disposition:s:0", "forced",
            "-metadata:s:a:0", "language=eng",
            "-metadata", f"title={title}",
-           "-metadata", f"comment=Chapter from archive \"{title}\" time range {start_hms}-{end_hms}",
+           "-metadata", f"comment=Chapter from archive {ffmetadata.get('title','')} @ {start_hms}-{end_hms}",
            "-metadata", f"creation_time={ctime}",
            "-metadata", f"com.apple.quicktime.creationdate={ctime}",
            "-metadata", f"date={ctime}",

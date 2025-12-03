@@ -133,6 +133,7 @@ def apply_metadata(src):
     ctime = ch.get("creation_time", "")
     location = ch.get("location", "")
     date = ffm.get("date", "") if ffm else ""
+    tape_title = ffm.get("title", "") if ffm else ""
     tape_id = ffm.get("tape_id", "") if ffm else ""
     videographer = ffm.get("videographer", "") if ffm else ""
     genre = ffm.get("genre", "") if ffm else ""
@@ -159,10 +160,10 @@ def apply_metadata(src):
 
     cmd += [
         "-metadata", f"title={title}",
-        "-metadata", f"comment=Extracted chapter from \"{src.name}\" @ {start_hms}-{end_hms}",
+        "-metadata", f"comment=Extracted chapter from {tape_title} @ {start_hms}-{end_hms}",
         "-metadata", f"creation_time={ctime}",
         "-metadata", f"com.apple.quicktime.creationdate={ctime}",
-        "-metadata", f"date={ctime}",
+        "-metadata", f"date={date}",
         "-metadata", f"genre={genre}",
         "-metadata", f"videographer={videographer}",
         "-metadata", f"tape_id={tape_id}",
