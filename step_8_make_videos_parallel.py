@@ -43,7 +43,7 @@ def format_hms(seconds):
 def get_video_duration(path):
     try:
         out = subprocess.check_output([
-            FFPROBE, "-nostdin",
+            FFPROBE,
             "-v", "error", "-threads", "1",
             "-select_streams", "v:0",
             "-show_entries", "stream=duration",
@@ -97,6 +97,7 @@ def extract_chapter(src, start, end, dest):
     run([FFMPEG,
          "-nostdin",
          "-v", "error",
+         "-f", "matroska",
          "-i", str(src),
          "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
          "-r", "30000 / 1001",
@@ -138,6 +139,7 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc):
          "-nostdin",
          "-v", "warning",
          "-threads", "1",
+         "-f", "matroska",
          "-i", str(temp_avs),
          "-i", str(temp_extracted),
          "-r", "30000 / 1001",
