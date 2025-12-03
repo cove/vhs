@@ -169,7 +169,8 @@ def cleanup_temp_files(*files):
             p.unlink(missing_ok=True)
 
 def process_chapter(chapter_job, cpus):
-    psutil.cpu_affinity([cpus])
+    p = psutil.Process()
+    p.cpu_affinity(cpus)
 
     model, src, ffmetadata, ch, i = chapter_job
     title = ch.get("title", f"Chapter {i+1}")
