@@ -3,7 +3,7 @@ This script automates chapter extraction, deinterlacing, audio transcription,
 and final encoding for MKV videos stored in the Archive folder. It performs the
 following workflow for each MKV file:
 
-1. Parses chapter metadata from 'media_metadata/<prefix>/chapters.ffmetadata'.
+1. Parses chapter metadata from 'metadata/<prefix>/chapters.ffmetadata'.
    - Extracts global metadata and per-chapter start/end times, titles, and other
      optional fields like creation_time and location.
    - Computes chapter duration and sorts chapters from shortest to longest.
@@ -196,7 +196,7 @@ def process_archive():
     model = whisper.load_model("turbo")
     for src in ARCHIVE.glob("*.mkv"):
         prefix = "_".join(src.stem.rsplit("_", 2)[:2])
-        chapters_file = BASE / "media_metadata" / prefix / "chapters.ffmetadata"
+        chapters_file = BASE / "metadata" / prefix / "chapters.ffmetadata"
         if not chapters_file.exists():
             print(f"Skipping {src.name} — no metadata")
             continue

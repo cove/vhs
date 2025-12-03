@@ -2,7 +2,7 @@
 This script re-applies subtitle and chapter metadata to existing MP4 video files
 in the Videos and Clips directories. It performs the following tasks:
 
-1. Loads chapter metadata from the media_metadata folder.
+1. Loads chapter metadata from the metadata folder.
    - Parses global metadata and per-chapter metadata from 'chapters.ffmetadata' files.
    - Indexes chapters by lowercase title for easy lookup.
 
@@ -32,7 +32,7 @@ ARCHIVE = BASE.parent / "Archive"
 CLIPS = BASE.parent / "Clips"
 VIDEOS = BASE.parent / "Videos"
 SUBTITLES = BASE.parent / "Subtitles"
-MEDIA_METADATA = BASE / "media_metadata"
+MEDIA_METADATA = BASE / "metadata"
 
 metadata_by_title = {}
 

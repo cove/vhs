@@ -2,14 +2,14 @@
 Metadata Reattachment and Validation Script
 
 This script processes MKV files in the Archive directory by:
-- Attaching metadata from the corresponding media_metadata folder.
+- Attaching metadata from the corresponding metadata folder.
 - Embedding chapters and cover art.
 - Preserving video and audio streams without re-encoding.
 - Verifying the output file for FFmpeg errors and duration consistency.
 
 Requirements:
 - FFmpeg and FFprobe must be available at the specified paths.
-- Metadata for each video must be in media_metadata/<prefix>/ with files:
+- Metadata for each video must be in metadata/<prefix>/ with files:
     - title.txt
     - comment.txt
     - chapters.ffmetadata
@@ -58,7 +58,7 @@ for mkv in files:
     p = Path(mkv)
     name = p.stem
     prefix = "_".join(name.rsplit("_", 2)[:2])
-    meta_dir = Path("media_metadata") / prefix
+    meta_dir = Path("metadata") / prefix
 
     title = (meta_dir / "title.txt").read_text().strip()
     comment = (meta_dir / "comment.txt").read_text().strip()
