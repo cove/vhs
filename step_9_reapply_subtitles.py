@@ -20,9 +20,7 @@ for src in all_videos:
     prefix = src.stem
     subtitle_file = SUBTITLES / f"{prefix}.vtt"
 
-    if src.name.endswith(".subtitle_temp.mp4"):
-        continue
-    if src.stat().st_size < 100_000:
+    if src.name.endswith(".subtitle_temp.mp4") or Path(f"{src.name.endswith(".avs")}").exists():
         continue
 
     if not subtitle_file.exists():
