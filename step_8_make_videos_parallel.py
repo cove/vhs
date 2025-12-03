@@ -210,9 +210,6 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
 def cleanup_temp_files(*files):
     for f in files:
         f.unlink(missing_ok=True)
-    for ffindex in [f.parent for f in files]:
-        for p in ffindex.rglob('*.ffindex'):
-            p.unlink(missing_ok=True)
 
 def process_chapter(chapter_job, cpus):
     p = psutil.Process()
