@@ -149,7 +149,7 @@ Prefetch()'''
             "-map", "0:a", "-c:a", "copy",
             "-y", str(temp_qtgmc)])
 
-        final_vtt = SUBTITLES / f"{title}.vtt"
+        final_vtt = SUBTITLES / f"{safe(title)}.vtt"
         print(f"Transcribing audio: {final_file.name} to {final_vtt.name}")
         temp_transcript = final_dir / f"{safe(title)}_transcript.wav"
         subprocess.run([
