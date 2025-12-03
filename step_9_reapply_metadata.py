@@ -160,7 +160,7 @@ for src in all_videos:
 
     print(f"Reapplying metadata to {src.name}")
     run(cmd)
-    final_file.replace(temp_file)
+    temp_file.replace(final_file)
 
 
 print("All done")
