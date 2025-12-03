@@ -28,8 +28,8 @@ if not FFMPEG.exists():
     print(f"ERROR: ffmpeg.exe not found at {FFMPEG}")
     sys.exit(1)
 
-def run(cmd, cpu_list=None):
-    proc = subprocess.Popen([str(c) for c in cmd])
+def run(cmd,cwd=None,cpu_list=None):
+    proc = subprocess.Popen([str(c) for c in cmd], cwd=cwd)
     if cpu_list:
         try:
             p = psutil.Process(proc.pid)
@@ -164,7 +164,7 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset=None):
          "-slices", "24", "-slicecrc", "1",
          "-ac", "1",
          "-map", "0:a", "-c:a", "copy",
-         "-y", str(temp_qtgmc)], cpuset)
+         "-y", str(temp_qtgmc)], temp_extracted.parent, cpuset)
 
 def extract_audio(temp_extracted, temp_transcript, cpuset=None):
     run([
@@ -176,7 +176,7 @@ def extract_audio(temp_extracted, temp_transcript, cpuset=None):
         "-ac", "1",
         "-y",
         str(temp_transcript)
-    ], cpuset)
+    ], temp_extracted.parent, cpuset)
 
 def transcribe_audio(model, temp_transcript, final_vtt):
     vtt_writer = get_writer("vtt", str(SUBTITLES))
@@ -218,7 +218,7 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
         iso6709 = location.rstrip("/") + "/"
         cmd += ["-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}"]
     cmd += ["-movflags", "+faststart+write_colr+use_metadata_tags", "-y", str(final_file)]
-    run(cmd, cpuset)
+    run(cmd, temp_qtgmc.parent, cpuset)
 
 def cleanup_temp_files(*files):
     for f in files:
