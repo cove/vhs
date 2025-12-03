@@ -29,7 +29,6 @@ if not FFMPEG.exists():
 MAX_JOBS = 4  # adjust as needed
 
 def run(cmd, cwd=None):
-    print(cmd)
     subprocess.run([str(c) for c in cmd], check=True, cwd=cwd)
 
 def safe(s):
