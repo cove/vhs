@@ -1,0 +1,242 @@
+import subprocess
+import sys
+import os
+from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, as_completed
+import psutil
+import whisper
+from whisper.utils import get_writer
+
+BASE = Path(__file__).parent.resolve()
+FFMPEG_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
+FFMPEG = FFMPEG_DIR / "ffmpeg.exe"
+QTGMC_DIR = FFMPEG_DIR
+
+ARCHIVE = BASE.parent / "Archive"
+VIDEOS = BASE.parent / "Videos"
+CLIPS = BASE.parent / "Clips"
+SUBTITLES = BASE.parent / "Subtitles"
+
+for d in [VIDEOS, CLIPS, SUBTITLES]:
+    d.mkdir(exist_ok=True)
+
+os.environ["PATH"] = str(FFMPEG_DIR) + os.pathsep + os.environ.get("PATH", "")
+
+if not FFMPEG.exists():
+    print(f"ERROR: ffmpeg.exe not found at {FFMPEG}")
+    sys.exit(1)
+
+MAX_JOBS = 4  # configure simultaneous jobs
+
+def run(cmd, cwd=None):
+    subprocess.run([str(c) for c in cmd], check=True, cwd=cwd)
+
+def safe(s):
+    return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
+
+def format_hms(seconds):
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
+
+def parse_chapters(path):
+    chapters = []
+    ffmetadata = {}
+    cur = {}
+    in_chapter = False
+    seen_chapter = False
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not seen_chapter and "=" in line and not line.startswith(("[", ";")):
+            k, v = line.split("=", 1)
+            ffmetadata[k.strip().lower()] = v.strip()
+            continue
+        if line == "[CHAPTER]":
+            seen_chapter = True
+            if cur and in_chapter:
+                chapters.append(cur)
+            cur = {}
+            in_chapter = True
+            continue
+        if in_chapter and "=" in line:
+            k, v = line.split("=", 1)
+            cur[k.lower()] = v.strip()
+        if in_chapter and not line and cur:
+            chapters.append(cur)
+            cur = {}
+            in_chapter = False
+    if cur and in_chapter:
+        chapters.append(cur)
+    return ffmetadata, chapters
+
+def extract_chapter(src, start, end, dest):
+    run([FFMPEG, "-v", "warning",
+         "-ss", f"{start:.3f}",
+         "-to", f"{end:.3f}",
+         "-i", str(src),
+         "-map", "0:v", "-map", "0:a",
+         "-c", "copy",
+         "-avoid_negative_ts", "make_zero",
+         "-y", str(dest)])
+
+def create_avs(temp_extracted, avs_path):
+    avs_script = f'''
+SetFilterMTMode("DEFAULT_MT_MODE", 2)
+LoadPlugin("{QTGMC_DIR}/ffms2.dll") 
+LoadPlugin("{QTGMC_DIR}/masktools2.dll") 
+LoadPlugin("{QTGMC_DIR}/Rgtools.dll") 
+LoadPlugin("{QTGMC_DIR}/mvtools2.dll") 
+LoadPlugin("{QTGMC_DIR}/nnedi3.dll") 
+LoadPlugin("{QTGMC_DIR}/yadifmod2.dll") 
+LoadPlugin("{QTGMC_DIR}/fft3dfilter.dll") 
+LoadPlugin("{QTGMC_DIR}/LoadDLL64.dll") 
+LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll") 
+Import("{QTGMC_DIR}/Zs_RF_Shared.avsi") 
+Import("{QTGMC_DIR}/QTGMC.avsi") 
+FFmpegSource2("{temp_extracted}", atrack=-1) 
+AssumeFPS(30000,1001) 
+ConvertToYV12(matrix="Rec601") 
+QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3)
+Crop(4,2,-8,-10)
+LanczosResize(640,480)
+ConvertToYV12(interlaced=false)
+Tweak(sat=0.8)
+Prefetch()'''
+    avs_path.write_text(avs_script, encoding="ascii")
+
+def deinterlace(temp_avs, temp_extracted, temp_qtgmc):
+    run([FFMPEG, "-v", "warning",
+         "-i", str(temp_avs), "-i", str(temp_extracted),
+         "-pix_fmt", "yuv422p",
+         "-color_primaries:v", "6",
+         "-color_trc:v", "6",
+         "-colorspace:v", "5",
+         "-color_range:v", "1",
+         "-map", "0:v:0", "-c:v", "ffv1",
+         "-level", "3", "-g", "1", "-coder", "1", "-context", "1",
+         "-slices", "24", "-slicecrc", "1",
+         "-map", "0:a", "-c:a", "copy",
+         "-y", str(temp_qtgmc)])
+
+def extract_audio(temp_extracted, temp_transcript):
+    run([FFMPEG, "-v", "warning",
+         "-i", str(temp_extracted),
+         "-vn",
+         "-af", "highpass=f=120,lowpass=f=8000,afftdn=nf=-25,dynaudnorm=f=150:g=13,aresample=16000,loudnorm=I=-16:TP=-1.5:LRA=11",
+         "-c:a", "pcm_s16le",
+         "-y", str(temp_transcript)])
+
+def transcribe_audio(model, temp_transcript, final_vtt):
+    vtt_writer = get_writer("vtt", str(SUBTITLES))
+    result = model.transcribe(str(temp_transcript), language="en", fp16=False)
+    vtt_writer(result, str(final_vtt))
+
+def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location):
+    cmd = [FFMPEG, "-v", "warning",
+           "-i", str(temp_qtgmc),
+           "-i", str(final_vtt),
+           "-map_metadata", "-1",
+           "-map_chapters", "-1",
+           "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
+           "-pix_fmt", "yuv420p10le",
+           "-x265-params", "no-open-gop=1:bframes=8",
+           "-c:a", "aac", "-b:a", "48k", "-ac", "1",
+           "-af", "highpass=f=80,lowpass=f=14000",
+           "-tag:v", "hvc1", "-brand", "mp42",
+           "-map", "0:v:0",
+           "-map", "0:a:0",
+           "-map", "1:s:0",
+           "-c:s", "mov_text",
+           "-metadata:s:s:0", "language=eng",
+           "-disposition:s:0", "forced",
+           "-metadata:s:a:0", "language=eng",
+           "-metadata", f"title={title}",
+           "-metadata", f"comment=Chapter from archive \"{title}\" time range {start_hms}-{end_hms}",
+           "-metadata", f"creation_time={ctime}",
+           "-metadata", f"com.apple.quicktime.creationdate={ctime}",
+           "-metadata", f"date={ctime}",
+           "-metadata", f"genre={ffmetadata.get('genre','')}",
+           "-metadata", f"videographer={ffmetadata.get('videographer','')}",
+           "-metadata", f"tape_id={ffmetadata.get('tape_id','')}"
+           ]
+    if location:
+        iso6709 = location.rstrip("/") + "/"
+        cmd += ["-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}"]
+    cmd += ["-movflags", "+faststart+write_colr+use_metadata_tags", "-y", str(final_file)]
+    run(cmd)
+
+def cleanup_temp_files(*files):
+    for f in files:
+        f.unlink(missing_ok=True)
+    for ffindex in [f.parent for f in files]:
+        for p in ffindex.rglob('*.ffindex'):
+            p.unlink(missing_ok=True)
+
+def process_chapter(chapter_job):
+    chapter, src, ffmetadata, model = chapter_job
+    start_sec, end_sec = int(chapter["start"]), int(chapter["end"])
+    duration = chapter.get("duration")
+    ctime = chapter.get("creation_time", "")
+    location = chapter.get("location", "")
+    title = chapter.get("title", f"Chapter {start_sec}-{end_sec}")
+    final_dir = VIDEOS if duration >= 200 else CLIPS
+    final_file = final_dir / f"{safe(title)}.mp4"
+    if final_file.exists() and final_file.stat().st_size > 100_000:
+        return f"Skipping existing chapter: {title}"
+
+    temp_extracted = final_dir / f"{safe(title)}_extracted.mkv"
+    extract_chapter(src, start_sec, end_sec, temp_extracted)
+
+    temp_avs = final_dir / f"{safe(title)}.avs"
+    create_avs(temp_extracted, temp_avs)
+
+    temp_qtgmc = final_dir / f"{safe(title)}_qtgmc.mkv"
+    deinterlace(temp_avs, temp_extracted, temp_qtgmc)
+
+    temp_transcript = final_dir / f"{safe(title)}_transcript.wav"
+    final_vtt = SUBTITLES / f"{safe(title)}.vtt"
+    extract_audio(temp_extracted, temp_transcript)
+    transcribe_audio(model, temp_transcript, final_vtt)
+
+    start_hms = format_hms(start_sec)
+    end_hms = format_hms(end_sec)
+    encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location)
+
+    cleanup_temp_files(temp_extracted, temp_qtgmc, temp_avs, temp_transcript)
+    return f"Done {final_file.name}"
+
+def main():
+    model = whisper.load_model("turbo")
+    chapter_jobs = []
+    for src in ARCHIVE.glob("*.mkv"):
+        prefix = "_".join(src.stem.rsplit("_", 2)[:2])
+        chapters_file = BASE / "metadata" / prefix / "chapters.ffmetadata"
+        if not chapters_file.exists():
+            continue
+        ffmetadata, chapters = parse_chapters(chapters_file)
+        for ch in chapters:
+            ch["duration"] = int(ch.get("end", 0)) - int(ch.get("start", 0))
+        chapters.sort(key=lambda x: x["duration"])
+        for ch in chapters:
+            chapter_jobs.append((ch, src, ffmetadata, model))
+    chapter_jobs.sort(key=lambda x: x[0]["duration"])
+
+    cpus = psutil.cpu_count(logical=False)
+    executor = ProcessPoolExecutor(max_workers=min(MAX_JOBS, cpus))
+    futures = []
+    cpu_index = 0
+    for job in chapter_jobs:
+        def wrapper(job=job, cpu=cpu_index):
+            p = psutil.Process()
+            p.cpu_affinity([cpu])
+            return process_chapter(job)
+        futures.append(executor.submit(wrapper))
+        cpu_index = (cpu_index + 1) % cpus
+
+    for f in as_completed(futures):
+        print(f.result())
+
+if __name__ == "__main__":
+    main()
+    print("All done")
