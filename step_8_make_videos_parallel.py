@@ -26,8 +26,6 @@ if not FFMPEG.exists():
     print(f"ERROR: ffmpeg.exe not found at {FFMPEG}")
     sys.exit(1)
 
-MAX_JOBS = 4  # adjust as needed
-
 def run(cmd, cwd=None):
     subprocess.run([str(c) for c in cmd], check=True, cwd=cwd)
 
@@ -170,7 +168,9 @@ def cleanup_temp_files(*files):
         for p in ffindex.rglob('*.ffindex'):
             p.unlink(missing_ok=True)
 
-def process_chapter(chapter_job):
+def process_chapter(chapter_job, cpus):
+    psutil.cpu_affinity([cpus])
+
     model, src, ffmetadata, ch, i = chapter_job
     title = ch.get("title", f"Chapter {i+1}")
     start_sec, end_sec = int(ch["start"]), int(ch["end"])
@@ -227,13 +227,14 @@ def main():
 
     chapter_jobs.sort(key=lambda x: x[3]["duration"])
 
-    cpus = psutil.cpu_count(logical=False)
-    with concurrent.futures.ProcessPoolExecutor(max_workers=min(MAX_JOBS, cpus)) as executor:
+    cpus_real = psutil.cpu_count(logical=False)
+    cpus_logical = psutil.cpu_count(logical=True)
+    with concurrent.futures.ProcessPoolExecutor(max_workers=cpus_real) as executor:
         futures = []
         for idx, job in enumerate(chapter_jobs):
-            cpu = idx % cpus
+            logical_pair = [(idx * 2) % cpus_logical, (idx * 2 + 1) % cpus_logical]
             # submit job with CPU pinning handled inside process_chapter
-            futures.append(executor.submit(process_chapter, job))
+            futures.append(executor.submit(process_chapter, job, logical_pair))
         for f in concurrent.futures.as_completed(futures):
             print(f.result())
 
