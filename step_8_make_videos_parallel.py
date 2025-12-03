@@ -164,7 +164,7 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset=None):
          "-slices", "24", "-slicecrc", "1",
          "-ac", "1",
          "-map", "0:a", "-c:a", "copy",
-         "-y", str(temp_qtgmc)], temp_extracted.parent, cpuset)
+         "-y", str(temp_qtgmc)], temp_qtgmc.parent, cpuset)
 
 def extract_audio(temp_extracted, temp_transcript, cpuset=None):
     run([
@@ -247,7 +247,7 @@ def process_chapter(chapter_job, cpuset):
 
     print(f"Deinterlacing chapter: {title}")
     temp_avs = final_dir / f"{safe(title)}.avs"
-    create_avs(temp_extracted, temp_avs)
+    create_avs(temp_extracted.name, temp_avs)
 
     temp_qtgmc = final_dir / f"{safe(title)}_qtgmc.mkv"
     deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset)
