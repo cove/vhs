@@ -71,6 +71,8 @@ def load_all_metadata():
             "path": chapters_file
         }
 
+        pprint.pprint(entry)
+
         if ch_uuid:
             metadata_by_uuid[ch_uuid] = entry
         if ch_title:
