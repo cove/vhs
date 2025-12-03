@@ -28,8 +28,19 @@ if not FFMPEG.exists():
     print(f"ERROR: ffmpeg.exe not found at {FFMPEG}")
     sys.exit(1)
 
-def run(cmd, cwd=None):
-    subprocess.run([str(c) for c in cmd], check=True, cwd=cwd)
+def run(cmd, cpu_list=None):
+    proc = subprocess.Popen([str(c) for c in cmd])
+    if cpu_list:
+        try:
+            p = psutil.Process(proc.pid)
+            p.cpu_affinity(cpu_list)
+        except Exception as e:
+            print(f"Warning: failed to set CPU affinity: {e}", file=sys.stderr)
+
+    retcode = proc.wait()
+    if retcode != 0:
+        raise subprocess.CalledProcessError(retcode, cmd)
+
 
 def safe(s):
     return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
@@ -134,7 +145,7 @@ Tweak(sat=0.8)
 '''
     avs_path.write_text(avs_script, encoding="ascii")
 
-def deinterlace(temp_avs, temp_extracted, temp_qtgmc):
+def deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset=None):
     run([FFMPEG,
          "-nostdin",
          "-v", "warning",
@@ -153,9 +164,9 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc):
          "-slices", "24", "-slicecrc", "1",
          "-ac", "1",
          "-map", "0:a", "-c:a", "copy",
-         "-y", str(temp_qtgmc)])
+         "-y", str(temp_qtgmc)], cpuset)
 
-def extract_audio(temp_extracted, temp_transcript):
+def extract_audio(temp_extracted, temp_transcript, cpuset=None):
     run([
         FFMPEG, "-nostdin", "-v", "warning", "-threads", "1",
         "-i", str(temp_extracted),
@@ -165,14 +176,14 @@ def extract_audio(temp_extracted, temp_transcript):
         "-ac", "1",
         "-y",
         str(temp_transcript)
-    ])
+    ], cpuset)
 
 def transcribe_audio(model, temp_transcript, final_vtt):
     vtt_writer = get_writer("vtt", str(SUBTITLES))
     result = model.transcribe(str(temp_transcript), language="en", fp16=False)
     vtt_writer(result, str(final_vtt))
 
-def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location):
+def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location, cpuset=None):
     cmd = [FFMPEG,
            "-nostdin",
            "-v",
@@ -207,16 +218,16 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
         iso6709 = location.rstrip("/") + "/"
         cmd += ["-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}"]
     cmd += ["-movflags", "+faststart+write_colr+use_metadata_tags", "-y", str(final_file)]
-    run(cmd)
+    run(cmd, cpuset)
 
 def cleanup_temp_files(*files):
     for f in files:
         f.unlink(missing_ok=True)
         f.with_suffix(".ffindex").unlink(missing_ok=True)
 
-def process_chapter(chapter_job, cpus):
+def process_chapter(chapter_job, cpuset):
     p = psutil.Process()
-    p.cpu_affinity(cpus)
+    p.cpu_affinity(cpuset)
 
     model, src, ffmetadata, ch, i = chapter_job
     title = ch.get("title", f"Chapter {i+1}")
@@ -239,22 +250,21 @@ def process_chapter(chapter_job, cpus):
     create_avs(temp_extracted, temp_avs)
 
     temp_qtgmc = final_dir / f"{safe(title)}_qtgmc.mkv"
-    deinterlace(temp_avs, temp_extracted, temp_qtgmc)
+    deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset)
 
     print(f"Transcribing chapter: {title}")
     temp_transcript = final_dir / f"{safe(title)}_transcript.wav"
     final_vtt = SUBTITLES / f"{safe(title)}.vtt"
-    extract_audio(temp_extracted, temp_transcript)
+    extract_audio(temp_extracted, temp_transcript, cpuset)
     transcribe_audio(model, temp_transcript, final_vtt)
 
     print(f"Final encoding chapter: {final_file.name}")
     start_hms = format_hms(start_sec)
     end_hms = format_hms(end_sec)
-    encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location)
+    encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location, cpuset)
 
     cleanup_temp_files(temp_extracted, temp_qtgmc, temp_avs, temp_transcript)
     return f"Done: {final_file.name}"
-    print (f"Done: {final_file.name}")
 
 def main():
     model = whisper.load_model("turbo")
@@ -285,9 +295,9 @@ def main():
     with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
         futures = []
         for idx, job in enumerate(chapter_jobs):
-            logical_pair = [(idx * 2) % cpus_logical, (idx * 2 + 1) % cpus_logical]
+            cpuset = [(idx * 2) % cpus_logical, (idx * 2 + 1) % cpus_logical]
             # submit job with CPU pinning handled inside process_chapter
-            futures.append(executor.submit(process_chapter, job, logical_pair))
+            futures.append(executor.submit(process_chapter, job, cpuset))
         for f in concurrent.futures.as_completed(futures):
             print(f.result())
 
