@@ -16,7 +16,7 @@ def safe(s):
     return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
 
 for src in CLIPS.glob("*.mp4"), VIDEOS.glob("*.mp4"):
-    prefix = src.stem
+    prefix = Path(str(src)).stem
     subtitle_file = SUBTITLES / f"{prefix}.vtt"
     if not subtitle_file.exists():
         print(f"No subtitles found for {src.name}, skipping")
