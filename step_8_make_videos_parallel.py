@@ -94,18 +94,20 @@ def parse_chapters(path):
     return ffmetadata, chapters
 
 def extract_chapter(src, start, end, dest):
-    run([FFMPEG, "-nostdin", "-v", "warning",
-        "-i", str(src),
-        "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
-        "-r", "30000 / 1001",
-        "-pix_fmt", "yuv422p",
-        "-color_primaries:v", "6",
-        "-color_trc:v", "6",
-        "-colorspace:v", "5",
-        "-color_range:v", "1",
-        "-ac", "1",
-        "-map", "0:v", "-map", "0:a", "-c", "copy",
-        "-avoid_negative_ts", "make_zero", "-y", str(dest)])
+    run([FFMPEG,
+         "-nostdin",
+         "-v", "warning",
+         "-r", "30000 / 1001",
+         "-pix_fmt", "yuv422p",
+         "-color_primaries:v", "6",
+         "-color_trc:v", "6",
+         "-colorspace:v", "5",
+         "-color_range:v", "1",
+         "-i", str(src),
+         "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
+         "-ac", "1",
+         "-map", "0:v", "-map", "0:a", "-c", "copy",
+         "-avoid_negative_ts", "make_zero", "-y", str(dest)])
 
 def create_avs(temp_extracted, avs_path):
     avs_script = f'''
@@ -136,14 +138,14 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc):
          "-nostdin",
          "-v", "warning",
          "-threads", "1",
-         "-i", str(temp_avs),
-         "-i", str(temp_extracted),
          "-r", "30000 / 1001",
          "-pix_fmt", "yuv422p",
          "-color_primaries:v", "6",
          "-color_trc:v", "6",
          "-colorspace:v", "5",
          "-color_range:v", "1",
+         "-i", str(temp_avs),
+         "-i", str(temp_extracted),
          "-map", "0:v:0", "-c:v", "ffv1",
          "-level", "3", "-g", "1", "-coder", "1", "-context", "1",
          "-slices", "24", "-slicecrc", "1",
@@ -250,6 +252,8 @@ def process_chapter(chapter_job, cpus):
     encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location)
 
     cleanup_temp_files(temp_extracted, temp_qtgmc, temp_avs, temp_transcript)
+    print(f"Final encoding: {final_file.name}")
+
     print (f"Done: {final_file.name}")
 
 def main():
