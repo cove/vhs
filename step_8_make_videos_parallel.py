@@ -95,15 +95,15 @@ def parse_chapters(path):
 
 def extract_chapter(src, start, end, dest):
     run([FFMPEG, "-nostdin", "-v", "warning",
-        "-probesize", "50M",
-        "-analyzeduration", "100M",
         "-i", str(src),
         "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
+        "-r", "30000 / 1001",
         "-pix_fmt", "yuv422p",
         "-color_primaries:v", "6",
         "-color_trc:v", "6",
         "-colorspace:v", "5",
         "-color_range:v", "1",
+        "-ac", "1",
         "-map", "0:v", "-map", "0:a", "-c", "copy",
         "-avoid_negative_ts", "make_zero", "-y", str(dest)])
 
@@ -132,17 +132,24 @@ Tweak(sat=0.8)
     avs_path.write_text(avs_script, encoding="ascii")
 
 def deinterlace(temp_avs, temp_extracted, temp_qtgmc):
-    run([FFMPEG, "-nostdin", "-v", "warning", "-threads", "1", "-i", str(temp_avs), "-i", str(temp_extracted),
-        "-pix_fmt", "yuv422p",
-        "-color_primaries:v", "6",
-        "-color_trc:v", "6",
-        "-colorspace:v", "5",
-        "-color_range:v", "1",
-        "-map", "0:v:0", "-c:v", "ffv1",
-        "-level", "3", "-g", "1", "-coder", "1", "-context", "1",
-        "-slices", "24", "-slicecrc", "1",
-        "-map", "0:a", "-c:a", "copy",
-        "-y", str(temp_qtgmc)])
+    run([FFMPEG,
+         "-nostdin",
+         "-v", "warning",
+         "-threads", "1",
+         "-i", str(temp_avs),
+         "-i", str(temp_extracted),
+         "-r", "30000 / 1001",
+         "-pix_fmt", "yuv422p",
+         "-color_primaries:v", "6",
+         "-color_trc:v", "6",
+         "-colorspace:v", "5",
+         "-color_range:v", "1",
+         "-map", "0:v:0", "-c:v", "ffv1",
+         "-level", "3", "-g", "1", "-coder", "1", "-context", "1",
+         "-slices", "24", "-slicecrc", "1",
+         "-ac", "1",
+         "-map", "0:a", "-c:a", "copy",
+         "-y", str(temp_qtgmc)])
 
 def extract_audio(temp_extracted, temp_transcript):
     run([
@@ -151,6 +158,7 @@ def extract_audio(temp_extracted, temp_transcript):
         "-vn",
         "-af", "highpass=f=120,lowpass=f=8000,afftdn=nf=-25,dynaudnorm=f=150:g=13,aresample=16000,loudnorm=I=-16:TP=-1.5:LRA=11",
         "-c:a", "pcm_s16le",
+        "-ac", "1",
         "-y",
         str(temp_transcript)
     ])
@@ -161,32 +169,35 @@ def transcribe_audio(model, temp_transcript, final_vtt):
     vtt_writer(result, str(final_vtt))
 
 def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location):
-    cmd = [FFMPEG, "-nostdin", "-v", "warning", "-threads", "1",
-         "-i", str(temp_qtgmc),
-         "-i", str(final_vtt),
-         "-map_metadata", "-1",
-         "-map_chapters", "-1",
-         "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
-         "-pix_fmt", "yuv420p10le",
-         "-x265-params", "no-open-gop=1:bframes=8",
-         "-c:a", "aac", "-b:a", "48k", "-ac", "1",
-         "-af", "highpass=f=80,lowpass=f=14000,loudnorm=I=-16:TP=-1.5:LRA=11",
-         "-tag:v", "hvc1", "-brand", "mp42",
-         "-map", "0:v:0",
-         "-map", "0:a:0",
-         "-map", "1:s:0",
-         "-c:s", "mov_text",
-         "-metadata:s:s:0", "language=eng",
-         "-disposition:s:0", "forced",
-         "-metadata:s:a:0", "language=eng",
-         "-metadata", f"title={title}",
-         "-metadata", f"comment=Chapter from archive \"{title}\" time range {start_hms}-{end_hms}",
-         "-metadata", f"creation_time={ctime}",
-         "-metadata", f"com.apple.quicktime.creationdate={ctime}",
-         "-metadata", f"date={ctime}",
-         "-metadata", f"genre={ffmetadata.get('genre','')}",
-         "-metadata", f"videographer={ffmetadata.get('videographer','')}",
-         "-metadata", f"tape_id={ffmetadata.get('tape_id','')}"
+    cmd = [FFMPEG,
+           "-nostdin",
+           "-v",
+           "warning",
+           "-threads", "1",
+           "-i", str(temp_qtgmc),
+           "-i", str(final_vtt),
+           "-map_metadata", "-1",
+           "-map_chapters", "-1",
+           "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
+           "-r", "30000 / 1001",
+           "-pix_fmt", "yuv420p10le",
+           "-x265-params", "no-open-gop=1:bframes=8",
+           "-c:a", "aac", "-b:a", "48k", "-ac", "1",
+           "-af", "highpass=f=80,lowpass=f=14000,loudnorm=I=-16:TP=-1.5:LRA=11",
+           "-tag:v", "hvc1", "-brand", "mp42",
+           "-map", "0:v:0", "-map", "0:a:0", "-map", "1:s:0",
+           "-c:s", "mov_text",
+           "-metadata:s:s:0", "language=eng",
+           "-disposition:s:0", "forced",
+           "-metadata:s:a:0", "language=eng",
+           "-metadata", f"title={title}",
+           "-metadata", f"comment=Chapter from archive \"{title}\" time range {start_hms}-{end_hms}",
+           "-metadata", f"creation_time={ctime}",
+           "-metadata", f"com.apple.quicktime.creationdate={ctime}",
+           "-metadata", f"date={ctime}",
+           "-metadata", f"genre={ffmetadata.get('genre','')}",
+           "-metadata", f"videographer={ffmetadata.get('videographer','')}",
+           "-metadata", f"tape_id={ffmetadata.get('tape_id','')}"
     ]
     if location:
         iso6709 = location.rstrip("/") + "/"
@@ -262,8 +273,9 @@ def main():
     chapter_jobs.sort(key=lambda x: x[3]["duration"])
 
     cpus_real = psutil.cpu_count(logical=False)
+    worker_count = int(cpus_real/2)
     cpus_logical = psutil.cpu_count(logical=True)
-    with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
         futures = []
         for idx, job in enumerate(chapter_jobs):
             logical_pair = [(idx * 2) % cpus_logical, (idx * 2 + 1) % cpus_logical]

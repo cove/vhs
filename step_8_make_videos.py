@@ -141,6 +141,7 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc):
         "-map", "0:v:0", "-c:v", "ffv1",
         "-level", "3", "-g", "1", "-coder", "1", "-context", "1",
         "-slices", "24", "-slicecrc", "1",
+        "-ac", "1",
         "-map", "0:a", "-c:a", "copy",
         "-y", str(temp_qtgmc)])
 
@@ -150,6 +151,7 @@ def extract_audio(temp_extracted, temp_transcript):
         "-i", str(temp_extracted),
         "-vn",
         "-af", "highpass=f=120,lowpass=f=8000,afftdn=nf=-25,dynaudnorm=f=150:g=13,aresample=16000,loudnorm=I=-16:TP=-1.5:LRA=11",
+        "-ac", "1",
         "-c:a", "pcm_s16le",
         "-y",
         str(temp_transcript)
