@@ -164,7 +164,7 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset=None):
          "-slices", "24", "-slicecrc", "1",
          "-ac", "1",
          "-map", "0:a", "-c:a", "copy",
-         "-y", str(temp_qtgmc)], temp_qtgmc.parent, cpuset)
+         "-y", str(temp_qtgmc.name)], temp_qtgmc.parent, cpuset)
 
 def extract_audio(temp_extracted, temp_transcript, cpuset=None):
     run([
