@@ -15,20 +15,21 @@ def run(cmd):
 def safe(s):
     return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
 
-for src in CLIPS.glob("*.mp4"), VIDEOS.glob("*.mp4"):
-    each = Path(str(src))
-    prefix = each.stem
+all_videos = (f for folder in [VIDEOS, CLIPS] for f in folder.glob("*.mp4"))
+
+for src in all_videos:
+    prefix = src.stem
     subtitle_file = SUBTITLES / f"{prefix}.vtt"
     if not subtitle_file.exists():
-        print(f"No subtitles found for {each.name}, skipping")
+        print(f"No subtitles found for {src.name}, skipping")
         continue
 
-    final_file = each
-    temp_file = Path(str(each)).with_suffix(".subtitle_temp.mp4")
+    final_file = src
+    temp_file = src.with_suffix(".subtitle_temp.mp4")
 
     cmd = [
         FFMPEG,
-        "-i", str(each),
+        "-i", str(src),
         "-i", str(subtitle_file),
         "-map", "0:v",
         "-map", "0:a",
@@ -36,13 +37,13 @@ for src in CLIPS.glob("*.mp4"), VIDEOS.glob("*.mp4"):
         "-c:v", "copy",
         "-c:a", "copy",
         "-c:s", "mov_text",
+        "-metadata:s:v:0", "language=eng",
         "-metadata:s:s:0", "language=eng",
         "-disposition:s:0", "default",
-        "-y",
-        str(temp_file)
+        "-y", str(temp_file)
     ]
 
-    print(f"Applying subtitles to {each.name}")
+    print(f"Applying subtitles to {src.name}")
     run(cmd)
 
 print("All done")
