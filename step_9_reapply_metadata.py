@@ -8,6 +8,122 @@ ARCHIVE = BASE.parent / "Archive"
 CLIPS = BASE.parent / "Clips"
 VIDEOS = BASE.parent / "Videos"
 SUBTITLES = BASE.parent / "Subtitles"
+MEDIA_METADATA = BASE / "media_metadata"
+
+metadata_by_uuid = {}
+metadata_by_title = {}
+
+def parse_chapters(path, title=None, uuid=None):
+    global_meta = {}
+    chapters = {}
+    current = None
+    in_chapter = False
+    seen_chapter = False
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        # Global metadata section
+        if not seen_chapter and "=" in line and not line.startswith(("[", ";")):
+            k, v = line.split("=", 1)
+            global_meta[k.strip().lower()] = v.strip()
+            continue
+
+        # Chapter start
+        if line == "[CHAPTER]":
+            seen_chapter = True
+            if current:
+                # Insert previous chapter before starting next
+                chap_title = current.get("title", f"chapter_{len(chapters)+1}")
+                chapters[chap_title] = current
+            current = {}
+            in_chapter = True
+            continue
+
+        # Chapter body
+        if in_chapter and "=" in line:
+            k, v = line.split("=", 1)
+            current[k.lower()] = v.strip()
+
+    # Add last chapter
+    if current:
+        chap_title = current.get("title", f"chapter_{len(chapters)+1}")
+        chapters[chap_title] = current
+
+    # --- Selection logic ---
+    # 1. Select by UUID
+    if uuid:
+        for chap_title, chap_data in chapters.items():
+            if chap_data.get("uuid") == uuid:
+                return global_meta, chap_data
+        return global_meta, None
+
+    # 2. Select by title
+    if title:
+        return global_meta, chapters.get(title)
+
+    # 3. No filters → return all chapters
+    return global_meta, chapters
+
+def load_all_metadata():
+    for dirpath in MEDIA_METADATA.glob("*"):
+        chapters_file = dirpath / "chapters.ffmetadata"
+        if not chapters_file.exists():
+            continue
+
+        ffm, chapters = parse_chapters(chapters_file)
+
+        # record uuid of archive
+        archive_uuid = ffm.get("uuid", "").strip()
+        archive_title = ffm.get("title", "").strip()
+
+        entry = {
+            "global": ffm,
+            "chapters": chapters,
+            "path": chapters_file
+        }
+
+        if archive_uuid:
+            metadata_by_uuid[archive_uuid] = entry
+        if archive_title:
+            metadata_by_title[archive_title.lower()] = entry
+
+def ffprobe_metadata_field(path, key):
+    try:
+        out = subprocess.check_output([
+            FFMPEG,
+            "-v", "quiet",
+            "-select_streams", "v:0",
+            "-show_entries", f"stream_tags={key}",
+            "-of", "default=nw=1:nk=1",
+            str(path)
+        ], text=True).strip()
+        return out or ""
+    except Exception:
+        return ""
+
+def load_metadata_for_video(video_path):
+    # ---- A. Extract UUID from the video (if present)
+    vid_uuid = ffprobe_metadata_field(video_path, "com.apple.quicktime.uuid")
+
+    if vid_uuid and vid_uuid in metadata_by_uuid:
+        entry = metadata_by_uuid[vid_uuid]
+        # find matching chapter by uuid
+        for ch in entry["chapters"]:
+            if ch.get("uuid", "") == vid_uuid:
+                return entry["global"], ch
+
+    # ---- B. If no UUID match, try title
+    title = ffprobe_metadata_field(video_path, "title").lower()
+    if title in metadata_by_title:
+        entry = metadata_by_title[title]
+        for ch in entry["chapters"]:
+            if ch.get("title", "").lower() == title:
+                return entry["global"], ch
+
+    return None, None
 
 def run(cmd):
     subprocess.run([str(c) for c in cmd], check=True)
@@ -21,56 +137,8 @@ def format_hms(seconds):
     s = int(seconds % 60)
     return f"{h:02d}:{m:02d}:{s:02d}"
 
-def parse_chapter(path, title_name, uuid=None):
-    ffmetadata = {}
-    cur = {}
-    in_chapter = False
-    seen_chapter = False
-
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-
-        # Global metadata
-        if not seen_chapter and "=" in line and not line.startswith(("[", ";")):
-            k, v = line.split("=", 1)
-            ffmetadata[k.strip().lower()] = v.strip()
-            continue
-
-        # Chapter start
-        if line == "[CHAPTER]":
-            seen_chapter = True
-            if cur and in_chapter:
-                cur_title = cur.get("title", "")
-                cur_uuid = cur.get("uuid", "")
-                if cur_title == title_name and (uuid is None or cur_uuid == uuid):
-                    return ffmetadata, cur
-            cur = {}
-            in_chapter = True
-            continue
-
-        # Chapter key=value
-        if in_chapter and "=" in line:
-            k, v = line.split("=", 1)
-            cur[k.lower()] = v.strip()
-
-        # End of chapter block
-        if in_chapter and not line and cur:
-            cur_title = cur.get("title", "")
-            cur_uuid = cur.get("uuid", "")
-            if cur_title == title_name and (uuid is None or cur_uuid == uuid):
-                return ffmetadata, cur
-            cur = {}
-            in_chapter = False
-
-    # Last chapter
-    if cur and in_chapter:
-        cur_title = cur.get("title", "")
-        cur_uuid = cur.get("uuid", "")
-        if cur_title == title_name and (uuid is None or cur_uuid == uuid):
-            return ffmetadata, cur
-
-    # Not found
-    return ffmetadata, None
+load_all_metadata()
+print(f"Loaded metadata for {len(metadata_by_uuid)} UUIDs and {len(metadata_by_title)} titles")
 
 all_videos = (f for folder in [VIDEOS, CLIPS] for f in folder.glob("*.mp4"))
 for src in all_videos:
@@ -88,9 +156,7 @@ for src in all_videos:
     final_file = src
     temp_file = src.with_suffix(".subtitle_temp.mp4")
 
-    chapters_file = BASE / "media_metadata" / title / "chapters.ffmetadata"
-    ffmetadata, ch = parse_chapter(chapters_file, title)
-
+    ffm, ch = load_metadata_for_video(src)
     if not ch:
         print(f"No chapters for {src.name}")
         continue
