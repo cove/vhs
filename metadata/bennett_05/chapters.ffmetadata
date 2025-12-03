@@ -47,9 +47,9 @@ location=+34.195465-118.137073+453.79/
 
 [CHAPTER]
 TIMEBASE=1/1
-START=419
+START=420
 END=432
-title=1992 - Tera & Asia in tree (April 18, 1992)
+title=1992 - Terra & Asia in tree (April 18, 1992)
 creation_time=1992-04-18T00:00:00
 location=+34.195465-118.137073+453.79/
 
@@ -208,14 +208,6 @@ location=+36.597562-121.886724+4.2672/
 
 [CHAPTER]
 TIMEBASE=1/1
-START=1211
-END=1222
-title=1992 - Terra held upside down by Terry at Dennis The Menace Playground in Monterey, California (June 23, 1992)
-creation_time=1992-06-23T00:00:00
-location=+36.597562-121.886724+4.2672/
-
-[CHAPTER]
-TIMEBASE=1/1
 START=1247
 END=1288
 title=1992 - Terry's T-shirt and Buddy upside down at Dennis The Menace Playground in Monterey, California (June 23, 1992)
@@ -232,7 +224,7 @@ location=+36.597562-121.886724+4.2672/
 
 [CHAPTER]
 TIMEBASE=1/1
-START=1310
+START=1312
 END=1321
 title=1992 - Terry holds Buddy upside down again at Dennis The Menace Playground in Monterey, California (June 23, 1992)
 creation_time=1992-06-23T00:00:00
