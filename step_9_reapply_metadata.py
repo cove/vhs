@@ -1,3 +1,27 @@
+"""
+This script re-applies subtitle and chapter metadata to existing MP4 video files
+in the Videos and Clips directories. It performs the following tasks:
+
+1. Loads chapter metadata from the media_metadata folder.
+   - Parses global metadata and per-chapter metadata from 'chapters.ffmetadata' files.
+   - Indexes chapters by lowercase title for easy lookup.
+
+2. Iterates through all MP4 videos in the Videos and Clips folders.
+
+3. For each video:
+   - Skips files that are already being processed or temporary files.
+   - Checks if a corresponding VTT subtitle file exists; skips the video if not.
+   - Loads the metadata associated with the video title.
+   - Constructs an ffmpeg command to copy video, audio, and subtitle streams,
+     while re-applying metadata such as title, creation time, location, tape ID,
+     videographer, genre, and subtitle language/disposition.
+   - Executes the ffmpeg command to produce a temporary file, then replaces
+     the original video with the updated file.
+
+This ensures all videos have consistent, accurate chapter and subtitle metadata
+without re-encoding the main video and audio streams.
+"""
+
 import subprocess
 from pathlib import Path
 
@@ -11,6 +35,18 @@ SUBTITLES = BASE.parent / "Subtitles"
 MEDIA_METADATA = BASE / "media_metadata"
 
 metadata_by_title = {}
+
+def run(cmd):
+    subprocess.run([str(c) for c in cmd], check=True)
+
+def safe(s):
+    return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
+
+def format_hms(seconds):
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    return f"{h:02d}:{m:02d}:{s:02d}"
 
 def parse_chapters(path):
     global_meta = {}
@@ -60,67 +96,46 @@ def load_all_metadata():
 
         for chap_title, chap_data in chapters.items():
             ch_title = chap_data.get("title", "").strip()
-
             entry = {
                 "global": global_meta,
-                "chapter": chap_data,   # <-- only this chapter
+                "chapter": chap_data,
                 "path": chapters_file
             }
-
             metadata_by_title[ch_title.lower()] = entry
 
 def load_metadata_for_video(video_path):
     title = video_path.stem.lower()
-
-    if title in metadata_by_title:
-        entry = metadata_by_title[title]
-        ch = entry["chapter"]
-        return entry["global"], ch
-
+    entry = metadata_by_title.get(title)
+    if entry:
+        return entry["global"], entry["chapter"]
     return None, None
 
-def run(cmd):
-    subprocess.run([str(c) for c in cmd], check=True)
-
-def safe(s):
-    return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
-
-def format_hms(seconds):
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    return f"{h:02d}:{m:02d}:{s:02d}"
-
-load_all_metadata()
-print(f"Loaded metadata for {len(metadata_by_title)} titles")
-
-all_videos = (f for folder in [VIDEOS, CLIPS] for f in folder.glob("*.mp4"))
-for src in all_videos:
+def apply_metadata(src):
     title = src.stem
     subtitle_file = SUBTITLES / f"{title}.vtt"
     in_progress = src.with_suffix(".avs")
 
     if src.name.endswith(".subtitle_temp.mp4") or in_progress.exists():
-        continue
+        return
 
     if not subtitle_file.exists():
         print(f"No subtitles found for {src.name}, skipping")
-        continue
-
-    final_file = src
-    temp_file = src.with_suffix(".subtitle_temp.mp4")
+        return
 
     ffm, ch = load_metadata_for_video(src)
     if not ch:
         print(f"No chapters for {title}")
-        continue
+        return
+
+    final_file = src
+    temp_file = src.with_suffix(".subtitle_temp.mp4")
 
     ctime = ch.get("creation_time", "")
     location = ch.get("location", "")
-    date = ffm.get("date", "")
-    tape_id = ffm.get("tape_id", "")
-    videographer = ffm.get("videographer", "")
-    genre = ffm.get("genre", "")
+    date = ffm.get("date", "") if ffm else ""
+    tape_id = ffm.get("tape_id", "") if ffm else ""
+    videographer = ffm.get("videographer", "") if ffm else ""
+    genre = ffm.get("genre", "") if ffm else ""
     start_hms = ch.get("start", "0")
     end_hms = ch.get("end", "0")
 
@@ -139,9 +154,7 @@ for src in all_videos:
 
     if location:
         iso6709 = location.rstrip("/") + "/"
-        cmd += [
-            "-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}",
-        ]
+        cmd += ["-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}"]
 
     cmd += [
         "-metadata", f"title={title}",
@@ -162,5 +175,13 @@ for src in all_videos:
     run(cmd)
     temp_file.replace(final_file)
 
+def process_all_videos():
+    all_videos = (f for folder in [VIDEOS, CLIPS] for f in folder.glob("*.mp4"))
+    for src in all_videos:
+        apply_metadata(src)
 
-print("All done")
+if __name__ == "__main__":
+    load_all_metadata()
+    print(f"Loaded metadata for {len(metadata_by_title)} titles")
+    process_all_videos()
+    print("All done")

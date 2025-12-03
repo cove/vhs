@@ -1,4 +1,14 @@
-import subprocess, sys
+"""
+Verify BLAKE3 Checksums of Archive MKV Files
+
+This script checks all files listed in 00-manifest-blake3sums.txt against their BLAKE3 hashes.
+- Uses b3sum executable from bin/b3sum_windows_x64_bin.exe
+- Manifest must exist at Archive/00-manifest-blake3sums.txt
+- Reports whether all files match or if any failed verification
+"""
+
+import subprocess
+import sys
 from pathlib import Path
 
 BASE = Path(__file__).parent.resolve()

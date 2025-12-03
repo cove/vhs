@@ -1,4 +1,29 @@
-import os, glob, sys, subprocess
+"""
+Metadata Reattachment and Validation Script
+
+This script processes MKV files in the Archive directory by:
+- Attaching metadata from the corresponding media_metadata folder.
+- Embedding chapters and cover art.
+- Preserving video and audio streams without re-encoding.
+- Verifying the output file for FFmpeg errors and duration consistency.
+
+Requirements:
+- FFmpeg and FFprobe must be available at the specified paths.
+- Metadata for each video must be in media_metadata/<prefix>/ with files:
+    - title.txt
+    - comment.txt
+    - chapters.ffmetadata
+    - cover.jpg
+
+Output:
+- Overwrites the original MKV with the metadata-attached version.
+- Generates a manifest file 00-manifest-blake3sums.txt (currently empty).
+"""
+
+import os
+import glob
+import sys
+import subprocess
 from pathlib import Path
 
 ARCHIVE = Path("../Archive")
@@ -14,6 +39,7 @@ if not files:
     sys.exit(0)
 
 def duration(path):
+    """Return the duration of a video file in seconds."""
     try:
         out = subprocess.check_output(
             [FFPROBE, "-v", "error", "-show_entries", "format=duration",
@@ -38,7 +64,6 @@ for mkv in files:
     comment = (meta_dir / "comment.txt").read_text().strip()
     chapters = meta_dir / "chapters.ffmetadata"
     cover = meta_dir / "cover.jpg"
-    subtitle_file = p.with_name(f"{name}_subtitles.srt")
 
     temp = p.with_name(f"{name}_metadata_temp.mkv")
     final = p
@@ -49,18 +74,7 @@ for mkv in files:
         str(FFMPEG), "-nostdin", "-v", "warning", "-stats",
         "-i", str(p), "-f", "ffmetadata", "-i", str(chapters),
         "-map", "0:v:0", "-map", "0:a",
-        "-map_metadata", "0", "-map_chapters", "-1", "-map_chapters", "1"]
-
-    if subtitle_file.exists():
-        cmd += [
-            "-i", str(subtitle_file),
-            "-map", "2:s?",  # subtitle stream from SRT
-            "-c:s", "srt",   # keep as SRT
-            "-metadata:s:s:0", "language=eng",
-            "-metadata:s:s:0", "title=English"
-        ]
-
-    cmd +=[
+        "-map_metadata", "0", "-map_chapters", "-1", "-map_chapters", "1",
         "-c", "copy",
         "-metadata:s:v:0", "avg_frame_rate=30000/1001",
         "-metadata:s:a:0", "channel_layout=mono",
@@ -72,7 +86,7 @@ for mkv in files:
         "-color_primaries:v", "6", "-color_trc:v", "6", "-colorspace:v", "5",
         "-aspect", "4:3",
         "-f", "matroska", "-y", str(temp),
-        ]
+    ]
 
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode:

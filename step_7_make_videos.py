@@ -1,7 +1,27 @@
-# This script processes MKV videos from an archive by extracting chapters,
-# deinterlacing and resizing them with QTGMC, transcribing audio to VTT subtitles,
-# and encoding each chapter as a high-quality MP4 with metadata and optional location info.
+"""
+This script automates chapter extraction, deinterlacing, audio transcription,
+and final encoding for MKV videos stored in the Archive folder. It performs the
+following workflow for each MKV file:
 
+1. Parses chapter metadata from 'media_metadata/<prefix>/chapters.ffmetadata'.
+   - Extracts global metadata and per-chapter start/end times, titles, and other
+     optional fields like creation_time and location.
+   - Computes chapter duration and sorts chapters from shortest to longest.
+
+2. For each chapter:
+   - Extracts the chapter as a temporary MKV using ffmpeg.
+   - Generates an AVS script for QTGMC-based deinterlacing and resizing.
+   - Deinterlaces the chapter using ffmpeg and the AVS script.
+   - Extracts the audio track, applies filters, and prepares it for transcription.
+   - Transcribes the audio with OpenAI Whisper, saving results as VTT subtitle files.
+   - Encodes the final chapter video with metadata, color info, subtitles, and audio,
+     using high-quality H.265 encoding.
+
+3. Cleans up temporary files (.mkv, .avs, .wav, .ffindex) after processing.
+
+The script ensures each chapter is saved in the Videos folder if longer than 200
+seconds or in Clips if shorter, and skips any chapters that have already been processed.
+"""
 import subprocess
 import sys
 import os
