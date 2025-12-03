@@ -91,6 +91,7 @@ for src in ARCHIVE.glob("*.mkv"):
         duration = ch.get("duration")
         ctime = ch.get("creation_time", "")
         location = ch.get("location", "")
+        uuid = ch.get("uuid", "")
 
         final_dir = VIDEOS
         if duration < 200:
@@ -163,7 +164,11 @@ Prefetch()'''
         vtt_writer(result, str(final_vtt))
 
         print(f"Final encoding: {final_file.name}")
-        run([FFMPEG, "-v", "warning",
+
+        start_hms = format_hms(start_sec)
+        end_hms = format_hms(end_sec)
+
+        cmd = [FFMPEG, "-v", "warning",
              "-i", str(temp_qtgmc.name),
              "-i", str(final_vtt),
              "-map_metadata", "-1",
@@ -180,9 +185,28 @@ Prefetch()'''
              "-c:s", "mov_text",
              "-metadata:s:s:0", "language=eng",
              "-disposition:s:0", "forced",
-             "-metadata:s:a:0", "language=eng",
-             "-movflags", "+faststart+write_colr+use_metadata_tags",
-             "-y", str(final_file)], cwd=final_dir)
+             "-metadata:s:a:0", "language=eng"]
+
+        cmd += [
+             "-metadata", f"title={title}",
+             "-metadata",
+             f"comment=Chapter from archive \"{src.name}\" (uuid={ffmetadata.get('uuid', '')}) time range {start_hms}-{end_hms}",
+             "-metadata", f"creation_time={ctime}",
+             "-metadata", f"com.apple.quicktime.creationdate={ctime}",
+             "-metadata", f"com.apple.quicktime.uuid={uuid}",
+             "-metadata", f"date={ctime}",
+             "-metadata", f"genre={ffmetadata.get('genre', '')}",
+             "-metadata", f"videographer={ffmetadata.get('videographer', '')}",
+             "-metadata", f"tape_id={ffmetadata.get('tape_id', '')}"]
+
+        if location:
+            iso6709 = location.rstrip("/") + "/"
+            cmd += [
+                "-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}",
+            ]
+
+        cmd +=["-movflags", "+faststart+write_colr+use_metadata_tags", "-y", str(final_file)]
+        run(cmd, cwd=final_dir)
 
         [p.unlink() for p in Path(final_dir).rglob('*.ffindex')]
         #temp_extracted.with_suffix(".ffindex").unlink(missing_ok=True)
