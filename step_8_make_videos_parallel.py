@@ -228,26 +228,29 @@ def process_chapter(chapter_job, cpus):
     if is_chapter_done(final_file, duration):
         return f"Skipped existing: {title}"
 
+    print(f"Extracting chapter: {title} ({format_hms(start_sec)} - {format_hms(end_sec)})")
     temp_extracted = final_dir / f"{safe(title)}_extracted.mkv"
     extract_chapter(src, start_sec, end_sec, temp_extracted)
 
+    print(f"Deinterlacing chapter: {title}")
     temp_avs = final_dir / f"{safe(title)}.avs"
     create_avs(temp_extracted, temp_avs)
-
     temp_qtgmc = final_dir / f"{safe(title)}_qtgmc.mkv"
     deinterlace(temp_avs, temp_extracted, temp_qtgmc)
 
+    print(f"Transcribing chapter: {title}")
     temp_transcript = final_dir / f"{safe(title)}_transcript.wav"
     final_vtt = SUBTITLES / f"{safe(title)}.vtt"
     extract_audio(temp_extracted, temp_transcript)
     transcribe_audio(model, temp_transcript, final_vtt)
 
+    print(f"Final encoding chapter: {final_file.name}")
     start_hms = format_hms(start_sec)
     end_hms = format_hms(end_sec)
     encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location)
 
     cleanup_temp_files(temp_extracted, temp_qtgmc, temp_avs, temp_transcript)
-    return f"Done: {final_file.name}"
+    print (f"Done: {final_file.name}")
 
 def main():
     model = whisper.load_model("turbo")
