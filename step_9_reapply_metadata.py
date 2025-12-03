@@ -14,11 +14,10 @@ MEDIA_METADATA = BASE / "media_metadata"
 metadata_by_uuid = {}
 metadata_by_title = {}
 
-def parse_chapters(path, title=None, uuid=None):
+def parse_chapters(path):
     global_meta = {}
     chapters = {}
     current = None
-    in_chapter = False
     seen_chapter = False
 
     for raw_line in path.read_text(encoding="utf-8").splitlines():
@@ -26,7 +25,7 @@ def parse_chapters(path, title=None, uuid=None):
         if not line:
             continue
 
-        # Global metadata section
+        # Global metadata
         if not seen_chapter and "=" in line and not line.startswith(("[", ";")):
             k, v = line.split("=", 1)
             global_meta[k.strip().lower()] = v.strip()
@@ -36,15 +35,13 @@ def parse_chapters(path, title=None, uuid=None):
         if line == "[CHAPTER]":
             seen_chapter = True
             if current:
-                # Insert previous chapter before starting next
                 chap_title = current.get("title", f"chapter_{len(chapters)+1}")
                 chapters[chap_title] = current
             current = {}
-            in_chapter = True
             continue
 
         # Chapter body
-        if in_chapter and "=" in line:
+        if "=" in line and current is not None:
             k, v = line.split("=", 1)
             current[k.lower()] = v.strip()
 
@@ -53,20 +50,8 @@ def parse_chapters(path, title=None, uuid=None):
         chap_title = current.get("title", f"chapter_{len(chapters)+1}")
         chapters[chap_title] = current
 
-    # --- Selection logic ---
-    # 1. Select by UUID
-    if uuid:
-        for chap_title, chap_data in chapters.items():
-            if chap_data.get("uuid") == uuid:
-                return global_meta, chap_data
-        return global_meta, None
-
-    # 2. Select by title
-    if title:
-        return global_meta, chapters.get(title)
-
-    # 3. No filters → return all chapters
     return global_meta, chapters
+
 
 def load_all_metadata():
     for dirpath in MEDIA_METADATA.glob("*"):
