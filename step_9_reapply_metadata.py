@@ -1,5 +1,6 @@
 import subprocess
 from pathlib import Path
+import pprint
 
 BASE = Path(__file__).parent.resolve()
 FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe"
@@ -156,7 +157,7 @@ for src in all_videos:
     final_file = src
     temp_file = src.with_suffix(".subtitle_temp.mp4")
 
-    print(repr(metadata_by_title))
+    pprint.pprint(metadata_by_title, sort_dicts=False, width=120)
     ffm, ch = load_metadata_for_video(src)
     if not ch:
         print(f"No chapters for {title}")
