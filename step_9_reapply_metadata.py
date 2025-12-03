@@ -87,6 +87,7 @@ def ffprobe_metadata_field(path, key):
             "-of", "default=nw=1:nk=1",
             str(path)
         ], text=True).strip()
+        print(str(out))
         return out or ""
     except Exception:
         return ""
