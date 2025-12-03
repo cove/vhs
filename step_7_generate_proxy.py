@@ -41,7 +41,9 @@ for src in ARCHIVE.glob("*.mkv"):
     print(f"Processing: {src.name} → {proxy.name}")
 
     run([
-        FFMPEG, "-v", "error",
+        FFMPEG,
+        "-nostdin",
+        "-v", "error",
         "-i", str(src),
         "-map_metadata", "0",
         "-vf", "scale=iw/2:ih/2",

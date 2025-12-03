@@ -93,7 +93,7 @@ def parse_chapters(path):
 # --- Processing Steps ---
 
 def extract_chapter(src, start, end, dest):
-    run([FFMPEG, "-v", "warning",
+    run([FFMPEG, "-nostdin", "-v", "warning",
         "-probesize", "50M",
         "-analyzeduration", "100M",
         "-i", str(src),
@@ -132,7 +132,7 @@ Prefetch()'''
     avs_path.write_text(avs_script, encoding="ascii")
 
 def deinterlace(temp_avs, temp_extracted, temp_qtgmc):
-    run([FFMPEG, "-v", "warning", "-i", str(temp_avs), "-i", str(temp_extracted),
+    run([FFMPEG, "-nostdin", "-v", "warning", "-i", str(temp_avs), "-i", str(temp_extracted),
         "-pix_fmt", "yuv422p",
         "-color_primaries:v", "6",
         "-color_trc:v", "6",
@@ -146,7 +146,7 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc):
 
 def extract_audio(temp_extracted, temp_transcript):
     run([
-        FFMPEG, "-v", "warning",
+        FFMPEG, "-nostdin", "-v", "warning",
         "-i", str(temp_extracted),
         "-vn",
         "-af", "highpass=f=120,lowpass=f=8000,afftdn=nf=-25,dynaudnorm=f=150:g=13,aresample=16000,loudnorm=I=-16:TP=-1.5:LRA=11",
@@ -161,7 +161,7 @@ def transcribe_audio(model, temp_transcript, final_vtt):
     vtt_writer(result, str(final_vtt))
 
 def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location):
-    cmd = [FFMPEG, "-v", "warning",
+    cmd = [FFMPEG, "-nostdin", "-v", "warning",
          "-i", str(temp_qtgmc),
          "-i", str(final_vtt),
          "-map_metadata", "-1",

@@ -141,6 +141,7 @@ def apply_metadata(src):
 
     cmd = [
         FFMPEG,
+        "-nostdin",
         "-v", "warning",
         "-i", str(src),
         "-i", str(subtitle_file),

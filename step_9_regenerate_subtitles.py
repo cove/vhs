@@ -34,7 +34,7 @@ def run(cmd):
 def extract_audio(src_mp4: Path, audio_wav: Path):
     """Extract and normalize audio from a video file."""
     run([
-        FFMPEG, "-v", "warning",
+        FFMPEG, "-nostdin", "-v", "warning",
         "-i", str(src_mp4),
         "-vn",
         "-af", "highpass=f=120,lowpass=f=8000,afftdn=nf=-25,dynaudnorm=f=150:g=13,aresample=16000,loudnorm=I=-16:TP=-1.5:LRA=11",

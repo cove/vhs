@@ -42,6 +42,7 @@ for src in ARCHIVE.glob("*.mkv"):
 
     run([
         FFMPEG,
+        "-nostdin",
         "-i", str(src),
         "-map_metadata", "0",
         "-c:v", "prores_ks",
