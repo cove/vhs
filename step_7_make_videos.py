@@ -1,5 +1,10 @@
-import glob
-import subprocess, sys, os, re
+# This script processes MKV videos from an archive by extracting chapters,
+# deinterlacing and resizing them with QTGMC, transcribing audio to VTT subtitles,
+# and encoding each chapter as a high-quality MP4 with metadata and optional location info.
+
+import subprocess
+import sys
+import os
 from pathlib import Path
 import whisper
 from whisper.utils import get_writer
@@ -11,11 +16,11 @@ QTGMC_DIR = FFMPEG_DIR
 
 ARCHIVE = BASE.parent / "Archive"
 VIDEOS = BASE.parent / "Videos"
-VIDEOS.mkdir(exist_ok=True)
 CLIPS = BASE.parent / "Clips"
-CLIPS.mkdir(exist_ok=True)
 SUBTITLES = BASE.parent / "Subtitles"
-SUBTITLES.mkdir(exist_ok=True)
+
+for d in [VIDEOS, CLIPS, SUBTITLES]:
+    d.mkdir(exist_ok=True)
 
 os.environ["PATH"] = str(FFMPEG_DIR) + os.pathsep + os.environ.get("PATH", "")
 
@@ -65,51 +70,15 @@ def parse_chapters(path):
         chapters.append(cur)
     return ffmetadata, chapters
 
-for src in ARCHIVE.glob("*.mkv"):
-    prefix = "_".join(src.stem.rsplit("_", 2)[:2])
-    chapters_file = BASE / "media_metadata" / prefix / "chapters.ffmetadata"
-    if not chapters_file.exists():
-        print(f"Skipping {src.name} — no metadata")
-        continue
+# --- Processing Steps ---
 
-    ffmetadata, chapters = parse_chapters(chapters_file)
-    if not chapters:
-        print(f"No chapters for {src.name}")
-        continue
+def extract_chapter(src, start, end, dest):
+    run([FFMPEG, "-v", "warning", "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
+         "-i", str(src), "-map", "0:v", "-map", "0:a", "-c", "copy",
+         "-avoid_negative_ts", "make_zero", "-y", str(dest)])
 
-    for ch in chapters:
-        start = int(ch.get("start", 0))
-        end = int(ch.get("end", 0))
-        ch["duration"] = end - start
-    chapters.sort(key=lambda x: x["duration"])
-
-    print(f"Processing: {src.name} ({len(chapters)} chapters)")
-
-    for i, ch in enumerate(chapters):
-        title = ch.get("title", f"Chapter {i+1}")
-        start_sec, end_sec = int(ch["start"]), int(ch["end"])
-        duration = ch.get("duration")
-        ctime = ch.get("creation_time", "")
-        location = ch.get("location", "")
-
-        final_dir = VIDEOS
-        if duration < 200:
-            final_dir = CLIPS
-        final_file = final_dir / f"{safe(title)}.mp4"
-        archive_file = final_dir / f"{safe(title)}_archive.mkv"
-
-        if final_file.exists() and final_file.stat().st_size > 100_000:
-            print(f"Skipping existing chapter: {title}")
-            continue
-
-        print(f"Extracting chapter: {title} ({format_hms(start_sec)} - {format_hms(end_sec)}) ")
-        temp_extracted = final_dir / f"{safe(title)}_extracted.mkv"
-        run([FFMPEG, "-v", "warning", "-ss", f"{start_sec:.3f}", "-to", f"{end_sec:.3f}",
-             "-i", str(src), "-map", "0:v", "-map", "0:a", "-c", "copy",
-             "-avoid_negative_ts", "make_zero", "-y", str(temp_extracted)])
-
-        temp_avs = final_dir / f"{safe(title)}.avs"
-        avs_script = f'''
+def create_avs(temp_extracted, avs_path):
+    avs_script = f'''
 SetFilterMTMode("DEFAULT_MT_MODE", 2)
 LoadPlugin("{QTGMC_DIR}/ffms2.dll") 
 LoadPlugin("{QTGMC_DIR}/masktools2.dll") 
@@ -129,95 +98,140 @@ QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,
 Crop(4,2,-8,-10)
 LanczosResize(640,480)
 ConvertToYV12(interlaced=false)
-# Videos tend to be a little over saturated
 Tweak(sat=0.8)
 Prefetch()'''
-        temp_avs.write_text(avs_script, encoding="ascii")
+    avs_path.write_text(avs_script, encoding="ascii")
 
-        print(f"Deinterlacing chapter: {title}")
-        temp_qtgmc = final_dir / f"{safe(title)}_qtgmc.mkv"
-        run([FFMPEG, "-v", "warning", "-i", str(temp_avs), "-i", str(temp_extracted),
-            "-pix_fmt", "yuv422p",
-            "-color_primaries:v", "6",
-            "-color_trc:v", "6",
-            "-colorspace:v", "5",
-            "-color_range:v", "1",
-            "-map", "0:v:0", "-c:v", "ffv1",
-            "-level", "3", "-g", "1", "-coder", "1", "-context", "1",
-            "-slices", "24", "-slicecrc", "1",
-            "-map", "0:a", "-c:a", "copy",
-            "-y", str(temp_qtgmc)])
+def deinterlace(temp_avs, temp_extracted, temp_qtgmc):
+    run([FFMPEG, "-v", "warning", "-i", str(temp_avs), "-i", str(temp_extracted),
+        "-pix_fmt", "yuv422p",
+        "-color_primaries:v", "6",
+        "-color_trc:v", "6",
+        "-colorspace:v", "5",
+        "-color_range:v", "1",
+        "-map", "0:v:0", "-c:v", "ffv1",
+        "-level", "3", "-g", "1", "-coder", "1", "-context", "1",
+        "-slices", "24", "-slicecrc", "1",
+        "-map", "0:a", "-c:a", "copy",
+        "-y", str(temp_qtgmc)])
 
-        final_vtt = SUBTITLES / f"{safe(title)}.vtt"
-        print(f"Transcribing audio: {final_file.name} to {final_vtt.name}")
-        temp_transcript = final_dir / f"{safe(title)}_transcript.wav"
-        subprocess.run([
-            FFMPEG, "-v", "warning",
-            "-i", str(temp_extracted),
-            "-vn",
-            "-af", "highpass=f=120,lowpass=f=8000,afftdn=nf=-25,dynaudnorm=f=150:g=13,aresample=16000,loudnorm=I=-16:TP=-1.5:LRA=11",
-            "-c:a", "pcm_s16le",
-            "-y",
-            str(temp_transcript)
-        ], check=True)
+def extract_audio(temp_extracted, temp_transcript):
+    run([
+        FFMPEG, "-v", "warning",
+        "-i", str(temp_extracted),
+        "-vn",
+        "-af", "highpass=f=120,lowpass=f=8000,afftdn=nf=-25,dynaudnorm=f=150:g=13,aresample=16000,loudnorm=I=-16:TP=-1.5:LRA=11",
+        "-c:a", "pcm_s16le",
+        "-y",
+        str(temp_transcript)
+    ])
 
-        model = whisper.load_model("turbo")
-        vtt_writer = get_writer("vtt", str(SUBTITLES))
-        result = model.transcribe(str(temp_transcript), language="en", fp16=False)
-        vtt_writer(result, str(final_vtt))
+def transcribe_audio(model, temp_transcript, final_vtt):
+    vtt_writer = get_writer("vtt", str(SUBTITLES))
+    result = model.transcribe(str(temp_transcript), language="en", fp16=False)
+    vtt_writer(result, str(final_vtt))
 
-        print(f"Final encoding: {final_file.name}")
+def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location):
+    cmd = [FFMPEG, "-v", "warning",
+         "-i", str(temp_qtgmc),
+         "-i", str(final_vtt),
+         "-map_metadata", "-1",
+         "-map_chapters", "-1",
+         "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
+         "-pix_fmt", "yuv420p10le",
+         "-x265-params", "no-open-gop=1:bframes=8",
+         "-c:a", "aac", "-b:a", "48k", "-ac", "1",
+         "-af", "highpass=f=80,lowpass=f=14000",
+         "-tag:v", "hvc1", "-brand", "mp42",
+         "-map", "0:v:0",
+         "-map", "0:a:0",
+         "-map", "1:s:0",
+         "-c:s", "mov_text",
+         "-metadata:s:s:0", "language=eng",
+         "-disposition:s:0", "forced",
+         "-metadata:s:a:0", "language=eng",
+         "-metadata", f"title={title}",
+         "-metadata", f"comment=Chapter from archive \"{title}\" time range {start_hms}-{end_hms}",
+         "-metadata", f"creation_time={ctime}",
+         "-metadata", f"com.apple.quicktime.creationdate={ctime}",
+         "-metadata", f"date={ctime}",
+         "-metadata", f"genre={ffmetadata.get('genre','')}",
+         "-metadata", f"videographer={ffmetadata.get('videographer','')}",
+         "-metadata", f"tape_id={ffmetadata.get('tape_id','')}"
+    ]
+    if location:
+        iso6709 = location.rstrip("/") + "/"
+        cmd += ["-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}"]
+    cmd += ["-movflags", "+faststart+write_colr+use_metadata_tags", "-y", str(final_file)]
+    run(cmd)
 
-        start_hms = format_hms(start_sec)
-        end_hms = format_hms(end_sec)
+def cleanup_temp_files(*files):
+    for f in files:
+        f.unlink(missing_ok=True)
+    for ffindex in [f.parent for f in files]:
+        for p in ffindex.rglob('*.ffindex'):
+            p.unlink(missing_ok=True)
 
-        cmd = [FFMPEG, "-v", "warning",
-             "-i", str(temp_qtgmc.name),
-             "-i", str(final_vtt),
-             "-map_metadata", "-1",
-             "-map_chapters", "-1",
-             "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
-             "-pix_fmt", "yuv420p10le",
-             "-x265-params", "no-open-gop=1:bframes=8",
-             "-c:a", "aac", "-b:a", "48k", "-ac", "1",
-             "-af", "highpass=f=80,lowpass=f=14000",
-             "-tag:v", "hvc1", "-brand", "mp42",
-             "-map", "0:v:0",
-             "-map", "0:a:0",
-             "-map", "1:s:0",
-             "-c:s", "mov_text",
-             "-metadata:s:s:0", "language=eng",
-             "-disposition:s:0", "forced",
-             "-metadata:s:a:0", "language=eng"]
+def process_archive():
+    model = whisper.load_model("turbo")
+    for src in ARCHIVE.glob("*.mkv"):
+        prefix = "_".join(src.stem.rsplit("_", 2)[:2])
+        chapters_file = BASE / "media_metadata" / prefix / "chapters.ffmetadata"
+        if not chapters_file.exists():
+            print(f"Skipping {src.name} — no metadata")
+            continue
 
-        cmd += [
-             "-metadata", f"title={title}",
-             "-metadata",
-             f"comment=Chapter from archive \"{src.name}\" time range {start_hms}-{end_hms}",
-             "-metadata", f"creation_time={ctime}",
-             "-metadata", f"com.apple.quicktime.creationdate={ctime}",
-             "-metadata", f"date={ctime}",
-             "-metadata", f"genre={ffmetadata.get('genre', '')}",
-             "-metadata", f"videographer={ffmetadata.get('videographer', '')}",
-             "-metadata", f"tape_id={ffmetadata.get('tape_id', '')}"]
+        ffmetadata, chapters = parse_chapters(chapters_file)
+        if not chapters:
+            print(f"No chapters for {src.name}")
+            continue
 
-        if location:
-            iso6709 = location.rstrip("/") + "/"
-            cmd += [
-                "-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}",
-            ]
+        for ch in chapters:
+            start = int(ch.get("start", 0))
+            end = int(ch.get("end", 0))
+            ch["duration"] = end - start
+        chapters.sort(key=lambda x: x["duration"])
 
-        cmd +=["-movflags", "+faststart+write_colr+use_metadata_tags", "-y", str(final_file)]
-        run(cmd, cwd=final_dir)
+        print(f"Processing: {src.name} ({len(chapters)} chapters)")
 
-        [p.unlink() for p in Path(final_dir).rglob('*.ffindex')]
-        #temp_extracted.with_suffix(".ffindex").unlink(missing_ok=True)
-        temp_extracted.unlink(missing_ok=True)
-        temp_qtgmc.unlink(missing_ok=True)
-        temp_avs.unlink(missing_ok=True)
-        temp_transcript.unlink(missing_ok=True)
+        for i, ch in enumerate(chapters):
+            title = ch.get("title", f"Chapter {i+1}")
+            start_sec, end_sec = int(ch["start"]), int(ch["end"])
+            duration = ch.get("duration")
+            ctime = ch.get("creation_time", "")
+            location = ch.get("location", "")
 
-        print(f"  Done  {final_file.name}")
+            final_dir = VIDEOS if duration >= 200 else CLIPS
+            final_file = final_dir / f"{safe(title)}.mp4"
+            if final_file.exists() and final_file.stat().st_size > 100_000:
+                print(f"Skipping existing chapter: {title}")
+                continue
 
-print("All done")
+            print(f"Extracting chapter: {title} ({format_hms(start_sec)} - {format_hms(end_sec)})")
+            temp_extracted = final_dir / f"{safe(title)}_extracted.mkv"
+            extract_chapter(src, start_sec, end_sec, temp_extracted)
 
+            temp_avs = final_dir / f"{safe(title)}.avs"
+            create_avs(temp_extracted, temp_avs)
+
+            temp_qtgmc = final_dir / f"{safe(title)}_qtgmc.mkv"
+            print(f"Deinterlacing chapter: {title}")
+            deinterlace(temp_avs, temp_extracted, temp_qtgmc)
+
+            temp_transcript = final_dir / f"{safe(title)}_transcript.wav"
+            final_vtt = SUBTITLES / f"{safe(title)}.vtt"
+            print(f"Transcribing audio: {title}")
+            extract_audio(temp_extracted, temp_transcript)
+            transcribe_audio(model, temp_transcript, final_vtt)
+
+            print(f"Final encoding: {final_file.name}")
+            start_hms = format_hms(start_sec)
+            end_hms = format_hms(end_sec)
+            encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location)
+
+            cleanup_temp_files(temp_extracted, temp_qtgmc, temp_avs, temp_transcript)
+            print(f"  Done {final_file.name}")
+
+if __name__ == "__main__":
+    process_archive()
+    print("All done")
