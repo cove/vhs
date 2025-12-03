@@ -141,7 +141,7 @@ QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,
 Crop(4,2,-8,-10)
 LanczosResize(640,480)
 ConvertToYV12(interlaced=false)
-Tweak(sat=0.8)
+Tweak(sat=0.85)
 '''
     avs_path.write_text(avs_script, encoding="ascii")
 
