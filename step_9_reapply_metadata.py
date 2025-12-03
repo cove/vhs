@@ -9,7 +9,7 @@ ARCHIVE = BASE.parent / "Archive"
 CLIPS = BASE.parent / "Clips"
 VIDEOS = BASE.parent / "Videos"
 SUBTITLES = BASE.parent / "Subtitles"
-MEDIA_METADATA = BASE.parent / "media_metadata"
+MEDIA_METADATA = BASE / "media_metadata"
 
 metadata_by_uuid = {}
 metadata_by_title = {}
