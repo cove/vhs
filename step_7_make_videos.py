@@ -99,6 +99,10 @@ for src in ARCHIVE.glob("*.mkv"):
         final_file = final_dir / f"{safe(title)}.mp4"
         archive_file = final_dir / f"{safe(title)}_archive.mkv"
 
+        if final_file.exists() and final_file.stat().st_size >= 100_000:
+            print(f"Skipping existing chapter: {title}")
+            continue
+
         print(f"Extracting chapter: {title} ({format_hms(start_sec)} - {format_hms(end_sec)}) ")
         temp_extracted = final_dir / f"{safe(title)}_extracted.mkv"
         run([FFMPEG, "-v", "warning", "-ss", f"{start_sec:.3f}", "-to", f"{end_sec:.3f}",
