@@ -46,6 +46,7 @@ for src in ARCHIVE.glob("*.mkv"):
         "-v", "error",
         "-i", str(src),
         "-map_metadata", "0",
+        "-map_chapters", "0",
         "-vf", "scale=iw/2:ih/2",
         "-c:v", "libx265",
         "-preset", "ultrafast",
