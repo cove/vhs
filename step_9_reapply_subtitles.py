@@ -19,6 +19,10 @@ all_videos = (f for folder in [VIDEOS, CLIPS] for f in folder.glob("*.mp4"))
 for src in all_videos:
     prefix = src.stem
     subtitle_file = SUBTITLES / f"{prefix}.vtt"
+
+    if src.name.endswith(".subtitle_temp.mp4"):
+        continue
+
     if not subtitle_file.exists():
         print(f"No subtitles found for {src.name}, skipping")
         continue
