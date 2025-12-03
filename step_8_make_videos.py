@@ -93,9 +93,18 @@ def parse_chapters(path):
 # --- Processing Steps ---
 
 def extract_chapter(src, start, end, dest):
-    run([FFMPEG, "-v", "warning", "-i", str(src), "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
-         "-map", "0:v", "-map", "0:a", "-c", "copy",
-         "-avoid_negative_ts", "make_zero", "-y", str(dest)])
+    run([FFMPEG, "-v", "warning",
+        "-probesize", "50M",
+        "-analyzeduration", "100M",
+        "-i", str(src),
+        "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
+        "-pix_fmt", "yuv422p",
+        "-color_primaries:v", "6",
+        "-color_trc:v", "6",
+        "-colorspace:v", "5",
+        "-color_range:v", "1",
+        "-map", "0:v", "-map", "0:a", "-c", "copy",
+        "-avoid_negative_ts", "make_zero", "-y", str(dest)])
 
 def create_avs(temp_extracted, avs_path):
     avs_script = f'''
