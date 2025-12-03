@@ -91,23 +91,22 @@ def ffprobe_metadata_field(path, key):
         return ""
 
 def load_metadata_for_video(video_path):
-    # ---- A. Extract UUID from the video (if present)
     vid_uuid = ffprobe_metadata_field(video_path, "com.apple.quicktime.uuid")
 
+    # ---- A. Match by UUID
     if vid_uuid and vid_uuid in metadata_by_uuid:
         entry = metadata_by_uuid[vid_uuid]
-        # find matching chapter by uuid
-        for ch in entry["chapters"]:
-            if ch.get("uuid", "") == vid_uuid:
-                return entry["global"], ch
+        ch = entry["chapter"]
+        if ch.get("uuid", "") == vid_uuid:
+            return entry["global"], ch
 
-    # ---- B. If no UUID match, try title
+    # ---- B. Match by title
     title = ffprobe_metadata_field(video_path, "title").lower()
     if title in metadata_by_title:
         entry = metadata_by_title[title]
-        for ch in entry["chapters"]:
-            if ch.get("title", "").lower() == title:
-                return entry["global"], ch
+        ch = entry["chapter"]
+        if ch.get("title", "").lower() == title:
+            return entry["global"], ch
 
     return None, None
 
