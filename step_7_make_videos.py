@@ -98,7 +98,7 @@ for src in ARCHIVE.glob("*.mkv"):
         final_file = final_dir / f"{safe(title)}.mp4"
         archive_file = final_dir / f"{safe(title)}_archive.mkv"
 
-        if final_file.exists() and final_file.stat().st_size < 100_000:
+        if final_file.exists() and final_file.stat().st_size > 100_000:
             print(f"Skipping existing chapter: {title}")
             continue
 

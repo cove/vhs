@@ -70,7 +70,6 @@ def load_all_metadata():
             metadata_by_title[ch_title.lower()] = entry
 
 def load_metadata_for_video(video_path):
-    # Use the file stem as the title
     title = video_path.stem.lower()
 
     if title in metadata_by_title:
@@ -78,7 +77,6 @@ def load_metadata_for_video(video_path):
         ch = entry["chapter"]
         return entry["global"], ch
 
-    # fallback if not found
     return None, None
 
 def run(cmd):
@@ -147,7 +145,7 @@ for src in all_videos:
 
     cmd += [
         "-metadata", f"title={title}",
-        "-metadata", f"comment=Extracted chapter from archive_file=\"{src.name}\", time_range={start_hms}-{end_hms}",
+        "-metadata", f"comment=Extracted chapter from \"{src.name}\" @ {start_hms}-{end_hms}",
         "-metadata", f"creation_time={ctime}",
         "-metadata", f"com.apple.quicktime.creationdate={ctime}",
         "-metadata", f"date={ctime}",
