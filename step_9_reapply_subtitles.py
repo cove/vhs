@@ -16,7 +16,6 @@ def safe(s):
     return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
 
 all_videos = (f for folder in [VIDEOS, CLIPS] for f in folder.glob("*.mp4"))
-
 for src in all_videos:
     prefix = src.stem
     subtitle_file = SUBTITLES / f"{prefix}.vtt"
@@ -29,6 +28,7 @@ for src in all_videos:
 
     cmd = [
         FFMPEG,
+        "-v", "warning",
         "-i", str(src),
         "-i", str(subtitle_file),
         "-map", "0:v",
