@@ -22,6 +22,8 @@ for src in all_videos:
 
     if src.name.endswith(".subtitle_temp.mp4"):
         continue
+    if src.stat().st_size < 100_000:
+        continue
 
     if not subtitle_file.exists():
         print(f"No subtitles found for {src.name}, skipping")
