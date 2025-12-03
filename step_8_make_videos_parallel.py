@@ -255,7 +255,7 @@ def main():
 
     cpus_real = psutil.cpu_count(logical=False)
     cpus_logical = psutil.cpu_count(logical=True)
-    with concurrent.futures.ProcessPoolExecutor(max_workers=cpus_real) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
         futures = []
         for idx, job in enumerate(chapter_jobs):
             logical_pair = [(idx * 2) % cpus_logical, (idx * 2 + 1) % cpus_logical]
