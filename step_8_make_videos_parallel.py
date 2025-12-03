@@ -97,7 +97,6 @@ def extract_chapter(src, start, end, dest):
     run([FFMPEG,
          "-nostdin",
          "-v", "error",
-         "-c:v", "ffv1",
          "-i", str(src),
          "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
          "-r", "30000 / 1001",
