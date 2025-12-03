@@ -10,7 +10,6 @@ VIDEOS = BASE.parent / "Videos"
 SUBTITLES = BASE.parent / "Subtitles"
 MEDIA_METADATA = BASE / "media_metadata"
 
-metadata_by_uuid = {}
 metadata_by_title = {}
 
 def parse_chapters(path):
@@ -60,7 +59,6 @@ def load_all_metadata():
         global_meta, chapters = parse_chapters(chapters_file)
 
         for chap_title, chap_data in chapters.items():
-            ch_uuid = chap_data.get("uuid", "").strip()
             ch_title = chap_data.get("title", "").strip()
 
             entry = {
@@ -69,10 +67,7 @@ def load_all_metadata():
                 "path": chapters_file
             }
 
-            if ch_uuid:
-                metadata_by_uuid[ch_uuid] = entry
-            if ch_title:
-                metadata_by_title[ch_title.lower()] = entry
+            metadata_by_title[ch_title.lower()] = entry
 
 def load_metadata_for_video(video_path):
     # Use the file stem as the title
@@ -99,7 +94,7 @@ def format_hms(seconds):
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 load_all_metadata()
-print(f"Loaded metadata for {len(metadata_by_uuid)} UUIDs and {len(metadata_by_title)} titles")
+print(f"Loaded metadata for {len(metadata_by_title)} titles")
 
 all_videos = (f for folder in [VIDEOS, CLIPS] for f in folder.glob("*.mp4"))
 for src in all_videos:
@@ -123,7 +118,6 @@ for src in all_videos:
         continue
 
     ctime = ch.get("creation_time", "")
-    uuid = ch.get("uuid", "")
     location = ch.get("location", "")
     date = ffm.get("date", "")
     tape_id = ffm.get("tape_id", "")
@@ -156,7 +150,6 @@ for src in all_videos:
         "-metadata", f"comment=Extracted chapter from archive_file=\"{src.name}\", time_range={start_hms}-{end_hms}",
         "-metadata", f"creation_time={ctime}",
         "-metadata", f"com.apple.quicktime.creationdate={ctime}",
-        "-metadata", f"com.apple.quicktime.uuid={uuid}",
         "-metadata", f"date={ctime}",
         "-metadata", f"genre={genre}",
         "-metadata", f"videographer={videographer}",

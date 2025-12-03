@@ -4,7 +4,6 @@ title=Bennett VHS-C Tape 03
 tape_id=03
 genre=Home Video
 date=1994
-uuid=d4347d98-bb5f-4c56-ae6c-6a55b67fc7ad
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -13,7 +12,6 @@ END=52
 title=1994 - Christmas Playing "Ask Zandar" Board Game (December 25, 1994)
 creation_time=1994-12-25T00:00:00
 location=+34.195465-118.137073+453.79/
-uuid=d68c6c19-e17a-4e88-a7a2-eff89924c934
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -22,7 +20,6 @@ END=67
 title=1994 - Rainbow over Poppyfields (1994?)
 creation_time=1994-12-25T00:00:00
 location=+34.195465-118.137073+453.79/
-uuid=132e6a2b-ba93-4db9-b441-42ab45ab812a
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -31,7 +28,6 @@ END=437
 title=1995 - Camera practice, acting, yahtzee, and feeding Hampsty (October 1, 1995)
 creation_time=1995-10-01T14:14:00
 location=+34.195465-118.137073+453.79/
-uuid=f3085c60-01e8-4c40-8536-65bcff56d877
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -41,7 +37,6 @@ title=1994 - Movie with Buddy, Morgan & Asia (October 10, 1995)
 creation_time=1995-10-01T14:27:00
 location=+34.195465-118.137073+453.79/
 videographer=Buddy Bennett, Morgan Bennett
-uuid=4cc2f50d-106d-4b0b-b257-7b5940a0cb7e
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -51,7 +46,6 @@ title=1994 - Morgan & Terry playing yahtzee (October 10, 1995)
 creation_time=1995-10-01T00:00:00
 location=+34.195465-118.137073+453.79/
 videographer=Buddy Bennett
-uuid=4cc2f50d-106d-4b0b-b257-7b5940a0cb7e
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -60,4 +54,3 @@ END=3127
 title=1996 - High Point Academy Johnny Appleseed Play with Buddy (November 20, 1996)
 creation_time=1996-11-20T20:41:00
 location=+34.1751588-118.0924703+303.58/
-uuid=9d2bd6e1-5141-4213-9c74-a6dac1696502

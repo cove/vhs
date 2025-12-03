@@ -91,7 +91,6 @@ for src in ARCHIVE.glob("*.mkv"):
         duration = ch.get("duration")
         ctime = ch.get("creation_time", "")
         location = ch.get("location", "")
-        uuid = ch.get("uuid", "")
 
         final_dir = VIDEOS
         if duration < 200:
@@ -194,10 +193,9 @@ Prefetch()'''
         cmd += [
              "-metadata", f"title={title}",
              "-metadata",
-             f"comment=Chapter from archive \"{src.name}\" (uuid={ffmetadata.get('uuid', '')}) time range {start_hms}-{end_hms}",
+             f"comment=Chapter from archive \"{src.name}\" time range {start_hms}-{end_hms}",
              "-metadata", f"creation_time={ctime}",
              "-metadata", f"com.apple.quicktime.creationdate={ctime}",
-             "-metadata", f"com.apple.quicktime.uuid={uuid}",
              "-metadata", f"date={ctime}",
              "-metadata", f"genre={ffmetadata.get('genre', '')}",
              "-metadata", f"videographer={ffmetadata.get('videographer', '')}",

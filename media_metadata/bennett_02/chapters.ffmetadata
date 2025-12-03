@@ -4,7 +4,6 @@ title=Bennett VHS-C Tape 02
 tape_id=02
 genre=Home Video
 date=1992
-uuid=8b00ed6f-ab5c-4eb9-874e-3baa1e1b073b
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -14,7 +13,6 @@ title=1992 - T.J. Bennett at 45 years old (April 2, 1992)
 creation_time=1992-04-02T21:28:00
 location=+34.195465-118.137073+453.79/
 filter_avs=Tweak(sat=.8)
-uuid=252afbd2-f582-4c19-a39d-0feb28be92c0
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -23,4 +21,3 @@ END=1698
 title=1992 - Morgan Flynn at 1 & Easter Egg hunt (April 18, 1992)
 creation_time=1992-04-18T00:00:00
 location=+34.195465-118.137073+453.79/
-uuid=eb7b59b8-ed2f-493f-8db2-cd07c87eba40

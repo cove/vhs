@@ -4,7 +4,6 @@ title=Bennett VHS-C Tape 05
 tape_id=05
 genre=Home Video
 date=1992
-uuid=1fe8e2f5-33be-4adc-a56c-8a25730e03da
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -13,7 +12,6 @@ END=672
 title=1992 - Morgan Flynn at 1 & playing outside (April 18, 1992)
 creation_time=1992-04-18T00:00:00
 location=+34.195465-118.137073+453.79/
-uuid=f35f2f98-e2e1-46f5-81d1-dcdeaf09d44b
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -22,7 +20,6 @@ END=294
 title=1992 - Terry Filming Self in Mirror (April 18, 1992)
 creation_time=1992-04-18T00:00:00
 location=+34.195465-118.137073+453.79/
-uuid=dde5531d-e1a7-4171-a1a7-35334a1ea0a5
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -31,7 +28,6 @@ END=931
 title=1992 - Easter and playing with Morgan (April 19, 1992)
 creation_time=1992-04-19T00:00:00
 location=+34.195465-118.137073+453.79/
-uuid=10a12572-0b3a-438e-a723-98814ab09b94
 
 [CHAPTER]
 TIMEBASE=1/1
@@ -40,4 +36,3 @@ END=1614
 title=1992 - Dennis The Menace Playground in Monterey, California #1 (June 23, 1992)
 creation_time=1992-06-23T00:00:00
 location=+36.597562-121.886724+4.2672/
-uuid=5b200e58-46fd-444b-94e4-34a38e5f50ca
