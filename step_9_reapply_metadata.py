@@ -1,6 +1,5 @@
 import subprocess
 from pathlib import Path
-import pprint
 
 BASE = Path(__file__).parent.resolve()
 FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe"
@@ -51,7 +50,6 @@ def parse_chapters(path):
         chapters[chap_title] = current
 
     return global_meta, chapters
-
 
 def load_all_metadata():
     for dirpath in MEDIA_METADATA.glob("*"):
@@ -169,7 +167,9 @@ for src in all_videos:
         "-y", str(temp_file)
     ]
 
-    print(f"Applying subtitles to {src.name}")
+    print(f"Reapplying metadata to {src.name}")
     run(cmd)
+    final_file.replace(temp_file)
+
 
 print("All done")
