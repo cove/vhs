@@ -142,7 +142,7 @@ print(f"Loaded metadata for {len(metadata_by_uuid)} UUIDs and {len(metadata_by_t
 
 all_videos = (f for folder in [VIDEOS, CLIPS] for f in folder.glob("*.mp4"))
 for src in all_videos:
-    title = src.stem.rstrip(".mp4")
+    title = src.stem
     subtitle_file = SUBTITLES / f"{title}.vtt"
     in_progress = src.with_suffix(".avs")
 
@@ -158,7 +158,7 @@ for src in all_videos:
 
     ffm, ch = load_metadata_for_video(src)
     if not ch:
-        print(f"No chapters for {src.name}")
+        print(f"No chapters for {title}")
         continue
 
     ctime = ch.get("creation_time", "")
