@@ -4,7 +4,6 @@ import pprint
 
 BASE = Path(__file__).parent.resolve()
 FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe"
-FFPROBE = BASE / "bin" / "ffprobe.exe"
 
 ARCHIVE = BASE.parent / "Archive"
 CLIPS = BASE.parent / "Clips"
@@ -77,21 +76,6 @@ def load_all_metadata():
             if ch_title:
                 metadata_by_title[ch_title.lower()] = entry
 
-def ffprobe_metadata_field(path, key):
-    try:
-        out = subprocess.check_output([
-            FFPROBE,
-            "-v", "quiet",
-            "-select_streams", "v:0",
-            "-show_entries", f"stream_tags={key}",
-            "-of", "default=nw=1:nk=1",
-            str(path)
-        ], text=True).strip()
-        print("X" +str(out))
-        return out or ""
-    except Exception:
-        return ""
-
 def load_metadata_for_video(video_path):
     # Use the file stem as the title
     title = video_path.stem.lower()
@@ -143,10 +127,10 @@ for src in all_videos:
     ctime = ch.get("creation_time", "")
     uuid = ch.get("uuid", "")
     location = ch.get("location", "")
-    date = ch.get("date", "")
-    tape_id = ch.get("tape_id", "")
-    videographer = ch.get("videographer", "")
-    genre = ch.get("genre", "")
+    date = ffm.get("date", "")
+    tape_id = ffm.get("tape_id", "")
+    videographer = ffm.get("videographer", "")
+    genre = ffm.get("genre", "")
     start_hms = ch.get("start", "0")
     end_hms = ch.get("end", "0")
 
