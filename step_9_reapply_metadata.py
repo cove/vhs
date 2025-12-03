@@ -4,6 +4,7 @@ import pprint
 
 BASE = Path(__file__).parent.resolve()
 FFMPEG = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11/ffmpeg.exe"
+FFPROBE = BASE / "bin" / "ffprobe.exe"
 
 ARCHIVE = BASE.parent / "Archive"
 CLIPS = BASE.parent / "Clips"
@@ -79,7 +80,7 @@ def load_all_metadata():
 def ffprobe_metadata_field(path, key):
     try:
         out = subprocess.check_output([
-            FFMPEG,
+            FFPROBE,
             "-v", "quiet",
             "-select_streams", "v:0",
             "-show_entries", f"stream_tags={key}",
