@@ -29,18 +29,7 @@ if not FFMPEG.exists():
     sys.exit(1)
 
 def run(cmd,cwd=None,cpu_list=None):
-    proc = subprocess.Popen([str(c) for c in cmd], cwd=cwd)
-    if cpu_list:
-        try:
-            p = psutil.Process(proc.pid)
-            p.cpu_affinity(cpu_list)
-        except Exception as e:
-            print(f"Warning: failed to set CPU affinity: {e}", file=sys.stderr)
-
-    retcode = proc.wait()
-    if retcode != 0:
-        raise subprocess.CalledProcessError(retcode, cmd)
-
+    subprocess.run([str(c) for c in cmd], check=True, cwd=cwd)
 
 def safe(s):
     return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
