@@ -182,7 +182,7 @@ def extract_audio(temp_extracted, temp_transcript, cpuset=None):
         str(temp_transcript)
     ], cpuset)
 
-def transcribe_audio(model, temp_transcript, final_vtt):
+def transcribe_audio(temp_transcript, final_vtt):
     model = whisper.load_model("turbo")
     vtt_writer = get_writer("vtt", str(SUBTITLES))
     result = model.transcribe(str(temp_transcript), language="en", fp16=False)
@@ -232,7 +232,7 @@ def process_chapter(chapter_job, cpuset):
     p = psutil.Process()
     p.cpu_affinity(cpuset)
 
-    model, src, ffmetadata, ch, i = chapter_job
+    src, ffmetadata, ch, i = chapter_job
     title = ch.get("title", f"Chapter {i+1}")
     start_sec, end_sec = int(ch["start"]), int(ch["end"])
     duration = end_sec - start_sec
