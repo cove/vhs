@@ -44,6 +44,19 @@ def run(cmd, cpuset=None):
         print(f"ERROR: {cmd} = {retcode}")
         raise subprocess.CalledProcessError(retcode, cmd)
 
+def load_whisper_prompt():
+    comments_file = BASE / "comments.txt"
+    if not comments_file.exists():
+        return ""
+
+    with comments_file.open("r", encoding="utf-8") as f:
+        lines = [line.strip() for line in f if line.strip()]
+
+    prompt_str = ", ".join(lines)
+    prompt_str += ", ".join("Glenda, Terry, Bennett, Terrance J. Bennett, Tara, Buddy, Morgan, Morgie, Asia, Hazel, Poppyfields Dr, Ponies, Davis, Uncle Al, Jacky, Beau Brummell, Pasadena, Altadena, Christmas Carols, Jingle Bells, Johnny Appleseed, Christmas, Birthdays, School Plays")
+
+    return prompt_str
+
 def safe(s):
     return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
 
@@ -53,40 +66,14 @@ def format_hms(seconds):
     s = int(seconds % 60)
     return f"{h:02d}:{m:02d}:{s:02d}"
 
-def get_video_duration(path):
-    try:
-        out = subprocess.check_output([
-            FFPROBE,
-            "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            str(path)
-        ], text=True, stderr=subprocess.DEVNULL)
-        return float(out.strip())
-    except Exception:
-        return None
-
-def is_chapter_done(final_file, expected_duration):
-    if not final_file.exists():
+def is_chapter_done(final_file):
+    if not final_file.exists() and final_file.stat().st_size < 100_000:
         return False
-    actual_duration = get_video_duration(final_file)
-    if actual_duration is None:
-        return False
-    # allow small rounding difference (0.5s)
-    return abs(actual_duration - expected_duration) < 0.5
 
-def calculate_worker_count(gb_per_worker=3):
-    # Total RAM in bytes → convert to GB
+def calculate_worker_count(gb_per_worker):
     total_ram_gb = psutil.virtual_memory().total / (1024**3)
-
-    # Max workers allowed by memory
     mem_based = max(1, int(total_ram_gb // gb_per_worker))
-
-    # Max workers allowed by CPU
     cpu_based = psutil.cpu_count(logical=False) or 1
-
-    # Final worker count = min of both
     return max(1, min(mem_based, cpu_based))
 
 def parse_chapters(path):
@@ -95,28 +82,49 @@ def parse_chapters(path):
     cur = {}
     in_chapter = False
     seen_chapter = False
+    timebase_num = 1
+    timebase_den = 1
+
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
+        if not line:
+            continue
+
         if not seen_chapter and "=" in line and not line.startswith(("[", ";")):
             k, v = line.split("=", 1)
             ffmetadata[k.strip().lower()] = v.strip()
             continue
+
         if line == "[CHAPTER]":
             seen_chapter = True
             if cur and in_chapter:
                 chapters.append(cur)
             cur = {}
             in_chapter = True
+            timebase_num = 1
+            timebase_den = 1
             continue
+
         if in_chapter and "=" in line:
             k, v = line.split("=", 1)
-            cur[k.lower()] = v.strip()
-        if in_chapter and not line and cur:
-            chapters.append(cur)
-            cur = {}
-            in_chapter = False
+            k = k.lower()
+            v = v.strip()
+            cur[k] = v
+
+            if k == "timebase":
+                num, den = v.split("/", 1)
+                timebase_num = int(num)
+                timebase_den = int(den)
+
+            elif k in ("start", "end"):
+                cur[k] = int(v)
+
+                seconds = cur[k] * (timebase_num / timebase_den)
+                cur[k + "_seconds"] = round(seconds, 3)
+
     if cur and in_chapter:
         chapters.append(cur)
+
     return ffmetadata, chapters
 
 def extract_chapter(src, start, end, dest):
@@ -126,7 +134,7 @@ def extract_chapter(src, start, end, dest):
         "-guess_layout_max", "0",
         "-channel_layout", "mono",
         "-i", str(src),
-        "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
+        "-ss", f"{start}", "-to", f"{end}",
         "-pix_fmt", "yuv422p",
         "-color_primaries:v", "6",
         "-color_trc:v", "6",
@@ -200,7 +208,8 @@ def transcribe_audio(temp_transcript, final_vtt):
     try:
         model = whisper.load_model("turbo")
         vtt_writer = get_writer("vtt", str(SUBTITLES))
-        result = model.transcribe(str(temp_transcript), language="en", fp16=False)
+        prompt_text = load_whisper_prompt()
+        result = model.transcribe(str(temp_transcript), prompt=prompt_text, language="en", fp16=False)
         vtt_writer(result, str(final_vtt))
     finally:
         del model
@@ -247,15 +256,15 @@ def process_chapter(chapter_job, cpuset):
 
     src, ffmetadata, ch, i = chapter_job
     title = ch.get("title", f"Chapter {i+1}")
-    start_sec, end_sec = int(ch["start"]), int(ch["end"])
+    start_sec, end_sec = float(ch["start"]), float(ch["end"])
     duration = end_sec - start_sec
     ctime = ch.get("creation_time", "")
     location = ch.get("location", "")
 
-    final_dir = VIDEOS if duration >= 200 else CLIPS
+    final_dir = VIDEOS if duration >= 200.0 else CLIPS
     final_file = final_dir / f"{safe(title)}.mp4"
 
-    if is_chapter_done(final_file, duration):
+    if is_chapter_done(final_file):
         print(f"Skipped existing: {title}")
         return
 
@@ -318,7 +327,7 @@ def main():
     chapter_jobs.sort(key=lambda x: x[2]["duration"])
 
     cpus_logical = psutil.cpu_count(logical=True)
-    worker_count = calculate_worker_count()
+    worker_count = calculate_worker_count(gb_per_worker=3)
     print(f"Worker count: {worker_count}, CPU count: {cpus_logical}")
     with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
         futures = []
