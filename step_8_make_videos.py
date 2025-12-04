@@ -164,6 +164,7 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
     cmd = [FFMPEG,
            "-nostdin",
            "-v", "warning",
+           "-hwaccel", "auto",
            "-i", str(temp_qtgmc),
            "-i", str(final_vtt),
            "-map_metadata", "-1",
