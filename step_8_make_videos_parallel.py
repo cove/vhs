@@ -189,7 +189,6 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
            "-report",
            "-v", "warning",
            "-threads", "1",
-           "-hwaccel", "auto",
            "-i", str(temp_qtgmc),
            "-i", str(final_vtt),
            "-map_metadata", "-1",
