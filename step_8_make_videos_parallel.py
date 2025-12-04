@@ -41,7 +41,7 @@ def run(cmd, cpuset=None):
 
     retcode = proc.wait()
     if retcode != 0:
-        print(f"Warning: {cmd} = {retcode}")
+        print(f"ERROR: {cmd} = {retcode}")
         raise subprocess.CalledProcessError(retcode, cmd)
 
 def safe(s):
@@ -186,6 +186,7 @@ def transcribe_audio(model, temp_transcript, final_vtt):
 def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location, cpuset=None):
     cmd = [FFMPEG,
            "-nostdin",
+           "-report",
            "-hwaccel", "auto",
            "-i", str(temp_qtgmc),
            "-i", str(final_vtt),
