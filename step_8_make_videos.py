@@ -17,7 +17,7 @@ following workflow for each MKV file:
    - Encodes the final chapter video with metadata, color info, subtitles, and audio,
      using high-quality H.265 encoding.
 
-3. Cleans up temporary files (.mkv, .avs, .wav, .ffindex) after processing.
+3. Cleans up the temporary working directory after processing.
 
 The script ensures each chapter is saved in the Videos folder if longer than 200
 seconds or in Clips if shorter, and skips any chapters that have already been processed.
@@ -25,6 +25,7 @@ seconds or in Clips if shorter, and skips any chapters that have already been pr
 import subprocess
 import sys
 import os
+import shutil
 from pathlib import Path
 import whisper
 from whisper.utils import get_writer
@@ -191,13 +192,6 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
            "-movflags", "+faststart+write_colr+use_metadata_tags", "-y", str(final_file)]
     run(cmd)
 
-def cleanup_temp_files(*files):
-    for f in files:
-        f.unlink(missing_ok=True)
-    for ffindex in [f.parent for f in files]:
-        for p in ffindex.rglob('*.ffindex'):
-            p.unlink(missing_ok=True)
-
 def process_archive():
     model = whisper.load_model("turbo")
     for src in ARCHIVE.glob("*.mkv"):
@@ -229,35 +223,45 @@ def process_archive():
 
             final_dir = VIDEOS if duration >= 200 else CLIPS
             final_file = final_dir / f"{safe(title)}.mp4"
+            final_vtt = SUBTITLES / f"{safe(title)}.vtt"
+
             if final_file.exists() and final_file.stat().st_size > 100_000:
                 print(f"Skipping existing chapter: {title}")
                 continue
 
-            print(f"Extracting chapter: {title} ({format_hms(start_sec)} - {format_hms(end_sec)})")
-            temp_extracted = final_dir / f"{safe(title)}_extracted.mkv"
-            extract_chapter(src, start_sec, end_sec, temp_extracted)
+            # Create dedicated temp directory inside the output folder
+            temp_dir = final_dir / f"{safe(title)}_temp"
+            temp_dir.mkdir(exist_ok=True)
 
-            temp_avs = final_dir / f"{safe(title)}.avs"
-            create_avs(temp_extracted, temp_avs)
+            temp_extracted = temp_dir / "extracted.mkv"
+            temp_qtgmc = temp_dir / "qtgmc.mkv"
+            temp_transcript = temp_dir / "audio.wav"
+            temp_avs = temp_dir / "script.avs"
 
-            temp_qtgmc = final_dir / f"{safe(title)}_qtgmc.mkv"
-            print(f"Deinterlacing chapter: {title}")
-            deinterlace(temp_avs, temp_extracted, temp_qtgmc)
+            original_cwd = os.getcwd()
+            os.chdir(temp_dir)
+            try:
+                print(f"Extracting chapter: {title} ({format_hms(start_sec)} - {format_hms(end_sec)})")
+                extract_chapter(src, start_sec, end_sec, temp_extracted)
 
-            temp_transcript = final_dir / f"{safe(title)}_transcript.wav"
-            final_vtt = SUBTITLES / f"{safe(title)}.vtt"
-            print(f"Transcribing audio: {title}")
-            print(f"Transcribing chapter: {title}")
-            extract_audio(temp_extracted, temp_transcript)
-            transcribe_audio(model, temp_transcript, final_vtt)
+                print(f"Deinterlacing chapter: {title}")
+                create_avs(temp_extracted, temp_avs)
+                deinterlace(temp_avs, temp_extracted, temp_qtgmc)
 
-            print(f"Final encoding: {final_file.name}")
-            start_hms = format_hms(start_sec)
-            end_hms = format_hms(end_sec)
-            encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location)
+                print(f"Transcribing audio: {title}")
+                print(f"Transcribing chapter: {title}")
+                extract_audio(temp_extracted, temp_transcript)
+                transcribe_audio(model, temp_transcript, final_vtt)
 
-            cleanup_temp_files(temp_extracted, temp_qtgmc, temp_avs, temp_transcript)
-            print(f"  Done {final_file.name}")
+                print(f"Final encoding: {final_file.name}")
+                start_hms = format_hms(start_sec)
+                end_hms = format_hms(end_sec)
+                encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location)
+
+                print(f"  Done {final_file.name}")
+            finally:
+                os.chdir(original_cwd)
+                shutil.rmtree(temp_dir, ignore_errors=True)
 
 if __name__ == "__main__":
     process_archive()
