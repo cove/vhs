@@ -112,6 +112,8 @@ def extract_chapter(src, start, end, dest):
          "-v", "error",
          "-i", str(src),
          "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
+         "-map_metadata", "-1",
+         "-map_chapters", "-1",
          "-r", "30000 / 1001",
          "-pix_fmt", "yuv422p",
          "-color_primaries:v", "6",
