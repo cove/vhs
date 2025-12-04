@@ -297,7 +297,7 @@ def main():
     chapter_jobs.sort(key=lambda x: x[3]["duration"])
 
     cpus_real = psutil.cpu_count(logical=False)
-    worker_count = 6
+    worker_count = cpus_real
     cpus_logical = psutil.cpu_count(logical=True)
     with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
         futures = []
