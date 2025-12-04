@@ -119,6 +119,7 @@ def extract_chapter(src, start, end, dest):
         "-color_range:v", "1",
         "-map_metadata", "-1",
         "-map_chapters", "-1",
+        "-channel_layout", "mono",
         "-map", "0:v:0", "-map", "0:a:0", "-c", "copy",
         "-avoid_negative_ts", "make_zero", "-y", str(dest)])
 
@@ -162,6 +163,7 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset=None):
          "-map", "0:v:0", "-c:v", "ffv1",
          "-level", "3", "-g", "1", "-coder", "1", "-context", "1",
          "-slices", "24", "-slicecrc", "1",
+         "-channel_layout", "mono",
          "-ac", "1",
          "-map", "0:a", "-c:a", "copy",
          "-y", str(temp_qtgmc)], cpuset)
@@ -171,6 +173,7 @@ def extract_audio(temp_extracted, temp_transcript, cpuset=None):
         FFMPEG, "-nostdin", "-v", "warning",
         "-i", str(temp_extracted),
         "-vn",
+        "-channel_layout", "mono",
         "-af", "highpass=f=120,lowpass=f=8000,afftdn=nf=-25,dynaudnorm=f=150:g=13,aresample=16000,loudnorm=I=-16:TP=-1.5:LRA=11",
         "-c:a", "pcm_s16le",
         "-ac", "1",
@@ -186,7 +189,6 @@ def transcribe_audio(model, temp_transcript, final_vtt):
 def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location, cpuset=None):
     cmd = [FFMPEG,
            "-nostdin",
-           "-report",
            "-v", "warning",
            "-threads", "1",
            "-i", str(temp_qtgmc),
@@ -197,6 +199,7 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
            "-r", "30000 / 1001",
            "-pix_fmt", "yuv420p10le",
            "-x265-params", "no-open-gop=1:bframes=8",
+           "-channel_layout", "mono",
            "-c:a", "aac", "-b:a", "48k", "-ac", "1",
            "-af", "highpass=f=80,lowpass=f=14000,loudnorm=I=-16:TP=-1.5:LRA=11",
            "-tag:v", "hvc1", "-brand", "mp42",
