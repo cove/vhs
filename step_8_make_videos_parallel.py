@@ -45,16 +45,29 @@ def run(cmd, cpuset=None):
         raise subprocess.CalledProcessError(retcode, cmd)
 
 def load_whisper_prompt():
-    comments_file = BASE / "comments.txt"
-    if not comments_file.exists():
-        return ""
+    media_dir = BASE / "media"
+    comments_lines = []
 
-    with comments_file.open("r", encoding="utf-8") as f:
-        lines = [line.strip() for line in f if line.strip()]
+    if media_dir.exists():
+        for subdir in media_dir.iterdir():
+            if subdir.is_dir():
+                comments_file = subdir / "comments.txt"
+                if comments_file.exists():
+                    with comments_file.open("r", encoding="utf-8") as f:
+                        comments_lines.extend([line.strip() for line in f if line.strip()])
 
-    prompt_str = ", ".join(lines)
-    prompt_str += ", ".join("Glenda, Terry, Bennett, Terrance J. Bennett, Tara, Buddy, Morgan, Morgie, Asia, Hazel, Poppyfields Dr, Ponies, Davis, Uncle Al, Jacky, Beau Brummell, Pasadena, Altadena, Christmas Carols, Jingle Bells, Johnny Appleseed, Christmas, Birthdays, School Plays")
+    extra_hints = [
+        "Glenda", "Terry", "Terrance", "Bennett", "Terrance J. Bennett", "Tara",
+        "Buddy", "Morgan", "Morgie", "Asia", "Hazel", "Poppyfields Dr", "Ponies",
+        "Davis", "Uncle Al", "Jacky", "Dory", "Ralph", "Monica", "Gene", "Michael",
+        "Anat", "Kim", "Rhett", "Butler", "Lance", "Jan", "Beau Brummell", "Michael",
+        "Davis", "Allan", "Peter", "Pasadena", "Altadena", "Christmas carols", "Parties",
+        "Jingle Bells", "Rudolph the Red-Nosed Reindeer", "Wedding", "Johnny Appleseed",
+        "Christmas Eva", "Christmas Day", "Birthdays", "School Plays", "Easter", "Arizona",
+        "Gerrish", "Swim & Tennis Club", "Eliot Middle School",
+    ]
 
+    prompt_str = ", ".join(comments_lines + extra_hints)
     return prompt_str
 
 def safe(s):
