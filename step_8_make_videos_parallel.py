@@ -38,6 +38,7 @@ def run(cmd, cpuset=None):
                 p.cpu_affinity(cpuset)
                 for child in p.children(recursive=True):
                     child.cpu_affinity(cpuset)
+                print(f"Pinned process {proc.pid} to CPU {cpuset}")
                 time.sleep(5)
 
         except Exception as e:
