@@ -64,7 +64,7 @@ def load_whisper_prompt():
         "Davis", "Allan", "Peter", "Pasadena", "Altadena", "Christmas carols", "Parties",
         "Jingle Bells", "Rudolph the Red-Nosed Reindeer", "Wedding", "Johnny Appleseed",
         "Christmas Eva", "Christmas Day", "Birthdays", "School Plays", "Easter", "Arizona",
-        "Gerrish", "Swim & Tennis Club", "Eliot Middle School",
+        "Swim & Tennis Club", "Pool", "I Love You", "Football", "Catch", "Santa", "Santa Claws"
     ]
 
     prompt_str = ", ".join(comments_lines + extra_hints)
