@@ -57,7 +57,7 @@ def get_video_duration(path):
     try:
         out = subprocess.check_output([
             FFPROBE,
-            "-v", "error", "-threads", "1",
+            "-v", "error",
             "-select_streams", "v:0",
             "-show_entries", "stream=duration",
             "-of", "default=noprint_wrappers=1:nokey=1",
@@ -107,7 +107,9 @@ def parse_chapters(path):
     return ffmetadata, chapters
 
 def extract_chapter(src, start, end, dest):
-    run([FFMPEG, "-nostdin", "-v", "warning",
+    run([FFMPEG,
+        "-nostdin",
+        "-v", "warning",
         "-i", str(src),
         "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
         "-pix_fmt", "yuv422p",
@@ -148,7 +150,6 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset=None):
     run([FFMPEG,
          "-nostdin",
          "-v", "warning",
-         "-threads", "1",
          "-hwaccel", "auto",
          "-i", str(temp_avs),
          "-i", str(temp_extracted),
@@ -167,7 +168,7 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset=None):
 
 def extract_audio(temp_extracted, temp_transcript, cpuset=None):
     run([
-        FFMPEG, "-nostdin", "-v", "warning", "-threads", "1",
+        FFMPEG, "-nostdin", "-v", "warning",
         "-i", str(temp_extracted),
         "-vn",
         "-af", "highpass=f=120,lowpass=f=8000,afftdn=nf=-25,dynaudnorm=f=150:g=13,aresample=16000,loudnorm=I=-16:TP=-1.5:LRA=11",
@@ -185,7 +186,6 @@ def transcribe_audio(model, temp_transcript, final_vtt):
 def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location, cpuset=None):
     cmd = [FFMPEG,
            "-nostdin",
-           "-threads", "1",
            "-hwaccel", "auto",
            "-i", str(temp_qtgmc),
            "-i", str(final_vtt),
@@ -211,7 +211,9 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
            "-af", "highpass=f=80,lowpass=f=14000,loudnorm=I=-16:TP=-1.5:LRA=11",
            "-tag:v", "hvc1", "-brand", "mp42",
            "-c:s", "mov_text",
-           "-movflags", "+faststart+write_colr+use_metadata_tags", "-y", str(final_file)]
+           "-movflags", "+faststart+write_colr+use_metadata_tags",
+           "-y",
+           str(final_file)]
     run(cmd, cpuset)
 
 def cleanup_temp_files(*files):
