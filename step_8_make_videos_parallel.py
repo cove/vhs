@@ -6,6 +6,8 @@ import psutil
 import concurrent.futures
 import whisper
 from whisper.utils import get_writer
+import threading
+import time
 
 BASE = Path(__file__).parent.resolve()
 FFMPEG_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
@@ -30,14 +32,35 @@ if not FFMPEG.exists():
 
 def run(cmd, cpuset=None):
     proc = subprocess.Popen([str(c) for c in cmd])
+
     if cpuset:
-        try:
+        def enforce_affinity():
             p = psutil.Process(proc.pid)
-            p.cpu_affinity(cpuset)
-            for child in p.children(recursive=True):
-                child.cpu_affinity(cpuset)
-        except Exception as e:
-            print(f"Warning: failed to set CPU affinity: {e}", file=sys.stderr)
+            while True:
+                if proc.poll() is not None:   # ffmpeg exited
+                    return
+                try:
+                    p.cpu_affinity(cpuset)
+                    for child in p.children(recursive=True):
+                        child.cpu_affinity(cpuset)
+                except Exception as e:
+                    print(f"Warning: affinity set failed: {e}", file=sys.stderr)
+                time.sleep(5)
+
+        threading.Thread(target=enforce_affinity, daemon=True).start()
+
+    return proc
+
+# def run(cmd, cpuset=None):
+#     proc = subprocess.Popen([str(c) for c in cmd])
+#     if cpuset:
+#         try:
+#             p = psutil.Process(proc.pid)
+#             p.cpu_affinity(cpuset)
+#             for child in p.children(recursive=True):
+#                 child.cpu_affinity(cpuset)
+#         except Exception as e:
+#             print(f"Warning: failed to set CPU affinity: {e}", file=sys.stderr)
 
     retcode = proc.wait()
     if retcode != 0:
