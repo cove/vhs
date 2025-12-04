@@ -1,13 +1,30 @@
-Setting up VirtualDub from the software/ directory:
-1. In the software/ directory, install the UT Video driver, Ospery driver, Python and unzip ffmpeg.exe.zip in the software/FFmpeg-QTGMC Easy 2025.0111 directory.
-2. Unzip and startup up VirtualDub from the software/ directory.
-3. Set capture frame rate to 29.97 FPS in the lower right of the screen.
-4. Set Audio -> Compression to PCM 48.000 kHz 16-bit mono if it's a home video.
-5. Set Video -> Compression "UtVideo YUV422 BT.601.VCM"
-6. Set Capture -> Settings... -> Abort options -> Abort on left mouse button to be unchecked since it's causes erant recording stops, just press the ESC key to stop recording.
-7. Set Capture -> Timing... -> Internal capture mode synchronization -> no correction
-8. Set Capture -> Stop conditions ... -> Capture time exceeds to 3600 seconds for the maximum of a VHS-C tape. (Also, note VCR counters are aproximates, you can't use them for accuratly determining how long a tape will run for)
-9. Set File -> Set Capture File... to the output file every time, as that it automatically overwrites the last file by default.
+Panasonic AG-1970P VCR settings:
+- Phone Level = Neutral, Picture = Neutral, Hi-fi Rec Level = Neutral
+- Noise Filter = Off, TBC = On, Search Sound = Off, HiFi/NormalMix = Off, Tape Select = T120, Mono = On, MTS = MTS
+- A1 S-Video out to Osprey 260e S-Video In, A1 Right and Left Audio to Osprey 260e Unbalanced Audio In.
+
+Osprey 260e Analog Capture Card Settings
+Everything set to defaults, except:
+- RefSize -> Horizontal Format: CCIR-601, Source Width: 720
+- Input -> Video Input: S-Video
+- Video Decoder -> Video Standard: NTSC_M
+- Filters -> SimulStream: Unchecked
+
+Software Requirements
+In the software/ directory:
+- Install the UT Video driver
+- Install the Osprey driver
+- Install Python
+- Unzip VirtualDub
+
+VirtualDub Capture Software Settings
+1. Set capture framerate to 29.97 FPS in the lower right of the screen.
+2. Set Audio -> Compression to PCM 48.000 kHz 16-bit mono if it's a home video.
+3. Set Video -> Compression "UtVideo YUV422 BT.601.VCM"
+4. Set Capture -> Settings... -> Abort options -> Abort on left mouse button to be unchecked since it's causes errant recording stops, instead press the ESC key to stop recording.
+5. Set Capture -> Timing... -> Internal capture mode synchronization -> no correction
+6. Set Capture -> Stop conditions ... -> Capture time exceeds to 5400 seconds for the maximum of a VHS-C tape on EP mode.
+7. Set File -> Set Capture File... to the output file every time, as that it automatically overwrites the last file by default.
 
 See the screenshots/ directory for what the above settings look like.
 
