@@ -28,8 +28,8 @@ if not FFMPEG.exists():
     print(f"ERROR: ffmpeg.exe not found at {FFMPEG}")
     sys.exit(1)
 
-def run(cmd,cwd=None,cpu_list=None):
-    proc = subprocess.Popen([str(c) for c in cmd], cwd=cwd)
+def run(cmd, cpu_list=None):
+    proc = subprocess.Popen([str(c) for c in cmd])
     if cpu_list:
         try:
             p = psutil.Process(proc.pid)
@@ -108,6 +108,7 @@ def extract_chapter(src, start, end, dest):
     run([FFMPEG,
          "-nostdin",
          "-v", "error",
+         "-f", "matroska",
          "-i", str(src),
          "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
          "-r", "30000 / 1001",
@@ -140,7 +141,7 @@ QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,
 Crop(4,2,-8,-10)
 LanczosResize(640,480)
 ConvertToYV12(interlaced=false)
-Tweak(sat=0.85)
+Tweak(sat=0.9)
 '''
     avs_path.write_text(avs_script, encoding="ascii")
 
@@ -149,8 +150,9 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset=None):
          "-nostdin",
          "-v", "warning",
          "-threads", "1",
-         "-i", str(temp_avs.name),
-         "-i", str(temp_extracted.name),
+         "-f", "matroska",
+         "-i", str(temp_avs),
+         "-i", str(temp_extracted),
          "-r", "30000 / 1001",
          "-pix_fmt", "yuv422p",
          "-color_primaries:v", "6",
@@ -162,7 +164,7 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset=None):
          "-slices", "24", "-slicecrc", "1",
          "-ac", "1",
          "-map", "0:a", "-c:a", "copy",
-         "-y", str(temp_qtgmc)], temp_qtgmc.parent, cpuset)
+         "-y", str(temp_qtgmc)], cpuset)
 
 def extract_audio(temp_extracted, temp_transcript, cpuset=None):
     run([
@@ -174,7 +176,7 @@ def extract_audio(temp_extracted, temp_transcript, cpuset=None):
         "-ac", "1",
         "-y",
         str(temp_transcript)
-    ], temp_extracted.parent, cpuset)
+    ], cpuset)
 
 def transcribe_audio(model, temp_transcript, final_vtt):
     vtt_writer = get_writer("vtt", str(SUBTITLES))
@@ -216,7 +218,7 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
         iso6709 = location.rstrip("/") + "/"
         cmd += ["-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}"]
     cmd += ["-movflags", "+faststart+write_colr+use_metadata_tags", "-y", str(final_file)]
-    run(cmd, temp_qtgmc.parent, cpuset)
+    run(cmd, cpuset)
 
 def cleanup_temp_files(*files):
     for f in files:
@@ -245,7 +247,7 @@ def process_chapter(chapter_job, cpuset):
 
     print(f"Deinterlacing chapter: {title}")
     temp_avs = final_dir / f"{safe(title)}.avs"
-    create_avs(temp_extracted.name, temp_avs)
+    create_avs(temp_extracted, temp_avs)
 
     temp_qtgmc = final_dir / f"{safe(title)}_qtgmc.mkv"
     deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset)
