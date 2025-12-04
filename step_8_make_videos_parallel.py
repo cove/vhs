@@ -31,6 +31,7 @@ def run(cmd, cpuset=None):
     if cpuset:
         try:
             while True:
+                print("Pinned process {proc.pid} to CPU {cpuset}")
                 retcode = proc.poll()
                 if retcode is not None:
                     break
@@ -38,7 +39,6 @@ def run(cmd, cpuset=None):
                 p.cpu_affinity(cpuset)
                 for child in p.children(recursive=True):
                     child.cpu_affinity(cpuset)
-                print(f"Pinned process {proc.pid} to CPU {cpuset}")
                 time.sleep(5)
 
         except Exception as e:
@@ -208,7 +208,7 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
            "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
            "-r", "30000 / 1001",
            "-pix_fmt", "yuv420p10le",
-           "-x265-params", "no-open-gop=1:bframes=8",
+           "-x265-params", "no-open-gop=1:bframes=8:pools=none",
            "-c:a", "aac", "-b:a", "48k", "-ac", "1",
            "-af", "highpass=f=80,lowpass=f=14000,loudnorm=I=-16:TP=-1.5:LRA=11",
            "-tag:v", "hvc1", "-brand", "mp42",
