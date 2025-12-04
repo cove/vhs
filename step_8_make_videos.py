@@ -249,6 +249,7 @@ def process_archive():
 
             temp_transcript = final_dir / f"{safe(title)}_transcript.wav"
             final_vtt = SUBTITLES / f"{safe(title)}.vtt"
+            print(f"Transcribing audio: {title}")
             print(f"Transcribing chapter: {title}")
             extract_audio(temp_extracted, temp_transcript)
             transcribe_audio(model, temp_transcript, final_vtt)
@@ -264,3 +265,4 @@ def process_archive():
 if __name__ == "__main__":
     process_archive()
     print("All done")
+
