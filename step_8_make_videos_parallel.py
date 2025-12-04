@@ -182,8 +182,7 @@ def extract_audio(temp_extracted, temp_transcript, cpuset=None):
         str(temp_transcript)
     ], cpuset)
 
-def transcribe_audio(temp_transcript, final_vtt):
-    model = whisper.load_model("turbo")
+def transcribe_audio(model, temp_transcript, final_vtt):
     vtt_writer = get_writer("vtt", str(SUBTITLES))
     result = model.transcribe(str(temp_transcript), language="en", fp16=False)
     vtt_writer(result, str(final_vtt))
@@ -232,7 +231,7 @@ def process_chapter(chapter_job, cpuset):
     p = psutil.Process()
     p.cpu_affinity(cpuset)
 
-    src, ffmetadata, ch, i = chapter_job
+    model, src, ffmetadata, ch, i = chapter_job
     title = ch.get("title", f"Chapter {i+1}")
     start_sec, end_sec = int(ch["start"]), int(ch["end"])
     duration = end_sec - start_sec
@@ -274,6 +273,7 @@ def process_chapter(chapter_job, cpuset):
     print(f"Done: {final_file.name}")
 
 def main():
+    model = whisper.load_model("turbo")
     chapter_jobs = []
 
     # Load all metadata upfront
@@ -291,9 +291,9 @@ def main():
             start = int(ch.get("start", 0))
             end = int(ch.get("end", 0))
             ch["duration"] = end - start
-            chapter_jobs.append((src, ffmetadata, ch, i))
+            chapter_jobs.append((model, src, ffmetadata, ch, i))
 
-    chapter_jobs.sort(key=lambda x: x[2]["duration"])
+    chapter_jobs.sort(key=lambda x: x[3]["duration"])
 
     cpus_real = psutil.cpu_count(logical=False)
     worker_count = int(cpus_real/2)
