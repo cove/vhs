@@ -163,10 +163,7 @@ def transcribe_audio(model, temp_transcript, final_vtt):
 def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location):
     cmd = [FFMPEG,
            "-nostdin",
-           "-v",
-           "warning",
-           "-threads", "1",
-           "-hwaccel", "auto",
+           "-v", "warning",
            "-i", str(temp_qtgmc),
            "-i", str(final_vtt),
            "-map_metadata", "-1",
