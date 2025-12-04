@@ -222,10 +222,11 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
            "-movflags", "+faststart+write_colr+use_metadata_tags", "-y", str(final_file)]
     run(cmd)
 
-def cleanup_temp_files(*files):
-    for f in files:
-        f.unlink(missing_ok=True)
-        f.with_suffix(".ffindex").unlink(missing_ok=True)
+def cleanup_temp_files_for_title(title) -> None:
+    p = Path(title)
+    for f in p.parent.glob(f"{p.stem}.*"):
+        if f.suffix != ".mp4" and f.is_file():
+            f.unlink(missing_ok=True)
 
 def process_chapter(chapter_job, cpuset):
     p = psutil.Process()
@@ -250,7 +251,7 @@ def process_chapter(chapter_job, cpuset):
         print(f"Skipped existing: {title}")
     else:
         final_file.unlink(missing_ok=True)
-        cleanup_temp_files(temp_extracted, temp_qtgmc, temp_avs, temp_transcript)
+        cleanup_temp_files_for_title(final_file.name)
 
     print(f"Extracting chapter: {title} ({format_hms(start_sec)} - {format_hms(end_sec)})")
     extract_chapter(src, start_sec, end_sec, temp_extracted)
@@ -269,7 +270,7 @@ def process_chapter(chapter_job, cpuset):
     end_hms = format_hms(end_sec)
     encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location, cpuset)
 
-    cleanup_temp_files(temp_extracted, temp_qtgmc, temp_avs, temp_transcript)
+    cleanup_temp_files_for_title(final_file.name)
     print(f"Done: {final_file.name}")
 
 def main():
@@ -296,7 +297,7 @@ def main():
     chapter_jobs.sort(key=lambda x: x[3]["duration"])
 
     cpus_real = psutil.cpu_count(logical=False)
-    worker_count = int(cpus_real/2)
+    worker_count = 6
     cpus_logical = psutil.cpu_count(logical=True)
     with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
         futures = []
