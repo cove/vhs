@@ -41,8 +41,8 @@ def run(cmd, cpuset=None):
 
     retcode = proc.wait()
     if retcode != 0:
+        print(f"Warning: {cmd} = {retcode}")
         raise subprocess.CalledProcessError(retcode, cmd)
-
 
 def safe(s):
     return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
