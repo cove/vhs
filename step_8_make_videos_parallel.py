@@ -28,12 +28,14 @@ if not FFMPEG.exists():
     print(f"ERROR: ffmpeg.exe not found at {FFMPEG}")
     sys.exit(1)
 
-def run(cmd, cpu_list=None):
+def run(cmd, cpuset=None):
     proc = subprocess.Popen([str(c) for c in cmd])
-    if cpu_list:
+    if cpuset:
         try:
             p = psutil.Process(proc.pid)
-            p.cpu_affinity(cpu_list)
+            p.cpu_affinity(cpuset)
+            for child in p.children(recursive=True):
+                child.cpu_affinity(cpuset)
         except Exception as e:
             print(f"Warning: failed to set CPU affinity: {e}", file=sys.stderr)
 
@@ -140,7 +142,7 @@ QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,
 Crop(4,2,-8,-10)
 LanczosResize(640,480)
 ConvertToYV12(interlaced=false)
-Tweak(sat=0.9)
+Tweak(sat=0.8)
 '''
     avs_path.write_text(avs_script, encoding="ascii")
 
@@ -149,6 +151,7 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset=None):
          "-nostdin",
          "-v", "warning",
          "-threads", "1",
+         "-hwaccel", "auto",
          "-i", str(temp_avs),
          "-i", str(temp_extracted),
          "-r", "30000 / 1001",
@@ -187,6 +190,7 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
            "-v",
            "warning",
            "-threads", "1",
+           "-hwaccel", "auto",
            "-i", str(temp_qtgmc),
            "-i", str(final_vtt),
            "-map_metadata", "-1",
@@ -206,16 +210,12 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
            "-metadata", f"title={title}",
            "-metadata", f"comment=Chapter from archive {ffmetadata.get('title','')} @ {start_hms}-{end_hms}",
            "-metadata", f"creation_time={ctime}",
-           "-metadata", f"com.apple.quicktime.creationdate={ctime}",
            "-metadata", f"date={ctime}",
+           "-metadata", f"location={location.rstrip("/") + "/"}"
            "-metadata", f"genre={ffmetadata.get('genre','')}",
            "-metadata", f"videographer={ffmetadata.get('videographer','')}",
-           "-metadata", f"tape_id={ffmetadata.get('tape_id','')}"
-    ]
-    if location:
-        iso6709 = location.rstrip("/") + "/"
-        cmd += ["-metadata", f"com.apple.quicktime.location.ISO6709={iso6709}"]
-    cmd += ["-movflags", "+faststart+write_colr+use_metadata_tags", "-y", str(final_file)]
+           "-metadata", f"tape_id={ffmetadata.get('tape_id','')}",
+           "-movflags", "+faststart+write_colr+use_metadata_tags", "-y", str(final_file)]
     run(cmd, cpuset)
 
 def cleanup_temp_files(*files):
