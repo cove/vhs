@@ -1,4 +1,4 @@
-import sys, time, os, subprocess, threading
+import sys, os, subprocess
 from pathlib import Path
 import psutil
 import concurrent.futures
@@ -26,34 +26,8 @@ if not FFMPEG.exists():
     print(f"ERROR: ffmpeg.exe not found at {FFMPEG}")
     sys.exit(1)
 
-ACTIVE_PIDS = []  # list of tuples: (pid, idx)
-CPUS_LOGICAL = psutil.cpu_count(logical=True)
-INTERVAL = 1.0  # seconds between enforcement
-
-def enforce_affinity_periodically():
-    """Periodically assign CPU affinity based on process index."""
-    while True:
-        for pid, idx in list(ACTIVE_PIDS):
-            try:
-                cpuset = [(idx * 2) % CPUS_LOGICAL, (idx * 2 + 1) % CPUS_LOGICAL]
-                p = psutil.Process(pid)
-                p.cpu_affinity(cpuset)
-                for child in p.children(recursive=True):
-                    try:
-                        child.cpu_affinity(cpuset)
-                    except psutil.NoSuchProcess:
-                        pass
-            except psutil.NoSuchProcess:
-                # remove exited process
-                ACTIVE_PIDS.remove((pid, idx))
-            except Exception as e:
-                print(f"Warning: failed to set affinity for pid {pid}: {e}")
-
-        time.sleep(INTERVAL)
-
 def run(cmd, cpuset=None):
     proc = subprocess.Popen([str(c) for c in cmd])
-    ACTIVE_PIDS.add(proc.pid)
     if cpuset:
         try:
             p = psutil.Process(proc.pid)
@@ -64,13 +38,6 @@ def run(cmd, cpuset=None):
             print(f"Warning: failed to set CPU affinity: {e}", file=sys.stderr)
 
     retcode = proc.wait()
-
-    # Remove parent PID when it stops
-    try:
-        ACTIVE_PIDS.remove(proc.pid)
-    except KeyError:
-        pass
-
     if retcode != 0:
         print(f"ERROR: {cmd} = {retcode}")
         raise subprocess.CalledProcessError(retcode, cmd)
@@ -270,7 +237,6 @@ def process_chapter(chapter_job, cpuset):
     ctime = ch.get("creation_time", "")
     location = ch.get("location", "")
 
-
     final_dir = VIDEOS if duration >= 200 else CLIPS
     final_file = final_dir / f"{safe(title)}.mp4"
 
@@ -308,8 +274,6 @@ def process_chapter(chapter_job, cpuset):
 def main():
     model = whisper.load_model("turbo")
     chapter_jobs = []
-    thread = threading.Thread(target=enforce_affinity_periodically, daemon=True)
-    thread.start()
 
     # Load all metadata upfront
     for src in ARCHIVE.glob("*.mkv"):
