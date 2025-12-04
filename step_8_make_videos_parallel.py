@@ -4,6 +4,7 @@ import psutil
 import concurrent.futures
 import whisper
 from whisper.utils import get_writer
+import gc
 
 BASE = Path(__file__).parent.resolve()
 FFMPEG_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
@@ -182,10 +183,15 @@ def extract_audio(temp_extracted, temp_transcript, cpuset=None):
         str(temp_transcript)
     ], cpuset)
 
-def transcribe_audio(model, temp_transcript, final_vtt):
-    vtt_writer = get_writer("vtt", str(SUBTITLES))
-    result = model.transcribe(str(temp_transcript), language="en", fp16=False)
-    vtt_writer(result, str(final_vtt))
+def transcribe_audio(temp_transcript, final_vtt):
+    try:
+        model = whisper.load_model("turbo")
+        vtt_writer = get_writer("vtt", str(SUBTITLES))
+        result = model.transcribe(str(temp_transcript), language="en", fp16=False)
+        vtt_writer(result, str(final_vtt))
+    finally:
+        del model
+        gc.collect()
 
 def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location, cpuset=None):
     cmd = [FFMPEG,
@@ -233,7 +239,7 @@ def process_chapter(chapter_job, cpuset):
     p = psutil.Process()
     p.cpu_affinity(cpuset)
 
-    model, src, ffmetadata, ch, i = chapter_job
+    src, ffmetadata, ch, i = chapter_job
     title = ch.get("title", f"Chapter {i+1}")
     start_sec, end_sec = int(ch["start"]), int(ch["end"])
     duration = end_sec - start_sec
@@ -265,7 +271,7 @@ def process_chapter(chapter_job, cpuset):
     print(f"Transcribing chapter: {title}")
     final_vtt = SUBTITLES / f"{safe(title)}.vtt"
     extract_audio(temp_extracted, temp_transcript, cpuset)
-    transcribe_audio(model, temp_transcript, final_vtt)
+    transcribe_audio(temp_transcript, final_vtt)
 
     print(f"Final encoding chapter: {final_file.name}")
     start_hms = format_hms(start_sec)
@@ -276,7 +282,6 @@ def process_chapter(chapter_job, cpuset):
     print(f"Done: {final_file.name}")
 
 def main():
-    model = whisper.load_model("turbo")
     chapter_jobs = []
 
     # Load all metadata upfront
@@ -294,7 +299,7 @@ def main():
             start = int(ch.get("start", 0))
             end = int(ch.get("end", 0))
             ch["duration"] = end - start
-            chapter_jobs.append((model, src, ffmetadata, ch, i))
+            chapter_jobs.append(src, ffmetadata, ch, i)
 
     chapter_jobs.sort(key=lambda x: x[3]["duration"])
 
