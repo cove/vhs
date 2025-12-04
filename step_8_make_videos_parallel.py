@@ -317,8 +317,9 @@ def main():
 
     chapter_jobs.sort(key=lambda x: x[2]["duration"])
 
-    worker_count = calculate_worker_count()
     cpus_logical = psutil.cpu_count(logical=True)
+    worker_count = calculate_worker_count()
+    print(f"Worker count: {worker_count}, CPU count: {cpus_logical}")
     with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
         futures = []
         for idx, job in enumerate(chapter_jobs):
@@ -326,7 +327,7 @@ def main():
             cpuset = [(idx * 2) % cpus_logical, (idx * 2 + 1) % cpus_logical]
             futures.append(executor.submit(process_chapter, job, cpuset))
         for f in concurrent.futures.as_completed(futures):
-            print(f.result())
+            _ = f.result()
 
 if __name__ == "__main__":
     main()
