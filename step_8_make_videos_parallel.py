@@ -183,6 +183,7 @@ def extract_audio(temp_extracted, temp_transcript, cpuset=None):
     ], cpuset)
 
 def transcribe_audio(model, temp_transcript, final_vtt):
+    model = whisper.load_model("turbo")
     vtt_writer = get_writer("vtt", str(SUBTITLES))
     result = model.transcribe(str(temp_transcript), language="en", fp16=False)
     vtt_writer(result, str(final_vtt))
@@ -273,7 +274,6 @@ def process_chapter(chapter_job, cpuset):
     print(f"Done: {final_file.name}")
 
 def main():
-    model = whisper.load_model("turbo")
     chapter_jobs = []
 
     # Load all metadata upfront
