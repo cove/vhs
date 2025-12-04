@@ -250,6 +250,7 @@ def process_chapter(chapter_job, cpuset):
 
     if is_chapter_done(final_file, duration):
         print(f"Skipped existing: {title}")
+        return
     else:
         final_file.unlink(missing_ok=True)
         cleanup_temp_files_for_title(final_file.name)
