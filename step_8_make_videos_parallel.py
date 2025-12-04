@@ -76,6 +76,19 @@ def is_chapter_done(final_file, expected_duration):
     # allow small rounding difference (0.5s)
     return abs(actual_duration - expected_duration) < 0.5
 
+def calculate_worker_count(gb_per_worker=3):
+    # Total RAM in bytes → convert to GB
+    total_ram_gb = psutil.virtual_memory().total / (1024**3)
+
+    # Max workers allowed by memory
+    mem_based = max(1, int(total_ram_gb // gb_per_worker))
+
+    # Max workers allowed by CPU
+    cpu_based = psutil.cpu_count(logical=False) or 1
+
+    # Final worker count = min of both
+    return max(1, min(mem_based, cpu_based))
+
 def parse_chapters(path):
     chapters = []
     ffmetadata = {}
@@ -304,8 +317,7 @@ def main():
 
     chapter_jobs.sort(key=lambda x: x[2]["duration"])
 
-    cpus_real = psutil.cpu_count(logical=False)
-    worker_count = cpus_real
+    worker_count = calculate_worker_count()
     cpus_logical = psutil.cpu_count(logical=True)
     with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
         futures = []
