@@ -301,7 +301,7 @@ def main():
             ch["duration"] = end - start
             chapter_jobs.append((src, ffmetadata, ch, i))
 
-    chapter_jobs.sort(key=lambda x: x[3]["duration"])
+    chapter_jobs.sort(key=lambda x: x[2]["duration"])
 
     cpus_real = psutil.cpu_count(logical=False)
     worker_count = cpus_real
