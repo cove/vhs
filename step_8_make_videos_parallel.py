@@ -117,7 +117,7 @@ def extract_chapter(src, start, end, dest):
         "-color_range:v", "1",
         "-map_metadata", "-1",
         "-map_chapters", "-1",
-        "-map", "0:v", "-map", "0:a", "-c", "copy",
+        "-map", "0:v:0", "-map", "0:a:0", "-c", "copy",
         "-avoid_negative_ts", "make_zero", "-y", str(dest)])
 
 def create_avs(temp_extracted, avs_path):
@@ -193,6 +193,18 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
            "-i", str(final_vtt),
            "-map_metadata", "-1",
            "-map_chapters", "-1",
+           "-metadata:s:s:0", "language=eng",
+           "-disposition:s:0", "forced",
+           "-metadata:s:a:0", "language=eng",
+           "-metadata", f"title={title}",
+           "-metadata", f"comment=Chapter from archive {ffmetadata.get('title', '')} @ {start_hms}-{end_hms}",
+           "-metadata", f"creation_time={ctime}",
+           "-metadata", f"date={ctime}",
+           "-metadata", f"location={location}",
+           "-metadata", f"genre={ffmetadata.get('genre', '')}",
+           "-metadata", f"videographer={ffmetadata.get('videographer', '')}",
+           "-metadata", f"tape_id={ffmetadata.get('tape_id', '')}",
+           "-map", "0:v:0", "-map", "0:a:0", "-map", "1:s:0",
            "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
            "-r", "30000 / 1001",
            "-pix_fmt", "yuv420p10le",
@@ -200,19 +212,7 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
            "-c:a", "aac", "-b:a", "48k", "-ac", "1",
            "-af", "highpass=f=80,lowpass=f=14000,loudnorm=I=-16:TP=-1.5:LRA=11",
            "-tag:v", "hvc1", "-brand", "mp42",
-           "-map", "0:v:0", "-map", "0:a:0", "-map", "1:s:0",
            "-c:s", "mov_text",
-           "-metadata:s:s:0", "language=eng",
-           "-disposition:s:0", "forced",
-           "-metadata:s:a:0", "language=eng",
-           "-metadata", f"title={title}",
-           "-metadata", f"comment=Chapter from archive {ffmetadata.get('title','')} @ {start_hms}-{end_hms}",
-           "-metadata", f"creation_time={ctime}",
-           "-metadata", f"date={ctime}",
-           "-metadata", f"location={location}",
-           "-metadata", f"genre={ffmetadata.get('genre','')}",
-           "-metadata", f"videographer={ffmetadata.get('videographer','')}",
-           "-metadata", f"tape_id={ffmetadata.get('tape_id','')}",
            "-movflags", "+faststart+write_colr+use_metadata_tags", "-y", str(final_file)]
     run(cmd, cpuset)
 
