@@ -211,7 +211,7 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
            "-metadata", f"comment=Chapter from archive {ffmetadata.get('title','')} @ {start_hms}-{end_hms}",
            "-metadata", f"creation_time={ctime}",
            "-metadata", f"date={ctime}",
-           "-metadata", f"location={location.rstrip("/") + "/"}"
+           "-metadata", f"location={location}"
            "-metadata", f"genre={ffmetadata.get('genre','')}",
            "-metadata", f"videographer={ffmetadata.get('videographer','')}",
            "-metadata", f"tape_id={ffmetadata.get('tape_id','')}",
