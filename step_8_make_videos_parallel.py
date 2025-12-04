@@ -119,6 +119,7 @@ def extract_chapter(src, start, end, dest):
         "-color_range:v", "1",
         "-map_metadata", "-1",
         "-map_chapters", "-1",
+        "-guess_layout_max", "0",
         "-channel_layout", "mono",
         "-map", "0:v:0", "-map", "0:a:0", "-c", "copy",
         "-avoid_negative_ts", "make_zero", "-y", str(dest)])
@@ -150,8 +151,7 @@ Tweak(sat=0.8)
 def deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset=None):
     run([FFMPEG,
          "-nostdin",
-         "-v", "warning",
-         "-hwaccel", "auto",
+         "-v", "error",
          "-i", str(temp_avs),
          "-i", str(temp_extracted),
          "-r", "30000 / 1001",
@@ -163,8 +163,8 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset=None):
          "-map", "0:v:0", "-c:v", "ffv1",
          "-level", "3", "-g", "1", "-coder", "1", "-context", "1",
          "-slices", "24", "-slicecrc", "1",
+         "-guess_layout_max", "0",
          "-channel_layout", "mono",
-         "-ac", "1",
          "-map", "0:a", "-c:a", "copy",
          "-y", str(temp_qtgmc)], cpuset)
 
@@ -189,7 +189,7 @@ def transcribe_audio(model, temp_transcript, final_vtt):
 def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location, cpuset=None):
     cmd = [FFMPEG,
            "-nostdin",
-           "-v", "warning",
+           "-v", "error",
            "-threads", "1",
            "-i", str(temp_qtgmc),
            "-i", str(final_vtt),
@@ -199,6 +199,7 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
            "-r", "30000 / 1001",
            "-pix_fmt", "yuv420p10le",
            "-x265-params", "no-open-gop=1:bframes=8",
+           "-guess_layout_max", "0",
            "-channel_layout", "mono",
            "-c:a", "aac", "-b:a", "48k", "-ac", "1",
            "-af", "highpass=f=80,lowpass=f=14000,loudnorm=I=-16:TP=-1.5:LRA=11",
