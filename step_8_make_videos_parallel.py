@@ -310,8 +310,8 @@ def main():
     with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
         futures = []
         for idx, job in enumerate(chapter_jobs):
+            # 2 neighboring logical CPUs per worker should be on the same core
             cpuset = [(idx * 2) % cpus_logical, (idx * 2 + 1) % cpus_logical]
-            # submit job with CPU pinning handled inside process_chapter
             futures.append(executor.submit(process_chapter, job, cpuset))
         for f in concurrent.futures.as_completed(futures):
             print(f.result())
