@@ -1,4 +1,4 @@
-import sys, os, subprocess, time
+import sys, os, subprocess, shutil
 from pathlib import Path
 import psutil
 import concurrent.futures
@@ -228,13 +228,6 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
            "-movflags", "+faststart+write_colr+use_metadata_tags", "-y", str(final_file)]
     run(cmd)
 
-def cleanup_temp_files_for_title(title):
-    p = Path(title)
-    stem = p.stem
-    for f in p.parent.glob(f"{stem}*"):
-        if f.is_file() and f.suffix != ".mp4":
-            f.unlink(missing_ok=True)
-
 def process_chapter(chapter_job, cpuset):
     p = psutil.Process()
     p.cpu_affinity(cpuset)
@@ -249,37 +242,45 @@ def process_chapter(chapter_job, cpuset):
     final_dir = VIDEOS if duration >= 200 else CLIPS
     final_file = final_dir / f"{safe(title)}.mp4"
 
-    temp_extracted = final_dir / f"{safe(title)}_extracted.mkv"
-    temp_qtgmc = final_dir / f"{safe(title)}_qtgmc.mkv"
-    temp_transcript = final_dir / f"{safe(title)}_transcript.wav"
-    temp_avs = final_dir / f"{safe(title)}.avs"
-
     if is_chapter_done(final_file, duration):
         print(f"Skipped existing: {title}")
         return
-    else:
-        final_file.unlink(missing_ok=True)
-        cleanup_temp_files_for_title(final_file.name)
 
-    print(f"Extracting chapter: {title} ({format_hms(start_sec)} - {format_hms(end_sec)})")
-    extract_chapter(src, start_sec, end_sec, temp_extracted)
+    # Create dedicated temp directory inside the output folder
+    temp_dir = final_dir / f"{safe(title)}_temp"
+    temp_dir.mkdir(exist_ok=True)
 
-    print(f"Deinterlacing chapter: {title}")
-    create_avs(temp_extracted, temp_avs)
-    deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset)
+    temp_extracted   = temp_dir / "extracted.mkv"
+    temp_qtgmc       = temp_dir / "qtgmc.mkv"
+    temp_transcript  = temp_dir / "audio.wav"
+    temp_avs         = temp_dir / "script.avs"
 
-    print(f"Transcribing chapter: {title}")
-    final_vtt = SUBTITLES / f"{safe(title)}.vtt"
-    extract_audio(temp_extracted, temp_transcript, cpuset)
-    transcribe_audio(temp_transcript, final_vtt)
+    original_cwd = os.getcwd()
+    os.chdir(temp_dir)
 
-    print(f"Final encoding chapter: {final_file.name}")
-    start_hms = format_hms(start_sec)
-    end_hms = format_hms(end_sec)
-    encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location, cpuset)
+    try:
+        print(f"Extracting chapter: {title} ({format_hms(start_sec)} - {format_hms(end_sec)})")
+        extract_chapter(src, start_sec, end_sec, temp_extracted)
 
-    cleanup_temp_files_for_title(final_file.name)
-    print(f"Done: {final_file.name}")
+        print(f"Deinterlacing chapter: {title}")
+        create_avs(temp_extracted, temp_avs)
+        deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset)
+
+        print(f"Transcribing chapter: {title}")
+        final_vtt = SUBTITLES / f"{safe(title)}.vtt"
+        extract_audio(temp_extracted, temp_transcript, cpuset)
+        transcribe_audio(temp_transcript, final_vtt)
+
+        print(f"Final encoding chapter: {final_file.name}")
+        start_hms = format_hms(start_sec)
+        end_hms = format_hms(end_sec)
+        encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location, cpuset)
+
+        print(f"Done: {final_file.name}")
+
+    finally:
+        os.chdir(original_cwd)
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 def main():
     chapter_jobs = []
