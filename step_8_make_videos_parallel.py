@@ -6,8 +6,6 @@ import psutil
 import concurrent.futures
 import whisper
 from whisper.utils import get_writer
-import threading
-import time
 
 BASE = Path(__file__).parent.resolve()
 FFMPEG_DIR = BASE / "software" / "FFmpeg-QTGMC Easy 2025.01.11"
@@ -32,40 +30,19 @@ if not FFMPEG.exists():
 
 def run(cmd, cpuset=None):
     proc = subprocess.Popen([str(c) for c in cmd])
-
     if cpuset:
-        def enforce_affinity():
+        try:
             p = psutil.Process(proc.pid)
-            while True:
-                if proc.poll() is not None:   # ffmpeg exited
-                    return
-                try:
-                    p.cpu_affinity(cpuset)
-                    for child in p.children(recursive=True):
-                        child.cpu_affinity(cpuset)
-                except Exception as e:
-                    print(f"Warning: affinity set failed: {e}", file=sys.stderr)
-                time.sleep(10)
+            p.cpu_affinity(cpuset)
+            for child in p.children(recursive=True):
+                child.cpu_affinity(cpuset)
+        except Exception as e:
+            print(f"Warning: failed to set CPU affinity: {e}", file=sys.stderr)
 
-        threading.Thread(target=enforce_affinity, daemon=True).start()
-
-    return proc
-
-# def run(cmd, cpuset=None):
-#     proc = subprocess.Popen([str(c) for c in cmd])
-#     if cpuset:
-#         try:
-#             p = psutil.Process(proc.pid)
-#             p.cpu_affinity(cpuset)
-#             for child in p.children(recursive=True):
-#                 child.cpu_affinity(cpuset)
-# #         except Exception as e:
-# #             print(f"Warning: failed to set CPU affinity: {e}", file=sys.stderr)
-#
-#     retcode = proc.wait()
-#     if retcode != 0:
-#         print(f"ERROR: {cmd} = {retcode}")
-#         raise subprocess.CalledProcessError(retcode, cmd)
+    retcode = proc.wait()
+    if retcode != 0:
+        print(f"ERROR: {cmd} = {retcode}")
+        raise subprocess.CalledProcessError(retcode, cmd)
 
 def safe(s):
     return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
@@ -133,9 +110,9 @@ def extract_chapter(src, start, end, dest):
     run([FFMPEG,
         "-nostdin",
         "-v", "warning",
-         "-guess_layout_max", "0",
-         "-channel_layout", "mono",
-         "-i", str(src),
+        "-guess_layout_max", "0",
+        "-channel_layout", "mono",
+        "-i", str(src),
         "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
         "-pix_fmt", "yuv422p",
         "-color_primaries:v", "6",
@@ -185,6 +162,7 @@ def deinterlace(temp_avs, temp_extracted, temp_qtgmc, cpuset=None):
          "-color_trc:v", "6",
          "-colorspace:v", "5",
          "-color_range:v", "1",
+         "-threads", "1",
          "-map", "0:v:0", "-c:v", "ffv1",
          "-level", "3", "-g", "1", "-coder", "1", "-context", "1",
          "-slices", "24", "-slicecrc", "1",
@@ -214,13 +192,13 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
     cmd = [FFMPEG,
            "-nostdin",
            "-v", "error",
-           "-threads", "1",
            "-guess_layout_max", "0",
            "-channel_layout", "mono",
            "-i", str(temp_qtgmc),
            "-i", str(final_vtt),
            "-map_metadata", "-1",
            "-map_chapters", "-1",
+           "-threads", "1",
            "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
            "-r", "30000 / 1001",
            "-pix_fmt", "yuv420p10le",
