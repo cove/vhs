@@ -80,7 +80,7 @@ def format_hms(seconds):
     return f"{h:02d}:{m:02d}:{s:02d}"
 
 def is_chapter_done(final_file):
-    if not final_file.exists() and final_file.stat().st_size < 100_000:
+    if not final_file.exists() and final_file.stat().st_size > 100_000:
         return False
 
 def calculate_worker_count(gb_per_worker):
