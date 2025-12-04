@@ -115,7 +115,9 @@ def extract_chapter(src, start, end, dest):
         "-color_trc:v", "6",
         "-colorspace:v", "5",
         "-color_range:v", "1",
-        "-map", "0:v", "-map", "0:a", "-c", "copy",
+        "-map_metadata", "-1",
+        "-map_chapters", "-1",
+        "-map", "0:v:m:codec:ffv1", "-map", "0:a", "-c", "copy",
         "-avoid_negative_ts", "make_zero", "-y", str(dest)])
 
 def create_avs(temp_extracted, avs_path):
