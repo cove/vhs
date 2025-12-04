@@ -222,10 +222,11 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
            "-movflags", "+faststart+write_colr+use_metadata_tags", "-y", str(final_file)]
     run(cmd)
 
-def cleanup_temp_files_for_title(title) -> None:
+def cleanup_temp_files_for_title(title):
     p = Path(title)
-    for f in p.parent.glob(f"{p.stem}.*"):
-        if f.suffix != ".mp4" and f.is_file():
+    stem = p.stem
+    for f in p.parent.glob(f"{stem}*"):
+        if f.is_file() and f.suffix != ".mp4":
             f.unlink(missing_ok=True)
 
 def process_chapter(chapter_job, cpuset):
