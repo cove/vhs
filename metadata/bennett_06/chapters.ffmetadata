@@ -126,8 +126,18 @@ location=+34.138095-118.1356458+239.573/
 
 [CHAPTER]
 TIMEBASE=1/1
+START=4054
+END=4071
+title=1996 - Christmas - Morgan takes lens cap off for Glenda (December 24, 1996)
+creation_time=1996-12-24T00:00:00-08:00
+location=+34.138095-118.1356458+239.573/
+
+[CHAPTER]
+TIMEBASE=1/1
 START=5360
 END=5413
 title=1996 - Christmas - Asia playing with Barbie Pool on lawn (December 25, 1996)
 creation_time=1996-12-25T10:31:00-08:00
 location=+34.138095-118.1356458+239.573/
+
+
