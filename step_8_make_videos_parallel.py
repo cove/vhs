@@ -45,7 +45,7 @@ def run(cmd, cpuset=None):
                         child.cpu_affinity(cpuset)
                 except Exception as e:
                     print(f"Warning: affinity set failed: {e}", file=sys.stderr)
-                time.sleep(5)
+                time.sleep(10)
 
         threading.Thread(target=enforce_affinity, daemon=True).start()
 
@@ -59,13 +59,13 @@ def run(cmd, cpuset=None):
 #             p.cpu_affinity(cpuset)
 #             for child in p.children(recursive=True):
 #                 child.cpu_affinity(cpuset)
-#         except Exception as e:
-#             print(f"Warning: failed to set CPU affinity: {e}", file=sys.stderr)
-
-    retcode = proc.wait()
-    if retcode != 0:
-        print(f"ERROR: {cmd} = {retcode}")
-        raise subprocess.CalledProcessError(retcode, cmd)
+# #         except Exception as e:
+# #             print(f"Warning: failed to set CPU affinity: {e}", file=sys.stderr)
+#
+#     retcode = proc.wait()
+#     if retcode != 0:
+#         print(f"ERROR: {cmd} = {retcode}")
+#         raise subprocess.CalledProcessError(retcode, cmd)
 
 def safe(s):
     return s.translate(str.maketrans(r'<>:"/\|?*', "_________"))
