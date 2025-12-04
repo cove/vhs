@@ -30,16 +30,10 @@ def run(cmd, cpuset=None):
     proc = subprocess.Popen([str(c) for c in cmd])
     if cpuset:
         try:
-            while True:
-                print("Pinned process {proc.pid} to CPU {cpuset}")
-                retcode = proc.poll()
-                if retcode is not None:
-                    break
-                p = psutil.Process(proc.pid)
-                p.cpu_affinity(cpuset)
-                for child in p.children(recursive=True):
-                    child.cpu_affinity(cpuset)
-                time.sleep(5)
+            p = psutil.Process(proc.pid)
+            p.cpu_affinity(cpuset)
+            for child in p.children(recursive=True):
+                child.cpu_affinity(cpuset)
 
         except Exception as e:
             print(f"Warning: failed to set CPU affinity: {e}", file=sys.stderr)
