@@ -299,7 +299,7 @@ def main():
             start = int(ch.get("start", 0))
             end = int(ch.get("end", 0))
             ch["duration"] = end - start
-            chapter_jobs.append(src, ffmetadata, ch, i)
+            chapter_jobs.append((src, ffmetadata, ch, i))
 
     chapter_jobs.sort(key=lambda x: x[3]["duration"])
 
