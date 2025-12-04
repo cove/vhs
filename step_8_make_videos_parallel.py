@@ -199,6 +199,7 @@ def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms
            "-map_metadata", "-1",
            "-map_chapters", "-1",
            "-threads", "1",
+           "-thread_type", "frame",
            "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
            "-r", "30000 / 1001",
            "-pix_fmt", "yuv420p10le",
