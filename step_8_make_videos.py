@@ -94,8 +94,6 @@ def parse_chapters(path):
 
 def extract_chapter(src, start, end, dest):
     run([FFMPEG, "-nostdin", "-v", "warning",
-        "-probesize", "50M",
-        "-analyzeduration", "100M",
         "-i", str(src),
         "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
         "-pix_fmt", "yuv422p",

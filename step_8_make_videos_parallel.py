@@ -62,7 +62,7 @@ def get_video_duration(path):
             "-show_entries", "stream=duration",
             "-of", "default=noprint_wrappers=1:nokey=1",
             str(path)
-        ], text=True)
+        ], text=True, stderr=subprocess.DEVNULL)
         return float(out.strip())
     except Exception:
         return None
@@ -107,22 +107,16 @@ def parse_chapters(path):
     return ffmetadata, chapters
 
 def extract_chapter(src, start, end, dest):
-    run([FFMPEG,
-         "-nostdin",
-         "-v", "error",
-         "-i", str(src),
-         "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
-         "-map_metadata", "-1",
-         "-map_chapters", "-1",
-         "-r", "30000 / 1001",
-         "-pix_fmt", "yuv422p",
-         "-color_primaries:v", "6",
-         "-color_trc:v", "6",
-         "-colorspace:v", "5",
-         "-color_range:v", "1",
-         "-ac", "1",
-         "-map", "0:v", "-map", "0:a", "-c", "copy",
-         "-avoid_negative_ts", "make_zero", "-y", str(dest)])
+    run([FFMPEG, "-nostdin", "-v", "warning",
+        "-i", str(src),
+        "-ss", f"{start:.3f}", "-to", f"{end:.3f}",
+        "-pix_fmt", "yuv422p",
+        "-color_primaries:v", "6",
+        "-color_trc:v", "6",
+        "-colorspace:v", "5",
+        "-color_range:v", "1",
+        "-map", "0:v", "-map", "0:a", "-c", "copy",
+        "-avoid_negative_ts", "make_zero", "-y", str(dest)])
 
 def create_avs(temp_extracted, avs_path):
     avs_script = f'''
@@ -189,7 +183,8 @@ def transcribe_audio(model, temp_transcript, final_vtt):
 def encode_final(temp_qtgmc, final_vtt, final_file, title, ffmetadata, start_hms, end_hms, ctime, location, cpuset=None):
     cmd = [FFMPEG,
            "-nostdin",
-           "-stats",
+           "-v",
+           "error",
            "-threads", "1",
            "-hwaccel", "auto",
            "-i", str(temp_qtgmc),
@@ -296,7 +291,7 @@ def main():
     cpus_real = psutil.cpu_count(logical=False)
     worker_count = int(cpus_real/2)
     cpus_logical = psutil.cpu_count(logical=True)
-    with concurrent.futures.ProcessPoolExecutor(max_workers=1) as executor:
+    with concurrent.futures.ProcessPoolExecutor(max_workers=worker_count) as executor:
         futures = []
         for idx, job in enumerate(chapter_jobs):
             cpuset = [(idx * 2) % cpus_logical, (idx * 2 + 1) % cpus_logical]
