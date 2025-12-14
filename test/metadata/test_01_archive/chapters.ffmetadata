@@ -1,0 +1,11 @@
+;FFMETADATA1
+author=Test 01
+title=Test Tape 01
+
+[CHAPTER]
+TIMEBASE=1/1
+START=1
+END=2
+title=Test Video 01
+creation_time=2025-01-06T22:25:00.000000Z
+location=+38.079671-122.206938+88.07/

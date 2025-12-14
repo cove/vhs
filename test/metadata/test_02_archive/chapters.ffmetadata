@@ -1,0 +1,12 @@
+;FFMETADATA1
+author=Test 2
+title=Test Video 02
+date=2025-01-06
+
+[CHAPTER]
+TIMEBASE=1/1
+START=0
+END=1
+title=Test Video 02
+creation_time=2025-01-06T14:25:00-08:00
+location=+17.1234+160.1244+10.000000/MyPlaceName

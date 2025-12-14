@@ -1,7 +1,13 @@
+#
+# Guide and reference for capturing VHS-C/home video using a Panasonic AG-1970P VCR
+# into a digital AVI using an Osprey 260e capture card and VirtualDub with UT Video codec.
+# Includes VCR settings, capture card configuration, VirtualDub setup, and notes on audio/video quality.
+#
+
 Panasonic AG-1970P VCR settings:
 - Phone Level = Neutral, Picture = Neutral, Hi-fi Rec Level = Neutral
 - Noise Filter = Off, TBC = On, Search Sound = Off, HiFi/NormalMix = Off, Tape Select = T120, Mono = On, MTS = MTS
-- A1 S-Video out to Osprey 260e S-Video In, A1 Right and Left Audio to Osprey 260e Unbalanced Audio In.
+- A1 connectors (back of VCR) S-Video out to Osprey 260e S-Video In, A1 connectors Right and Left Audio to Osprey 260e Unbalanced Audio In.
 
 Osprey 260e Analog Capture Card Settings
 Everything set to defaults, except:
@@ -14,12 +20,11 @@ Software Requirements
 In the software/ directory:
 - Install the UT Video driver
 - Install the Osprey driver
-- Install Python
 - Unzip VirtualDub
 
 VirtualDub Capture Software Settings
 1. Set capture framerate to 29.97 FPS in the lower right of the screen.
-2. Set Audio -> Compression to PCM 48.000 kHz 16-bit mono if it's a home video.
+2. Set Audio -> Compression to PCM 48.000 kHz 16-bit mono if it's a home video and not stereo. (Mono avoids blank audio track noise from being mixed in.)
 3. Set Video -> Compression "UtVideo YUV422 BT.601.VCM"
 4. Set Capture -> Settings... -> Abort options -> Abort on left mouse button to be unchecked since it's causes errant recording stops, instead press the ESC key to stop recording.
 5. Set Capture -> Timing... -> Internal capture mode synchronization -> no correction
