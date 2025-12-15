@@ -30,6 +30,7 @@ def should_ignore(path: Path) -> bool:
         "venv-mac",
         "venv-win",
         ".git",
+        ".gitignore",
         "__pycache__",
     }
 
