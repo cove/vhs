@@ -201,7 +201,7 @@ def main():
             temp_dir.mkdir(exist_ok=True)
             extracted = temp_dir / "extracted.mkv"
             qtgmc = temp_dir / "qtgmc.mkv"
-            audio = temp_dir / "audio.wav"
+            audio = temp_dir / "audio.flac"
             avs = temp_dir / "script.avs"
             filter_script = METADATA_DIR / archive_name / "filter.avs"
             chapter_filter_script = METADATA_DIR / archive_name / f"{title}.avs"
