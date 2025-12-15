@@ -29,6 +29,8 @@ def should_ignore(path: Path) -> bool:
         DRIVE_CHECKSUM_FILE.name,
         "venv-mac",
         "venv-win",
+        ".git",
+        "__pycache__",
     }
 
     dirs = {
@@ -59,20 +61,25 @@ def compute_checksums(root_dir, manifest_path):
     manifest_path = Path(manifest_path)
     manifest_path.unlink(missing_ok=True)
 
-    for file_path in root_dir.rglob("*"):
-        if should_ignore(file_path):
-            continue
+    old_cwd = os.getcwd()
+    os.chdir(root_dir)
+    try:
+        for file_path in root_dir.rglob("*"):
+            if should_ignore(file_path):
+                continue
 
-        if file_path.is_file():
-            r = subprocess.run([str(B3SUM_BIN), str(file_path)], cwd=root_dir, capture_output=True, text=True)
-            if r.returncode:
-                print(f"  ERROR: b3sum failed for {file_path}: {r.stderr.strip()}")
-                sys.exit(r.returncode)
+            if file_path.is_file():
+                r = subprocess.run([str(B3SUM_BIN), str(file_path)], capture_output=True, text=True)
+                if r.returncode:
+                    print(f"  ERROR: b3sum failed for {file_path}: {r.stderr.strip()}")
+                    sys.exit(r.returncode)
 
-            with open(manifest_path, "a", encoding="utf-8") as f:
-                f.write(r.stdout)
+                with open(manifest_path, "a", encoding="utf-8") as f:
+                    f.write(r.stdout)
 
-    print("Checksums written to:", manifest_path)
+        print("Checksums written to:", manifest_path)
+    finally:
+        os.chdir(old_cwd)
 
 def main():
     compute_checksums(DRIVE_DIR, DRIVE_CHECKSUM_FILE)
