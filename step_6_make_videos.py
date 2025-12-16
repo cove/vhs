@@ -106,6 +106,7 @@ def make_encode_final_x265(temp_qtgmc, final_ass, final_file, author, title, arc
         "-metadata", f"comment=Filmed by {author} on {creation_time} at {location}, original tape {archive_tape_title} @ {start_hms}-{end_hms} ",
         "-metadata", f"creation_time={creation_time}",
         "-metadata", f"location={location}",
+        "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
         "-movflags", "+faststart+use_metadata_tags", "-y", str(final_file)]
 
 def make_encode_final_x264(temp_qtgmc, final_ass, final_file, author, title, archive_tape_title, start_hms, end_hms, creation_time, location):
@@ -129,6 +130,7 @@ def make_encode_final_x264(temp_qtgmc, final_ass, final_file, author, title, arc
         "-metadata", f"comment=Filmed by {author} on {creation_time} at {location}, original tape {archive_tape_title} @ {start_hms}-{end_hms} ",
         "-metadata", f"creation_time={creation_time}",
         "-metadata", f"location={location}",
+        "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
         "-movflags", "+faststart+use_metadata_tags", "-y", str(final_file)]
 
 def make_deinterlace(temp_avs, temp_extracted, temp_qtgmc):
