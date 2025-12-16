@@ -253,11 +253,10 @@ def main():
 
                 cmd = make_encode_final_x264(qtgmc, final_ass, final_file, author, title, archive_tape_title, start_hms, end_hms, ctime, location)
                 run(cmd)
-                shutil.rmtree(temp_dir, ignore_errors=True)
 
             finally:
                 os.chdir(original_cwd)
-                #shutil.rmtree(temp_dir, ignore_errors=True)
+                shutil.rmtree(temp_dir, ignore_errors=True)
 
             cur_count += 1
 
