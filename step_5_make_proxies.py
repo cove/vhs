@@ -12,7 +12,7 @@ def main():
         proxy = ARCHIVE_DIR / f"{archive}_proxy.mp4"
         ffmetadata_path = METADATA_DIR / archive / "chapters.ffmetadata"
 
-        if proxy.exists():
+        if proxy.exists() and proxy.stat().st_size > 100_000:
             print(f"Skipping {proxy} (already processed)")
             continue
 
