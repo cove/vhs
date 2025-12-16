@@ -12,6 +12,10 @@ def main():
         proxy = ARCHIVE_DIR / f"{archive}_proxy.mp4"
         ffmetadata_path = METADATA_DIR / archive / "chapters.ffmetadata"
 
+        if proxy.exists():
+            print(f"Skipping {proxy} (already processed)")
+            continue
+
         print(f"Processing: {src.name} → {proxy.name}")
         run([FFMPEG_BIN,
              "-nostdin",
