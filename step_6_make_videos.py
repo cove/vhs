@@ -80,7 +80,8 @@ def make_extract_chapter(src, start, end, dest):
         "-ss", f"{start}", "-to", f"{end}",
         "-force_key_frames", "0",
         "-map", "0:v:0", "-map", "0:a:0", "-c", "copy",
-        "-avoid_negative_ts", "make_zero", "-y", str(dest)]
+        "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
+        "-y", str(dest)]
 
 def make_encode_final_x265(temp_qtgmc, final_ass, final_file, author, title, archive_tape_title, start_hms, end_hms, creation_time, location):
     return [FFMPEG_BIN,
@@ -140,6 +141,7 @@ def make_deinterlace(temp_avs, temp_extracted, temp_qtgmc):
         "-map", "0:v:0", "-c:v", "ffv1",
         "-level", "3", "-coder", "1", "-context", "1",
         "-map", "0:a", "-c:a", "copy",
+        "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
         "-y", str(temp_qtgmc)]
 
 def transcribe_audio(model, temp_transcript, final_srt, final_vtt, final_dir):
