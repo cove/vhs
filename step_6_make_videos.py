@@ -69,8 +69,7 @@ def make_extract_audio(temp_extracted, temp_transcript):
         "-af", "highpass=f=120,lowpass=f=8000,afftdn=nf=-25,dynaudnorm=f=150:g=13,aresample=16000,loudnorm=I=-16:TP=-1.5:LRA=11",
         "-c:a", "pcm_s16le",
         "-ac", "1",
-        "-y",
-            str(temp_transcript)]
+        "-y", str(temp_transcript)]
 
 def make_extract_chapter(src, start, end, dest):
     return [FFMPEG_BIN,
@@ -131,7 +130,8 @@ def make_encode_final_x264(temp_qtgmc, final_ass, final_file, author, title, arc
         "-metadata", f"creation_time={creation_time}",
         "-metadata", f"location={location}",
         "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
-        "-movflags", "+faststart+use_metadata_tags", "-y", str(final_file)]
+        "-movflags", "+faststart+use_metadata_tags",
+        "-y", str(final_file)]
 
 def make_deinterlace(temp_avs, temp_extracted, temp_qtgmc):
     return [FFMPEG_BIN,
