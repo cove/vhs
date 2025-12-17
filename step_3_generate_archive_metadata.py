@@ -125,8 +125,7 @@ def write_mediainfo_outputs(input_path, output_dir):
 
 def generate_metadata(root_dir):
     files = (
-            glob.glob(str(root_dir / "*.mkv")),
-            glob.glob(str(root_dir / "*.flac"))
+            glob.glob(str(root_dir / "*.mkv")) + glob.glob(str(root_dir / "*.flac"))
     )
     if not files:
         print("No files found.")
@@ -138,9 +137,6 @@ def generate_metadata(root_dir):
         file_name = path.name
 
         write_mediainfo_outputs(file_name, ARCHIVE_DIR)
-
-        if path.suffix != ".mkv":
-            continue
 
         ffmetadata_path = METADATA_DIR / path.stem / "chapters.ffmetadata"
         tsv_path = METADATA_DIR / path.stem / "markers.tsv"
