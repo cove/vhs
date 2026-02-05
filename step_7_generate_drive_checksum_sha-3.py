@@ -6,7 +6,9 @@ import hashlib
 from common import *
 from pathlib import Path
 
-SHA3_DRIVE_CHECKSUM_FILE = ARCHIVE_DIR / "00-drive-manifest-sha3-256sums.txt"
+SHA3_MANIFEST_NAME = "00-drive-manifest-sha3-256sums.txt"
+SHA3_DRIVE_CHECKSUM_FILE = Path(r"C:\Users\covec\Desktop") / SHA3_MANIFEST_NAME
+TOP_LEVEL_ARCHIVE_DIR = Path(r"F:\Bennett Videos Thumb Drive 2025 Christmas Present Master\Archive")
 
 def should_ignore(path: Path) -> bool:
     """
@@ -30,7 +32,7 @@ def should_ignore(path: Path) -> bool:
         "LOST.DIR",
         ARCHIVE_CHECKSUM_FILE.name,
         DRIVE_CHECKSUM_FILE.name,
-        SHA3_DRIVE_CHECKSUM_FILE.name,
+        SHA3_MANIFEST_NAME,
         "venv-mac",
         "venv-win",
         ".git",
@@ -68,8 +70,9 @@ def sha3sum_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
             hasher.update(chunk)
     return hasher.hexdigest()
 
-def compute_checksums(root_dir, manifest_path):
+def compute_checksums(root_dir, relative_base_dir, manifest_path):
     root_dir = Path(root_dir)
+    relative_base_dir = Path(relative_base_dir)
     manifest_path = Path(manifest_path)
     manifest_path.unlink(missing_ok=True)
 
@@ -83,16 +86,19 @@ def compute_checksums(root_dir, manifest_path):
             if file_path.is_file():
                 digest = sha3sum_file(file_path)
                 with open(manifest_path, "a", encoding="utf-8") as f:
-                    f.write(f"{digest}  {file_path}\n")
+                    rel_path = file_path.relative_to(relative_base_dir)
+                    f.write(f"{digest}  {rel_path}\n")
 
         print("Checksums written to:", manifest_path)
     finally:
         os.chdir(old_cwd)
 
 def main():
-    compute_checksums(DRIVE_DIR, SHA3_DRIVE_CHECKSUM_FILE)
+    root_dir = TOP_LEVEL_ARCHIVE_DIR
+    manifest_path = SHA3_DRIVE_CHECKSUM_FILE
+    compute_checksums(root_dir, TOP_LEVEL_ARCHIVE_DIR, manifest_path)
 
-    print("Checksum manifest: ", SHA3_DRIVE_CHECKSUM_FILE)
+    print("Checksum manifest: ", manifest_path)
     print("All done.")
 
 if __name__ == "__main__":
