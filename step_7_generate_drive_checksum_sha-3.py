@@ -6,7 +6,7 @@ import hashlib
 from common import *
 from pathlib import Path
 
-SHA3_MANIFEST_NAME = "00-drive-manifest-sha3-256sums.txt"
+SHA3_MANIFEST_NAME = "00-archive-manifest-sha3-256sums.txt"
 SHA3_DRIVE_CHECKSUM_FILE = Path(r"C:\Users\covec\Desktop") / SHA3_MANIFEST_NAME
 TOP_LEVEL_ARCHIVE_DIR = Path(r"F:\Bennett Videos Thumb Drive 2025 Christmas Present Master\Archive")
 
