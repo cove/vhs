@@ -1,6 +1,6 @@
 #
 # Generates archival metadata for MKV files, including TSV chapter markers, MKV chapter XML,
-# Mediainfo outputs, and BLAKE3 checksums. Copies metadata to archive directories for preservation.
+# Mediainfo outputs, and SHA3-256 checksums. Copies metadata to archive directories for preservation.
 #
 import glob, shutil
 import xml.etree.ElementTree as ET
@@ -83,24 +83,7 @@ def copy_metadata_folder(metadata_dir, archive_name):
     shutil.copytree(metadata_dir, dest_path)
 
 def compute_checksums(root_dir, manifest_path):
-    root_dir = Path(root_dir)
-    manifest_path = Path(manifest_path)
-
-    # Clear existing manifest
-    manifest_path.unlink(missing_ok=True)
-
-    for file_path in root_dir.rglob("*"):
-        if file_path.is_file():
-            r = subprocess.run([str(B3SUM_BIN), str(file_path)], cwd=root_dir, capture_output=True, text=True)
-            if r.returncode:
-                print(f"  ERROR: b3sum failed for {file_path}: {r.stderr.strip()}")
-                sys.exit(r.returncode)
-
-            # Append to manifest
-            with open(manifest_path, "a", encoding="utf-8") as f:
-                f.write(r.stdout)
-
-    print("Checksums written to:", manifest_path)
+    write_sha3_manifest(root_dir, manifest_path)
 
 def write_mediainfo_outputs(input_path, output_dir):
     input_path = Path(input_path)
@@ -131,6 +114,7 @@ def generate_metadata(root_dir):
         print("No files found.")
         sys.exit(1)
 
+    print(f"Processing directory: {Path(root_dir).resolve()}")
     for fn in files:
         print("Processing:", fn)
         path = Path(fn)

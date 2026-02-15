@@ -1,4 +1,4 @@
-VHS Digital Archive Project
+﻿VHS Digital Archive Project
 ===========================
 
 This project contains tools and scripts for capturing, processing, and archiving VHS and U-matic tapes.
@@ -7,7 +7,7 @@ Most scripts assume a Windows environment for deinterlacing and filter applicati
 Directory Structure
 -------------------
 
-bin/                - Helper binaries used by scripts (e.g., b3sum, mediainfo)
+bin/                - Helper binaries used by scripts (e.g., mediainfo)
 common.py           - Shared Python functions, paths, and FFmpeg/metadata helpers
 freeze.py           - Freezes installed Python packages into requirements.txt and archives wheels for target platforms
 manuals/            - User guides or printed instructions for VCRs, capture cards, and workflow
@@ -32,21 +32,22 @@ step_1_capture_vhs_to_avi.txt
 
 step_2_convert_umatic_prores_mov_to_archive.py
     - Converts U-matic or ProRes MOV files to the archive folder as MKV.
-    - Copies metadata if available.
+    - Uses FFV1 10-bit 4:2:2 video and 24-bit PCM audio for preservation.
 
-step_2_convert_virtualdub_to_archive.py
-    - Converts VirtualDub AVI captures into the archive folder as MKV.
-    - Ensures proper naming and storage.
+step_2_convert_avi_to_mkv.py
+    - Converts captured AVI files to archival MKV in-place.
+    - Uses FFV1 4:2:2 video with SD color metadata tags and 16-bit PCM audio.
 
 step_3_generate_archive_metadata.py
-    - Reads archive files and generates chapter metadata in metadata/ directory.
-    - Populates chapters.ffmetadata files.
+    - Reads archive files and existing chapters.ffmetadata to generate markers and mediainfo outputs.
+    - Copies metadata folders into the archive and writes SHA3-256 checksums.
 
 step_4_verify_archive.py
-    - Verifies that all archive files exist and are not corrupted using BLAKE3 checksums.
+    - Verifies that all archive files exist and are not corrupted using SHA3-256 checksums
+      (also supports legacy BLAKE3 manifests).
 
 step_5_make_proxies.py
-    - Generates lower-resolution proxy files (_proxy.mp4) from archive MKVs for easier playback.
+    - Generates proxy MP4 files (_proxy.mp4) from archive MKVs for easier playback.
 
 step_6_make_videos.py
     - Main script to produce final video clips from archive.
@@ -54,10 +55,11 @@ step_6_make_videos.py
     - Extracts audio, transcribes with Whisper, generates subtitles (.srt, .vtt, .ass), and encodes final videos.
 
 step_7_generate_drive_checksum.py
-    - Creates a BLAKE3 checksum manifest for the full drive/archive for backup verification.
+    - Creates a SHA3-256 checksum manifest for the full drive/archive.
 
 step_8_verify_drive_checksum.py
-    - Verifies the drive checksum manifest created in step_7.
+    - Verifies the drive checksum manifest created in step_7 (SHA3-256 by default,
+      supports legacy BLAKE3 manifests).
 
 Usage Notes
 -----------
@@ -76,4 +78,4 @@ General Workflow
 4. Verify archive integrity (step_4).
 5. Optionally, generate proxy videos for quick review (step_5).
 6. Process archive into final clips with subtitles (step_6).
-7. Optionally, generate and verify drive-level checksums (steps 7–8).
+7. Optionally, generate drive-level checksums (step 7) and verify with step 8.

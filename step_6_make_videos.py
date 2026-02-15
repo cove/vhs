@@ -2,7 +2,7 @@
 #
 # Processes archival MKV files by extracting chapters, deinterlacing/applying filters,
 # transcribing audio to SRT/VTT, converting SRT to ASS subtitles, and encoding final MP4s
-# with embedded metadata and subtitles. Designed for long-term digital preservation.
+# with embedded metadata and subtitles for access/delivery copies.
 #
 import shutil, time, re, whisper
 from whisper.utils import get_writer
@@ -90,10 +90,11 @@ def make_encode_final_x265(temp_qtgmc, final_ass, final_file, author, title, arc
         "-i", str(final_ass),
         "-map_metadata", "-1",
         "-map_chapters", "-1",
-        "-pix_fmt", "yuv422p",
-        "-c:v", "libx265", "-crf", "18", "-preset", "veryslow",
-        "-x265-params", f"no-open-gop=1:bframes=8:log-level=0",
-        "-c:a", "aac", "-b:a", "48k", "-ar", "48000", "-ac", "1",
+        "-pix_fmt", "yuv420p",
+        "-c:v", "libx265", "-crf", "20", "-preset", "slow",
+        "-profile:v", "main", "-level", "4.0",
+        "-x265-params", "log-level=0",
+        "-c:a", "aac", "-b:a", "96k", "-ar", "48000", "-ac", "1",
         "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11",
         "-tag:v", "hvc1", "-brand", "mp42",
         "-map", "0:v:0", "-map", "0:a:0", "-map", "1:s:0",
@@ -118,7 +119,7 @@ def make_encode_final_x264(temp_qtgmc, final_ass, final_file, author, title, arc
         "-map_chapters", "-1",
         "-pix_fmt", "yuv420p",
         "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-profile:v", "high", "-level", "4.0", "-tune", "grain",
-        "-c:a", "aac", "-b:a", "48k", "-ar", "48000", "-ac", "1",
+        "-c:a", "aac", "-b:a", "96k", "-ar", "48000", "-ac", "1",
         "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11",
         "-map", "0:v:0", "-map", "0:a:0", "-map", "1:s:0",
         "-c:s", "mov_text",

@@ -1,11 +1,14 @@
 *.mp4
 *.mkv
 *blake3.txt
+*blake3sums.txt
+*sha3-256sums.txt
 *mediainfo.txt
 *info.json
 *info.txt
 .DS_Store
 software/FFmpeg-QTGMC Easy 2025.01.11/in.mkv.ffindex
+software/Windows/FFmpeg-QTGMC Easy 2025.01.11/ffprobe.exe
 qtgmc_*.avs
 ffmpeg.exe
 temp_*.mkv.ffindex
@@ -25,6 +28,8 @@ venv-win
 
 # AWS User-specific
 .idea/**/aws.xml
+.idea/misc.xml
+.idea/vhs.iml
 
 # Generated files
 .idea/**/contentModel.xml
@@ -256,4 +261,4 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-/test/Archive/00-manifest-blake3sums.txt
+/test/Archive/00-archive-manifest-sha3-256sums.txt

@@ -1,6 +1,6 @@
 #
-# Computes BLAKE3 checksums for all files on a drive, ignoring common OS-generated files and directories,
-# and writes the results to a manifest for data integrity verification.
+# Generates SHA3-256 checksums for all files on a drive, ignoring common OS-generated
+# files and directories, and writes the results to a manifest for verification.
 #
 from common import *
 from pathlib import Path
@@ -27,6 +27,8 @@ def should_ignore(path: Path) -> bool:
         "LOST.DIR",
         ARCHIVE_CHECKSUM_FILE.name,
         DRIVE_CHECKSUM_FILE.name,
+        LEGACY_ARCHIVE_CHECKSUM_FILE.name,
+        LEGACY_DRIVE_CHECKSUM_FILE.name,
         "venv-mac",
         "venv-win",
         ".git",
@@ -58,33 +60,10 @@ def should_ignore(path: Path) -> bool:
     return False
 
 def compute_checksums(root_dir, manifest_path):
-    root_dir = Path(root_dir)
-    manifest_path = Path(manifest_path)
-    manifest_path.unlink(missing_ok=True)
-
-    old_cwd = os.getcwd()
-    os.chdir(root_dir)
-    try:
-        for file_path in root_dir.rglob("*"):
-            if should_ignore(file_path):
-                continue
-
-            if file_path.is_file():
-                r = subprocess.run([str(B3SUM_BIN), str(file_path)], capture_output=True, text=True)
-                if r.returncode:
-                    print(f"  ERROR: b3sum failed for {file_path}: {r.stderr.strip()}")
-                    sys.exit(r.returncode)
-
-                with open(manifest_path, "a", encoding="utf-8") as f:
-                    f.write(r.stdout)
-
-        print("Checksums written to:", manifest_path)
-    finally:
-        os.chdir(old_cwd)
+    write_sha3_manifest(root_dir, manifest_path, relative_base=root_dir, ignore_fn=should_ignore)
 
 def main():
     compute_checksums(DRIVE_DIR, DRIVE_CHECKSUM_FILE)
-
     print("Checksum manifest: ", DRIVE_CHECKSUM_FILE)
     print("All done.")
 

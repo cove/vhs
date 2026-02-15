@@ -1,25 +1,6 @@
 @echo on
-REM Verifies all files in the archive against the BLAKE3 checksum manifest
+REM Verifies all files in the archive against the checksum manifest (SHA3-256 or legacy BLAKE3)
 
-REM --- Set paths ---
-set "ARCHIVE_DIR=..\"
-set "ARCHIVE_CHECKSUM_FILE=00-archive-manifest-blake3sums.txt"
-set "B3SUM_BIN=scripts\bin\b3sum_windows_x64_bin.exe"
-
-echo Verifying: %ARCHIVE_CHECKSUM_FILE%
-echo.
-
-REM --- Run b3sum verification ---
-cd %ARCHIVE_DIR%
-"%B3SUM_BIN%" -c "%ARCHIVE_CHECKSUM_FILE%"
-set RETURN_CODE=%ERRORLEVEL%
-
-echo.
-
-IF %RETURN_CODE% EQU 0 (
-    echo ALL FILES VERIFIED — CHECKSUMS MATCH!
-) ELSE (
-    echo SOME FILES FAILED VERIFICATION!
-)
-
-exit /b %RETURN_CODE%
+set "SCRIPT_DIR=%~dp0"
+python "%SCRIPT_DIR%step_4_verify_archive.py" %*
+exit /b %ERRORLEVEL%

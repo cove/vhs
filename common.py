@@ -1,6 +1,7 @@
 #
 # Common configuration and utility functions for all scripts:
-# - Defines platform-specific binary paths (FFmpeg, b3sum, mediainfo, Whisper).
+# - Defines platform-specific binary paths (FFmpeg, mediainfo, Whisper, legacy b3sum).
+# - Provides SHA3-256 checksum helpers for manifests and verification.
 # - Sets up project directories for archives, videos, clips, and metadata.
 # - Provides safe filename sanitization, HMS formatting, and subprocess wrappers.
 # - Reads FFmetadata chapters and parses them into Python dicts.
@@ -9,6 +10,7 @@
 # - Measures media duration via ffprobe.
 #
 import os, subprocess, sys
+import hashlib
 from pathlib import Path
 
 # ---------------------------------------------------------
@@ -48,7 +50,7 @@ if os.getenv("TEST_ENV") == "1":
     CLIPS_DIR = base_dir / "Clips"
     DRIVE_DIR = base_dir.resolve()
 else:
-    base_dir = BASE.parent.parent
+    base_dir = BASE.parent
     METADATA_DIR = BASE / "metadata"
     ARCHIVE_DIR = base_dir / "Archive"
     VIDEOS_DIR = base_dir / "Videos"
@@ -59,8 +61,10 @@ for _dir in (VIDEOS_DIR, CLIPS_DIR):
     _dir.mkdir(exist_ok=True)
 
 QTGMC_DIR = FFMPEG_DIR
-ARCHIVE_CHECKSUM_FILE = ARCHIVE_DIR / "00-archive-manifest-blake3sums.txt"
-DRIVE_CHECKSUM_FILE = ARCHIVE_DIR / "00-drive-manifest-blake3sums.txt"
+ARCHIVE_CHECKSUM_FILE = ARCHIVE_DIR / "00-archive-manifest-sha3-256sums.txt"
+DRIVE_CHECKSUM_FILE = ARCHIVE_DIR / "00-drive-manifest-sha3-256sums.txt"
+LEGACY_ARCHIVE_CHECKSUM_FILE = ARCHIVE_DIR / "00-archive-manifest-blake3sums.txt"
+LEGACY_DRIVE_CHECKSUM_FILE = ARCHIVE_DIR / "00-drive-manifest-blake3sums.txt"
 
 # Add FFmpeg binaries early to PATH so all scripts inherit it
 os.environ["PATH"] = str(FFMPEG_DIR) + os.pathsep + os.environ.get("PATH", "")
@@ -208,3 +212,129 @@ def duration(path):
 def ensure_ffmpeg_exists():
     if not FFMPEG_BIN.exists():
         raise FileNotFoundError(f"FFmpeg not found at {FFMPEG_BIN}")
+
+# ---------------------------------------------------------
+# SHA3-256 Checksums
+# ---------------------------------------------------------
+
+def sha3sum_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
+    hasher = hashlib.sha3_256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(chunk_size), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+def write_sha3_manifest(root_dir, manifest_path, relative_base=None, ignore_fn=None):
+    root_dir = Path(root_dir)
+    manifest_path = Path(manifest_path)
+    relative_base = Path(relative_base) if relative_base else root_dir
+
+    manifest_path.unlink(missing_ok=True)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(manifest_path, "a", encoding="utf-8") as out:
+        for file_path in root_dir.rglob("*"):
+            if ignore_fn and ignore_fn(file_path):
+                continue
+
+            if not file_path.is_file():
+                continue
+
+            if file_path.resolve() == manifest_path.resolve():
+                continue
+
+            digest = sha3sum_file(file_path)
+            rel_path = file_path.relative_to(relative_base)
+            out.write(f"{digest}  {rel_path}\n")
+
+    print("Checksums written to:", manifest_path)
+
+def verify_sha3_manifest(root_dir, manifest_path):
+    root_dir = Path(root_dir)
+    manifest_path = Path(manifest_path)
+
+    if not manifest_path.exists():
+        print(f"Manifest not found: {manifest_path}")
+        return 1
+
+    failures = 0
+    total = 0
+
+    with manifest_path.open("r", encoding="utf-8") as f:
+        for raw_line in f:
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            parts = line.split(None, 1)
+            if len(parts) != 2:
+                print(f"Skipping malformed line: {raw_line.rstrip()}")
+                failures += 1
+                continue
+
+            expected, rel_path = parts
+            rel_path = rel_path.lstrip("*")
+            target = root_dir / rel_path
+
+            if not target.exists():
+                print(f"MISSING: {rel_path}")
+                failures += 1
+                continue
+
+            actual = sha3sum_file(target)
+            total += 1
+
+            if actual.lower() != expected.lower():
+                print(f"MISMATCH: {rel_path}")
+                failures += 1
+
+    if failures == 0:
+        print("ALL FILES VERIFIED - CHECKSUMS MATCH!")
+        return 0
+
+    print(f"{failures} FILES FAILED VERIFICATION")
+    return 1
+
+def verify_blake3_manifest(root_dir, manifest_path):
+    if not B3SUM_BIN.exists():
+        print(f"ERROR: b3sum not found at {B3SUM_BIN}")
+        return 1
+
+    r = subprocess.run(
+        [str(B3SUM_BIN), "-c", str(manifest_path)],
+        cwd=Path(root_dir),
+        capture_output=True,
+        text=True,
+    )
+    print(r.stdout or r.stderr)
+
+    if r.returncode == 0:
+        print("ALL FILES VERIFIED - CHECKSUMS MATCH!")
+    else:
+        print("SOME FILES FAILED VERIFICATION!")
+
+    return r.returncode
+
+def detect_manifest_algo(manifest_path):
+    name = Path(manifest_path).name.lower()
+    if "blake3" in name:
+        return "blake3"
+    if "sha3" in name:
+        return "sha3"
+    return None
+
+def verify_manifest(root_dir, manifest_path, algo="auto"):
+    algo = (algo or "auto").lower()
+    manifest_path = Path(manifest_path)
+
+    if algo == "auto":
+        algo = detect_manifest_algo(manifest_path) or "sha3"
+
+    if algo == "blake3":
+        return verify_blake3_manifest(root_dir, manifest_path)
+
+    if algo == "sha3":
+        return verify_sha3_manifest(root_dir, manifest_path)
+
+    print(f"Unknown checksum algorithm: {algo}")
+    return 1

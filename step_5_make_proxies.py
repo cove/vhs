@@ -1,11 +1,11 @@
-#
-# Generates half-resolution proxy MP4 files from archival MKV sources, embedding chapter metadata
-# for easier preview and faster access while preserving original archives.
+﻿#
+# Generates proxy MP4 files from archival MKV sources with embedded chapter metadata.
+# Encoding: H.264 (superfast, fastdecode, CRF 28), yuv420p, AAC mono 48 kHz at 48 kbps.
 #
 from common import *
 
 def main():
-    print(f"Generating ½-size PROXY → {ARCHIVE_DIR}\n")
+    print(f"Generating PROXY {ARCHIVE_DIR}\n")
     count = 0
     for src in ARCHIVE_DIR.glob("*.mkv"):
         archive = src.stem
@@ -16,12 +16,12 @@ def main():
             print(f"Skipping {proxy} (already processed)")
             continue
 
-        print(f"Processing: {src.name} → {proxy.name}")
+        print(f"Processing: {src.name} {proxy.name}")
         run([FFMPEG_BIN,
              "-nostdin",
              "-v", "error",
              "-i", str(src),
-             "-i", str(ffmetadata_path),
+             "-f", "ffmetadata", "-i", str(ffmetadata_path),
              "-map", "0:v:0",
              "-map", "0:a:0",
              "-map_metadata", "1",
@@ -38,3 +38,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
