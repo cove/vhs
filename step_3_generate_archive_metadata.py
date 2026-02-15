@@ -67,12 +67,17 @@ def generate_mkv_chapters_xml(ffmetadata_path, out_path):
         ET.SubElement(disp, "ChapterString").text = ch.get("title", "") or ""
         ET.SubElement(disp, "ChapterLanguage").text = "und"
 
-    tree = ET.ElementTree(root)
+    try:
+        ET.indent(root, space="  ", level=0)
+    except AttributeError:
+        pass
+
     out_path.write_text(
         '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<!DOCTYPE Chapters SYSTEM "matroskachapters.dtd">\n' +
-        ET.tostring(root, encoding="unicode"),
-        encoding="utf-8"
+        '<!DOCTYPE Chapters SYSTEM "matroskachapters.dtd">\n'
+        + ET.tostring(root, encoding="unicode")
+        + "\n",
+        encoding="utf-8",
     )
 
     print("  Generated MKV chapters XML:", out_path)
@@ -143,3 +148,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

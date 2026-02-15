@@ -1,0 +1,62 @@
+;FFMETADATA1
+title=Callahan 02 Archive (VHS Tape)
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=461
+END=12258
+title=1995 - Lynda & Jim's Wedding - 01 Rehearsal (1995)
+DATE_RECORDED=1995; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+RECORDING_LOCATION=US, California, Pasadena
+location=+34.15756-118.13637+274.03/Church of Truth, 690 E Orange Grove Blvd, Pasadena, CA 91104
+creation_time=1995
+comment=Church of Truth, 690 E Orange Grove Blvd, Pasadena, CA 91104
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=12259
+END=13346
+title=1995 - Lynda & Jim's Wedding - 02 Rehearsal Dinner (1995)
+DATE_RECORDED=1995; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+creation_time=1995
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=12259
+END=13346
+title=1995 - Lynda & Jim's Wedding - 03 Rehearsal Dinner (1995)
+DATE_RECORDED=1995; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+creation_time=1995
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=13347
+END=13612
+title=1995 - Lynda & Jim's Wedding - 04 Gathering Before Wedding (March 18, 1995)
+DATE_RECORDED=1995; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+creation_time=1995
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=13649
+END=14072
+title=1995 - Lynda & Jim's Wedding - 05 Lynda & Loyd Dilbeck Walking Down Isle (March 18, 1995)
+DATE_RECORDED=1995; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+creation_time=1995-03-18T15:12:00-08:00
+
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=14073
+END=
+title=1995 - Lynda & Jim's Wedding - 06 Wedding Vows (March 18, 1995)
+DATE_RECORDED=1995; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+creation_time=1995-03-18T15:12:00-08:00
+
+

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Archive Video Conversion Script
 
 This script converts one or more captured AVI files into an archival MKV using FFmpeg.
@@ -14,7 +14,7 @@ import sys
 import subprocess
 from pathlib import Path
 
-from common import FFMPEG_BIN, ensure_ffmpeg_exists
+from common import FFMPEG_BIN, METADATA_DIR, ensure_ffmpeg_exists
 
 try:
     ensure_ffmpeg_exists()
@@ -23,7 +23,7 @@ except FileNotFoundError as e:
     sys.exit(1)
 
 if len(sys.argv) < 2:
-    print("Usage: python this_script.py video1.mkv video2.mkv ...")
+    print("Usage: python this_script.py video1.avi video2.avi ...")
     sys.exit(1)
 
 for file in sys.argv[1:]:
@@ -33,13 +33,25 @@ for file in sys.argv[1:]:
         continue
 
     output = file_path.with_name(file_path.stem + "_archive.mkv")
+    archive_stem = output.stem
+    ffmetadata_path = METADATA_DIR / archive_stem / "chapters.ffmetadata"
 
-    print(f"Converting: {file_path.name}  →  {output.name}")
+    print(f"Converting: {file_path.name}  ->  {output.name}")
 
     cmd = [
         str(FFMPEG_BIN),
         "-nostdin", "-v", "error", "-stats",
         "-i", str(file_path),
+    ]
+
+    if ffmetadata_path.exists():
+        cmd += ["-f", "ffmetadata", "-i", str(ffmetadata_path)]
+        cmd += ["-map_metadata", "1", "-map_chapters", "1"]
+        print(f"  Embedding metadata from: {ffmetadata_path}")
+    else:
+        print(f"  Metadata not found, skipping embed: {ffmetadata_path}")
+
+    cmd += [
         "-pix_fmt", "yuv422p",
         "-color_primaries:v", "6",
         "-color_trc:v", "6",
@@ -53,7 +65,7 @@ for file in sys.argv[1:]:
         "-context", "1",
         "-slices", "24", "-slicecrc", "1",
         "-map", "0:a", "-c:a", "pcm_s16le",
-        "-y", str(output)
+        "-y", str(output),
     ]
 
     subprocess.run(cmd, check=True)

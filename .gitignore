@@ -1,5 +1,8 @@
 *.mp4
 *.mkv
+# Large binaries
+*.exe
+models/WhisperModel/*.pt
 *blake3.txt
 *blake3sums.txt
 *sha3-256sums.txt

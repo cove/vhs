@@ -43,12 +43,117 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         lines.append(f"Dialogue: 0,{start_ass},{end_ass},Default,,0,0,0,,{text}")
     ass_path.write_text(ass_header + "\n".join(lines), encoding="utf-8")
 
+def find_people_tsv(archive_name):
+    path = METADATA_DIR / archive_name / "people.tsv"
+    return path if path.exists() else None
+
+def tsv_people_to_ass(tsv_path, ass_path, font="Calibri", fontsize=36, clip_start=None, clip_end=None):
+    tsv_path = Path(tsv_path)
+    ass_path = Path(ass_path)
+    ass_header = f"""[Script Info]
+Title: People in frame ({tsv_path.name})
+ScriptType: v4.00+
+Collisions: Normal
+PlayResX: 1280
+PlayResY: 720
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+YCbCr Matrix: TV.601
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: People,{font},{fontsize},&H00FFFFFF,&H000000FF,&H00000000,&H64000000,0,1,0,0,100,100,0,0,1,1,0,5,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    def parse_ts(ts):
+        ts = ts.strip().replace(",", ".")
+        parts = ts.split(":")
+        if len(parts) == 1:
+            h = 0
+            m = 0
+            s = float(parts[0])
+        elif len(parts) == 2:
+            h = 0
+            m = int(parts[0])
+            s = float(parts[1])
+        else:
+            h = int(parts[0])
+            m = int(parts[1])
+            s = float(parts[2])
+        return h * 3600 + m * 60 + s
+
+    def to_ass_time(seconds):
+        if seconds < 0:
+            seconds = 0.0
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        s = seconds % 60
+        ss = int(s)
+        cs = int(round((s - ss) * 100))
+        if cs == 100:
+            ss += 1
+            cs = 0
+        return f"{h}:{m:02d}:{ss:02d}.{cs:02d}"
+
+    lines = []
+    raw = tsv_path.read_text(encoding="utf-8").splitlines()
+    for line in raw:
+        if not line.strip():
+            continue
+        if line.lower().startswith("start"):
+            continue
+        if "\t" in line:
+            parts = line.split("\t")
+        else:
+            parts = line.split(",")
+        if len(parts) < 3:
+            continue
+        start = parts[0].strip()
+        end = parts[1].strip()
+        people = ",".join(parts[2:]).strip()
+        if not start or not end or not people:
+            continue
+        lines.append((start, end, people))
+
+    if not lines:
+        return False
+
+    events = []
+    for start, end, people in lines:
+        start_sec = parse_ts(start)
+        end_sec = parse_ts(end)
+        if clip_start is not None:
+            start_sec -= float(clip_start)
+            end_sec -= float(clip_start)
+
+        if clip_start is not None and clip_end is not None:
+            duration = float(clip_end) - float(clip_start)
+            if end_sec <= 0 or start_sec >= duration:
+                continue
+            if start_sec < 0:
+                start_sec = 0.0
+            if end_sec > duration:
+                end_sec = duration
+
+        events.append(
+            f"Dialogue: 0,{to_ass_time(start_sec)},{to_ass_time(end_sec)},People,,0,0,0,,{people.replace('|', r'\\N')}"
+        )
+
+    if not events:
+        return False
+
+    ass_path.write_text(ass_header + "\n".join(events), encoding="utf-8")
+    return True
 def make_create_avs(temp_extracted: str, avs_filter_path: Path):
     return f'''
 LoadPlugin("{QTGMC_DIR}/ffms2.dll") 
 LoadPlugin("{QTGMC_DIR}/masktools2.dll") 
 LoadPlugin("{QTGMC_DIR}/Rgtools.dll") 
 LoadPlugin("{QTGMC_DIR}/mvtools2.dll") 
+LoadPlugin("{QTGMC_DIR}/DePanEstimate.dll")
+LoadPlugin("{QTGMC_DIR}/DePan.dll")
 LoadPlugin("{QTGMC_DIR}/nnedi3.dll") 
 LoadPlugin("{QTGMC_DIR}/yadifmod2.dll") 
 LoadPlugin("{QTGMC_DIR}/fft3dfilter.dll") 
@@ -82,12 +187,37 @@ def make_extract_chapter(src, start, end, dest):
         "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
         "-y", str(dest)]
 
-def make_encode_final_x265(temp_qtgmc, final_ass, final_file, author, title, archive_tape_title, start_hms, end_hms, creation_time, location):
+def _subtitle_io(subtitle_tracks):
+    input_args = []
+    output_args = []
+    if not subtitle_tracks:
+        return input_args, output_args
+
+    for sub in subtitle_tracks:
+        input_args += ["-i", str(sub["path"])]
+
+    for i in range(len(subtitle_tracks)):
+        output_args += ["-map", f"{i + 1}:s:0"]
+
+    output_args += ["-c:s", "mov_text"]
+
+    for i, sub in enumerate(subtitle_tracks):
+        output_args += [f"-metadata:s:s:{i}", "language=eng"]
+        title = sub.get("title")
+        if title:
+            output_args += [f"-metadata:s:s:{i}", f"title={title}"]
+        if sub.get("forced"):
+            output_args += [f"-disposition:s:{i}", "forced"]
+    return input_args, output_args
+
+def make_encode_final_x265(temp_qtgmc, subtitle_tracks, final_file, author, title, archive_tape_title, start_hms, end_hms, creation_time, location):
+    subtitle_tracks = subtitle_tracks or []
+    sub_inputs, sub_outputs = _subtitle_io(subtitle_tracks)
     return [FFMPEG_BIN,
         "-nostdin",
         "-v", "error",
         "-i", str(temp_qtgmc),
-        "-i", str(final_ass),
+        *sub_inputs,
         "-map_metadata", "-1",
         "-map_chapters", "-1",
         "-pix_fmt", "yuv420p",
@@ -97,35 +227,34 @@ def make_encode_final_x265(temp_qtgmc, final_ass, final_file, author, title, arc
         "-c:a", "aac", "-b:a", "96k", "-ar", "48000", "-ac", "1",
         "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11",
         "-tag:v", "hvc1", "-brand", "mp42",
-        "-map", "0:v:0", "-map", "0:a:0", "-map", "1:s:0",
-        "-c:s", "mov_text",
+        "-map", "0:v:0", "-map", "0:a:0",
+        *sub_outputs,
         "-metadata:s:a:0", "language=eng",
-        "-metadata:s:s:0", "language=eng",
-        "-disposition:s:0", "forced",
         "-metadata", f"title={title}",
         "-metadata", f"comment=Filmed by {author} on {creation_time} at {location}, original tape {archive_tape_title} @ {start_hms}-{end_hms} ",
         "-metadata", f"creation_time={creation_time}",
         "-metadata", f"location={location}",
         "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
-        "-movflags", "+faststart+use_metadata_tags", "-y", str(final_file)]
+        "-movflags", "+faststart+use_metadata_tags",
+        "-y", str(final_file)]
 
-def make_encode_final_x264(temp_qtgmc, final_ass, final_file, author, title, archive_tape_title, start_hms, end_hms, creation_time, location):
+def make_encode_final_x264(temp_qtgmc, subtitle_tracks, final_file, author, title, archive_tape_title, start_hms, end_hms, creation_time, location):
+    subtitle_tracks = subtitle_tracks or []
+    sub_inputs, sub_outputs = _subtitle_io(subtitle_tracks)
     return [FFMPEG_BIN,
         "-nostdin",
         "-v", "error",
         "-i", str(temp_qtgmc),
-        "-i", str(final_ass),
+        *sub_inputs,
         "-map_metadata", "-1",
         "-map_chapters", "-1",
         "-pix_fmt", "yuv420p",
         "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-profile:v", "high", "-level", "4.0", "-tune", "grain",
         "-c:a", "aac", "-b:a", "96k", "-ar", "48000", "-ac", "1",
         "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11",
-        "-map", "0:v:0", "-map", "0:a:0", "-map", "1:s:0",
-        "-c:s", "mov_text",
+        "-map", "0:v:0", "-map", "0:a:0",
+        *sub_outputs,
         "-metadata:s:a:0", "language=eng",
-        "-metadata:s:s:0", "language=eng",
-        "-disposition:s:0", "forced",
         "-metadata", f"title={title}",
         "-metadata", f"comment=Filmed by {author} on {creation_time} at {location}, original tape {archive_tape_title} @ {start_hms}-{end_hms} ",
         "-metadata", f"creation_time={creation_time}",
@@ -195,6 +324,8 @@ def main():
             final_srt = final_dir / f"{safe(title)}.srt"
             final_vtt = final_dir / f"{safe(title)}.vtt"
             final_ass = final_dir / f"{safe(title)}.ass"
+            people_ass = final_dir / f"{safe(title)}.people.ass"
+            people_tsv = find_people_tsv(archive_name)
 
             if chapter_done(final_file):
                 print(f"Skipping existing chapter: {title}")
@@ -239,10 +370,19 @@ def main():
                 else:
                     raise RuntimeError("Unsupported platform for QTGMC: " + sys.platform)
 
+                subtitle_tracks = []
+
                 print(f"Transcribing audio...")
                 run(make_extract_audio(extracted, audio))
                 transcribe_audio(model, audio, final_srt, final_vtt, final_dir)
                 srt_to_ass(final_srt, final_ass)
+                subtitle_tracks.append({"path": final_ass, "title": "Dialogue", "forced": True})
+
+                if people_tsv:
+                    if tsv_people_to_ass(people_tsv, people_ass, clip_start=start_sec, clip_end=end_sec):
+                        subtitle_tracks.append({"path": people_ass, "title": "People", "forced": False})
+                    else:
+                        print(f"People TSV had no entries: {people_tsv}")
 
                 print(f"Final encoding...")
                 author = ch.get("author", ffm.get("author"))
@@ -252,7 +392,7 @@ def main():
                 ctime = ch.get("creation_time")
                 location = ch.get("location")
 
-                cmd = make_encode_final_x264(qtgmc, final_ass, final_file, author, title, archive_tape_title, start_hms, end_hms, ctime, location)
+                cmd = make_encode_final_x264(qtgmc, subtitle_tracks, final_file, author, title, archive_tape_title, start_hms, end_hms, ctime, location)
                 run(cmd)
 
             finally:
