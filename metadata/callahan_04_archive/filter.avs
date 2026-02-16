@@ -3,7 +3,7 @@ AssumeBFF()
 ConvertToYV12(matrix="Rec601")
 QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3,MatchEdi="NNEDI3",MatchEdi2="NNEDI3")
 # stabilization disabled
-Crop(4,2,-8,-2)
+Crop(4,2,-8,-4)
 LanczosResize(640,480)
 ConvertToYV12(interlaced=false)
 # after deinterlace / capture / conversion
