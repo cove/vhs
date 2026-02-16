@@ -13,7 +13,9 @@ SmoothLevels(16, 1.0, 255, 16, 235, limiter=1, tvrange=true, dither=0)
 function WobbleFix(clip c) { c.TurnLeft().Blur(0.3).TurnRight() }
 wobble_fix = false
 c = last
-c = Iif(wobble_fix, WobbleFix(c), c)
+if (wobble_fix) {
+    c = WobbleFix(c)
+}
 return c
 
 # brighten reception chapters 13+ (starts at START=40510 in chapters.ffmetadata)

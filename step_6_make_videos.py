@@ -8,6 +8,8 @@ import shutil, time, re, whisper
 from whisper.utils import get_writer
 from common import *
 
+ASS_NEWLINE = "\\N"
+
 def chapter_done(final_file):
     return final_file.exists() and final_file.stat().st_size > 100_000
 
@@ -107,7 +109,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         return f"{h}:{m:02d}:{ss:02d}.{cs:02d}"
 
     lines = []
-    raw = tsv_path.read_text(encoding="utf-8").splitlines()
+    # utf-8-sig strips BOM that can appear on the header line
+    raw = tsv_path.read_text(encoding="utf-8-sig").splitlines()
     for line in raw:
         if not line.strip():
             continue
@@ -147,7 +150,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 end_sec = duration
 
         events.append(
-            f"Dialogue: 0,{to_ass_time(start_sec)},{to_ass_time(end_sec)},People,,0,0,0,,{people.replace('|', r'\\N')}"
+            f"Dialogue: 0,{to_ass_time(start_sec)},{to_ass_time(end_sec)},People,,0,0,0,,{people.replace('|', ASS_NEWLINE)}"
         )
 
     if not events:

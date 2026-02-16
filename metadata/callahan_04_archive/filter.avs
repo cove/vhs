@@ -28,5 +28,7 @@ c = last
 if (ultrasound_enhance) {
     c = EnhanceUltrasound(c)
 }
-c = Iif(wobble_fix, WobbleFix(c), c)
+if (wobble_fix) {
+    c = WobbleFix(c)
+}
 return c
