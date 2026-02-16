@@ -5,11 +5,10 @@ title=Callahan 05 Archive (VHS Tape)
 TIMEBASE=1001/30000
 START=461
 END=12258
-title=2001 - Dilbeck's Movie - 01 ? (2001)
+title=2001 - Dilbeck's Movie - 01 Full Movie (2001)
+TRANSCRIPT=off
 DATE_RECORDED=1995; UTC
 DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
-RECORDING_LOCATION=US, California, Pasadena
-location=?
 creation_time=2001
 comment=
 

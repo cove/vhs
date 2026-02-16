@@ -1,5 +1,6 @@
 *.mp4
 *.mkv
+.idea/
 # Large binaries
 *.exe
 models/WhisperModel/*.pt
