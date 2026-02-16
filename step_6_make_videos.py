@@ -13,14 +13,31 @@ ASS_NEWLINE = "\\N"
 def chapter_done(final_file):
     return final_file.exists() and final_file.stat().st_size > 100_000
 
-def _is_no_audio_comment(text):
-    if not text:
-        return False
-    normalized = " ".join(str(text).strip().lower().split())
-    return ("no audio" in normalized) or ("no sound" in normalized)
+def audio_mode(chapter):
+    raw = chapter.get("audio")
+    mode = str(raw).strip().lower() if raw is not None else "on"
+    if mode in {"off", "false", "0", "no", "none"}:
+        return "off"
+    return "on"
 
-def should_drop_audio(ffmetadata, chapter):
-    return _is_no_audio_comment(chapter.get("comment")) or _is_no_audio_comment(ffmetadata.get("comment"))
+def transcript_mode(chapter):
+    raw = chapter.get("transcript")
+    mode = str(raw).strip().lower() if raw is not None else "on"
+    if mode in {"off", "false", "0", "no", "skip", "none"}:
+        return "off"
+    if mode in {"on", "true", "1", "yes", "force", "auto"}:
+        return "on"
+    return "on"
+
+def cleanup_stale_dialogue_files(*paths):
+    removed = []
+    for path in paths:
+        p = Path(path)
+        if p.exists():
+            p.unlink()
+            removed.append(p.name)
+    if removed:
+        print("Removed stale dialogue transcript files: " + ", ".join(removed))
 
 def srt_to_ass(srt_path, ass_path, font="Calibri", fontsize=40):
     srt_path = Path(srt_path)
@@ -360,6 +377,11 @@ def main():
             final_ass = final_dir / f"{safe(title)}.ass"
             people_ass = final_dir / f"{safe(title)}.people.ass"
             people_tsv = find_people_tsv(archive_name)
+            include_audio = audio_mode(ch) == "on"
+            transcribe_dialogue = include_audio and transcript_mode(ch) == "on"
+
+            if not transcribe_dialogue:
+                cleanup_stale_dialogue_files(final_srt, final_vtt, final_ass)
 
             if chapter_done(final_file):
                 print(f"Skipping existing chapter: {title}")
@@ -405,16 +427,17 @@ def main():
                     raise RuntimeError("Unsupported platform for QTGMC: " + sys.platform)
 
                 subtitle_tracks = []
-                include_audio = not should_drop_audio(ffm, ch)
 
-                if include_audio:
+                if transcribe_dialogue:
                     print(f"Transcribing audio...")
                     run(make_extract_audio(extracted, audio))
                     transcribe_audio(model, audio, final_srt, final_vtt, final_dir)
                     srt_to_ass(final_srt, final_ass)
                     subtitle_tracks.append({"path": final_ass, "title": "Dialogue", "forced": True})
+                elif include_audio:
+                    print("Skipping dialogue transcription (TRANSCRIPT=off).")
                 else:
-                    print("Skipping audio and transcription (comment=No Audio).")
+                    print("Skipping audio and transcription (AUDIO=off).")
 
                 if people_tsv:
                     if tsv_people_to_ass(people_tsv, people_ass, clip_start=start_sec, clip_end=end_sec):
