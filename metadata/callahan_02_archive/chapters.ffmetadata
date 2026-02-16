@@ -45,18 +45,125 @@ TIMEBASE=1001/30000
 START=13649
 END=14072
 title=1995 - Lynda & Jim's Wedding - 05 Lynda & Loyd Dilbeck Walking Down Isle (March 18, 1995)
-DATE_RECORDED=1995; UTC
+DATE_RECORDED=1995-03-18 23:12:00.000 ; UTC
 DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 creation_time=1995-03-18T15:12:00-08:00
-
 
 [CHAPTER]
 TIMEBASE=1001/30000
 START=14073
-END=
+END=34830
 title=1995 - Lynda & Jim's Wedding - 06 Wedding Vows (March 18, 1995)
-DATE_RECORDED=1995; UTC
+DATE_RECORDED=1995-03-18 23:12:00.000 ; UTC
 DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 creation_time=1995-03-18T15:12:00-08:00
 
+[CHAPTER]
+TIMEBASE=1001/30000
+START=34831
+END=35548
+title=1995 - Lynda & Jim's Wedding - 07 Leaving Church (March 18, 1995)
+DATE_RECORDED=1995-03-18 23:12:00.000 ; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+creation_time=1995-03-18T15:12:00-08:00
+comment=Linda & Jimmy Leaving Church, throwing rice
 
+[CHAPTER]
+TIMEBASE=1001/30000
+START=35549
+END=36684
+title=1995 - Lynda & Jim's Wedding - 08 Reception, Audrey, Gladys, Amy, Sarah (March 18, 1995)
+DATE_RECORDED=1995-03-18 23:12:00.000 ; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+creation_time=1995-03-18T15:12:00-08:00
+comment=Panning tables at reception
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=36685
+END=37814
+title=1995 - Lynda & Jim's Wedding - 09 Reception Catering, Leslie, Audrey, Gladys, Amy (March 18, 1995)
+DATE_RECORDED=1995-03-18 23:12:00.000 ; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+creation_time=1995-03-18T15:12:00-08:00
+comment=Panning tables at reception
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=37815
+END=38592
+title=1995 - Lynda & Jim's Wedding - 10 Reception Jimmy, Family, Donald taking Photos, Linda (March 18, 1995)
+DATE_RECORDED=1995-03-18 23:12:00.000 ; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+creation_time=1995-03-18T15:12:00-08:00
+comment=Jimmy, Family, Donald taking photos of Linda
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=38593
+END=39542
+title=1995 - Lynda & Jim's Wedding - 11 Reception Guests (March 18, 1995)
+DATE_RECORDED=1995-03-18 23:12:00.000 ; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+creation_time=1995-03-18T15:12:00-08:00
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=39543
+END=40788
+title=1995 - Lynda & Jim's Wedding - 12 Reception Entrance Decoration and Presents, Guests (March 18, 1995)
+DATE_RECORDED=1995-03-18 23:12:00.000 ; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+creation_time=1995-03-18T15:12:00-08:00
+comment=Cove, Sarah, Audrey, Amy
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=40789
+END=41272
+title=1995 - Lynda & Jim's Wedding - 12 Reception Drinks (March 18, 1995)
+DATE_RECORDED=1995-03-18 23:12:00.000 ; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+creation_time=1995-03-18T15:12:00-08:00
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=41273
+END=41984
+title=1995 - Lynda & Jim's Wedding - 12 Reception Jerry, Poly, Dolores (March 18, 1995)
+DATE_RECORDED=1995-03-18 23:12:00.000 ; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+creation_time=1995-03-18T15:12:00-08:00
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=41985
+END=43280
+title=1995 - Lynda & Jim's Wedding - 13 Reception Wedding Plaque & Cake (March 18, 1995)
+DATE_RECORDED=1995-03-18 23:12:00.000 ; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+creation_time=1995-03-18T15:12:00-08:00
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=41985
+END=49956
+title=1995 - Lynda & Jim's Wedding - 13 Reception Lynda & Jimmy Dancing (March 18, 1995)
+DATE_RECORDED=1995-03-18 23:12:00.000 ; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+creation_time=1995-03-18T15:12:00-08:00
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=49957
+END=68677
+title=1995 - Lynda & Jim's Wedding - 13 Reception Dancing (March 18, 1995)
+DATE_RECORDED=1995-03-18 23:12:00.000 ; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+creation_time=1995-03-18T15:12:00-08:00
+comment=

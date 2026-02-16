@@ -11,6 +11,15 @@ from common import *
 def chapter_done(final_file):
     return final_file.exists() and final_file.stat().st_size > 100_000
 
+def _is_no_audio_comment(text):
+    if not text:
+        return False
+    normalized = " ".join(str(text).strip().lower().split())
+    return ("no audio" in normalized) or ("no sound" in normalized)
+
+def should_drop_audio(ffmetadata, chapter):
+    return _is_no_audio_comment(chapter.get("comment")) or _is_no_audio_comment(ffmetadata.get("comment"))
+
 def srt_to_ass(srt_path, ass_path, font="Calibri", fontsize=40):
     srt_path = Path(srt_path)
     ass_path = Path(ass_path)
@@ -183,7 +192,7 @@ def make_extract_chapter(src, start, end, dest):
         "-i", str(src),
         "-ss", f"{start}", "-to", f"{end}",
         "-force_key_frames", "0",
-        "-map", "0:v:0", "-map", "0:a:0", "-c", "copy",
+        "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy",
         "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
         "-y", str(dest)]
 
@@ -210,10 +219,10 @@ def _subtitle_io(subtitle_tracks):
             output_args += [f"-disposition:s:{i}", "forced"]
     return input_args, output_args
 
-def make_encode_final_x265(temp_qtgmc, subtitle_tracks, final_file, author, title, archive_tape_title, start_hms, end_hms, creation_time, location):
+def make_encode_final_x265(temp_qtgmc, subtitle_tracks, final_file, author, title, archive_tape_title, start_hms, end_hms, creation_time, location, include_audio=True):
     subtitle_tracks = subtitle_tracks or []
     sub_inputs, sub_outputs = _subtitle_io(subtitle_tracks)
-    return [FFMPEG_BIN,
+    cmd = [FFMPEG_BIN,
         "-nostdin",
         "-v", "error",
         "-i", str(temp_qtgmc),
@@ -224,24 +233,35 @@ def make_encode_final_x265(temp_qtgmc, subtitle_tracks, final_file, author, titl
         "-c:v", "libx265", "-crf", "20", "-preset", "slow",
         "-profile:v", "main", "-level", "4.0",
         "-x265-params", "log-level=0",
-        "-c:a", "aac", "-b:a", "96k", "-ar", "48000", "-ac", "1",
-        "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11",
         "-tag:v", "hvc1", "-brand", "mp42",
-        "-map", "0:v:0", "-map", "0:a:0",
+        "-map", "0:v:0",
+    ]
+    if include_audio:
+        cmd += [
+            "-c:a", "aac", "-b:a", "96k", "-ar", "48000", "-ac", "1",
+            "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11",
+            "-map", "0:a:0?",
+        ]
+    else:
+        cmd += ["-an"]
+    cmd += [
         *sub_outputs,
-        "-metadata:s:a:0", "language=eng",
         "-metadata", f"title={title}",
         "-metadata", f"comment=Filmed by {author} on {creation_time} at {location}, original tape {archive_tape_title} @ {start_hms}-{end_hms} ",
         "-metadata", f"creation_time={creation_time}",
         "-metadata", f"location={location}",
         "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
         "-movflags", "+faststart+use_metadata_tags",
-        "-y", str(final_file)]
+        "-y", str(final_file),
+    ]
+    if include_audio:
+        cmd += ["-metadata:s:a:0", "language=eng"]
+    return cmd
 
-def make_encode_final_x264(temp_qtgmc, subtitle_tracks, final_file, author, title, archive_tape_title, start_hms, end_hms, creation_time, location):
+def make_encode_final_x264(temp_qtgmc, subtitle_tracks, final_file, author, title, archive_tape_title, start_hms, end_hms, creation_time, location, include_audio=True):
     subtitle_tracks = subtitle_tracks or []
     sub_inputs, sub_outputs = _subtitle_io(subtitle_tracks)
-    return [FFMPEG_BIN,
+    cmd = [FFMPEG_BIN,
         "-nostdin",
         "-v", "error",
         "-i", str(temp_qtgmc),
@@ -250,18 +270,29 @@ def make_encode_final_x264(temp_qtgmc, subtitle_tracks, final_file, author, titl
         "-map_chapters", "-1",
         "-pix_fmt", "yuv420p",
         "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-profile:v", "high", "-level", "4.0", "-tune", "grain",
-        "-c:a", "aac", "-b:a", "96k", "-ar", "48000", "-ac", "1",
-        "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11",
-        "-map", "0:v:0", "-map", "0:a:0",
+        "-map", "0:v:0",
+    ]
+    if include_audio:
+        cmd += [
+            "-c:a", "aac", "-b:a", "96k", "-ar", "48000", "-ac", "1",
+            "-af", "highpass=f=80,lowpass=f=14000,afftdn=nf=-25,loudnorm=I=-16:TP=-1.5:LRA=11",
+            "-map", "0:a:0?",
+        ]
+    else:
+        cmd += ["-an"]
+    cmd += [
         *sub_outputs,
-        "-metadata:s:a:0", "language=eng",
         "-metadata", f"title={title}",
         "-metadata", f"comment=Filmed by {author} on {creation_time} at {location}, original tape {archive_tape_title} @ {start_hms}-{end_hms} ",
         "-metadata", f"creation_time={creation_time}",
         "-metadata", f"location={location}",
         "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
         "-movflags", "+faststart+use_metadata_tags",
-        "-y", str(final_file)]
+        "-y", str(final_file),
+    ]
+    if include_audio:
+        cmd += ["-metadata:s:a:0", "language=eng"]
+    return cmd
 
 def make_deinterlace(temp_avs, temp_extracted, temp_qtgmc):
     return [FFMPEG_BIN,
@@ -371,12 +402,16 @@ def main():
                     raise RuntimeError("Unsupported platform for QTGMC: " + sys.platform)
 
                 subtitle_tracks = []
+                include_audio = not should_drop_audio(ffm, ch)
 
-                print(f"Transcribing audio...")
-                run(make_extract_audio(extracted, audio))
-                transcribe_audio(model, audio, final_srt, final_vtt, final_dir)
-                srt_to_ass(final_srt, final_ass)
-                subtitle_tracks.append({"path": final_ass, "title": "Dialogue", "forced": True})
+                if include_audio:
+                    print(f"Transcribing audio...")
+                    run(make_extract_audio(extracted, audio))
+                    transcribe_audio(model, audio, final_srt, final_vtt, final_dir)
+                    srt_to_ass(final_srt, final_ass)
+                    subtitle_tracks.append({"path": final_ass, "title": "Dialogue", "forced": True})
+                else:
+                    print("Skipping audio and transcription (comment=No Audio).")
 
                 if people_tsv:
                     if tsv_people_to_ass(people_tsv, people_ass, clip_start=start_sec, clip_end=end_sec):
@@ -392,7 +427,10 @@ def main():
                 ctime = ch.get("creation_time")
                 location = ch.get("location")
 
-                cmd = make_encode_final_x264(qtgmc, subtitle_tracks, final_file, author, title, archive_tape_title, start_hms, end_hms, ctime, location)
+                cmd = make_encode_final_x264(
+                    qtgmc, subtitle_tracks, final_file, author, title, archive_tape_title,
+                    start_hms, end_hms, ctime, location, include_audio=include_audio
+                )
                 run(cmd)
 
             finally:
@@ -405,4 +443,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
