@@ -21,7 +21,7 @@ TEST_CASES = [
     {
         "name": "ultrasound_mid",
         "archive": "callahan_04_archive",
-        "title_contains": "Ultra Sound - 01",
+        "title_contains": "Ultrasound - 01",
     },
 ]
 
