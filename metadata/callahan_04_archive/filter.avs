@@ -25,7 +25,7 @@ function EnhanceText(clip c)
 {
     base = c.ConvertToYV12(interlaced=false)
     y = base.ConvertToY8()                               # sharpen text edges on luma only
-    y = y.UnSharpMask(2,2,0.5)
+    y = y.Sharpen(0.3)
     y = y.SmoothLevels(16, 1.03, 235, 14, 242, limiter=1, tvrange=true, dither=0)
     return base.MergeLuma(y.ConvertToYV12(interlaced=false))
 }
