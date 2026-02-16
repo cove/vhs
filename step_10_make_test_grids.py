@@ -1,15 +1,16 @@
-﻿#
-# Builds grid preview videos for filter test runs (darkness and wobble sets).
+#!/usr/bin/env python3.11
 #
-import math
+# Builds full-size 2x2 quadrant previews for filter test runs.
+#
+import re
+import subprocess
 from pathlib import Path
 
 from common import *
 
-TARGET_ARCHIVE = "callahan_01_archive"
+TARGET_ARCHIVE = "qtgmc_preset_quadrants"
 RUN_DIR = ""  # optional: "run_001"
-TILE_W = 320
-TILE_H = 240
+MAX_TILES = 4
 
 
 def pick_latest_run(base_dir: Path) -> Path | None:
@@ -28,40 +29,59 @@ def pick_latest_run(base_dir: Path) -> Path | None:
 
 
 def sort_key(path: Path):
-    name = path.name
-    prefix = name.split("_", 1)[0]
-    if prefix.isdigit():
-        return int(prefix)
-    return name
+    return path.name
 
 
 def segment_name(path: Path):
-    parts = path.name.split("_", 2)
+    stem = path.stem
+
+    # New format: <segment>_<index>_<preset>
+    m = re.match(r"(.+)_\d{2}_.+$", stem)
+    if m:
+        return m.group(1)
+
+    # Legacy format: <index>_<segment>_...
+    parts = stem.split("_", 2)
     if len(parts) >= 2 and parts[0].isdigit():
         return parts[1]
-    return ""
+
+    return stem
 
 
-def make_grid(files, out_path):
+def probe_size(path: Path):
+    cmd = [
+        FFPROBE_BIN,
+        "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=width,height",
+        "-of", "csv=p=0:s=x",
+        str(path),
+    ]
+    out = subprocess.check_output(cmd, text=True).strip()
+    w_str, h_str = out.split("x")
+    return int(w_str), int(h_str)
+
+
+def make_quadrant(files, out_path):
+    files = list(files[:MAX_TILES])
     n = len(files)
     if n == 0:
         return False
 
-    cols = math.ceil(math.sqrt(n))
-    rows = math.ceil(n / cols)
-
+    tile_w, tile_h = probe_size(files[0])
     inputs = []
     filters = []
     layout = []
 
     for i, f in enumerate(files):
         inputs += ["-i", str(f)]
-        filters.append(f"[{i}:v]scale={TILE_W}:{TILE_H}[v{i}]")
-        x = (i % cols) * TILE_W
-        y = (i // cols) * TILE_H
+        filters.append(f"[{i}:v]scale={tile_w}:{tile_h}[v{i}]")
+        x = (i % 2) * tile_w
+        y = (i // 2) * tile_h
         layout.append(f"{x}_{y}")
 
-    filter_complex = ";".join(filters) + ";" + "".join([f"[v{i}]" for i in range(n)])
+    filter_complex = ";".join(filters)
+    filter_complex += ";" + "".join([f"[v{i}]" for i in range(n)])
     filter_complex += f"xstack=inputs={n}:layout=" + "|".join(layout) + ":fill=black[v]"
 
     cmd = [
@@ -96,23 +116,29 @@ def main():
         print(f"Run folder not found under: {base_dir}")
         sys.exit(1)
 
-    all_mp4 = sorted(run_dir.glob("*.mp4"), key=sort_key)
-    darkness = [p for p in all_mp4 if segment_name(p) == "darkness"]
-    wobble = [p for p in all_mp4 if segment_name(p) == "wobble"]
-
-    if not darkness and not wobble:
+    all_mp4 = [
+        p for p in sorted(run_dir.glob("*.mp4"), key=sort_key)
+        if not p.name.startswith(("quadrant_", "grid_"))
+    ]
+    if not all_mp4:
         print(f"No test videos found in {run_dir}")
         sys.exit(1)
 
-    if darkness:
-        out = run_dir / "grid_darkness.mp4"
-        make_grid(darkness, out)
-        print("Created:", out)
+    groups = {}
+    for p in all_mp4:
+        seg = segment_name(p)
+        groups.setdefault(seg, []).append(p)
 
-    if wobble:
-        out = run_dir / "grid_wobble.mp4"
-        make_grid(wobble, out)
-        print("Created:", out)
+    created = 0
+    for seg, files in sorted(groups.items()):
+        out = run_dir / f"quadrant_{safe(seg)}.mp4"
+        if make_quadrant(files, out):
+            print("Created:", out)
+            created += 1
+
+    if created == 0:
+        print("No quadrants created.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

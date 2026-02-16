@@ -1,15 +1,46 @@
-﻿#
-# Generates short test encodes with different QTGMC/brightness/wobble settings
-# using the shortest chapter from an archive. Outputs MP4s for quick A/B review.
+#!/usr/bin/env python3.11
 #
-import itertools
+# Generates short QTGMC comparison clips and full-size 2x2 quadrant previews.
+# Each case samples 30 frames from the midpoint of a selected chapter.
+#
+import re
 from pathlib import Path
 
 from common import *
 
-# Archive to test
-TARGET_ARCHIVE = "callahan_01_archive"
-FIELD_ORDER = "BFF"  # "BFF" or "TFF"
+SAMPLE_FRAMES = 30
+FPS_NUM = 30000
+FPS_DEN = 1001
+
+TEST_CASES = [
+    {
+        "name": "wedding_vows_mid",
+        "archive": "callahan_01_archive",
+        "title_contains": "Wedding Vows",
+    },
+    {
+        "name": "ultrasound_mid",
+        "archive": "callahan_04_archive",
+        "title_contains": "Ultra Sound - 01",
+    },
+]
+
+BASE_QTGMC_OPTS = {
+    "EZKeepGrain": 1.0,
+    "Sharpness": 1.2,
+    "SourceMatch": 3,
+    "Lossless": 2,
+    "TR2": 3,
+    "MatchEdi": "NNEDI3",
+    "MatchEdi2": "NNEDI3",
+}
+
+QTGMC_PRESETS = [
+    "Medium",
+    "Slow",
+    "Very Slow",
+    "Placebo",
+]
 
 
 def fmt_avs_value(v):
@@ -27,32 +58,57 @@ def qtgmc_call(opts):
     return "QTGMC(" + ",".join(parts) + ")"
 
 
-TEST_SEGMENTS = [
-    {
-        "name": "darkness",
-        "start_frame": 47125,
-        "end_frame": 47225,
-    },
-    {
-        "name": "wobble",
-        "start_frame": 7683,
-        "end_frame": 7783,
-    },
-]
+def sec_to_frame(seconds):
+    return int(round(float(seconds) * FPS_NUM / FPS_DEN))
 
 
-def build_avs(
-    src_path,
-    start_frame,
-    end_frame,
-    field_order,
-    qtgmc_opts,
-    gamma,
-    wobble_fix,
-    wobble_strength=0.3,
-):
+def chapter_mid_window(ch, sample_frames):
+    start_frame = sec_to_frame(ch["start"])
+    end_frame = sec_to_frame(ch["end"])
+    if end_frame < start_frame:
+        return start_frame, start_frame
+
+    chapter_len = end_frame - start_frame + 1
+    n = min(sample_frames, chapter_len)
+    mid = (start_frame + end_frame) // 2
+    clip_start = mid - (n // 2)
+    clip_start = max(start_frame, clip_start)
+    clip_end = clip_start + n - 1
+    if clip_end > end_frame:
+        clip_end = end_frame
+        clip_start = max(start_frame, clip_end - n + 1)
+    return clip_start, clip_end
+
+
+def pick_chapter(chapters, title_contains):
+    needle = (title_contains or "").strip().lower()
+    if not needle:
+        return chapters[0] if chapters else None
+    for ch in chapters:
+        title = str(ch.get("title", "")).lower()
+        if needle in title:
+            return ch
+    return None
+
+
+def rewrite_filter_qtgmc(filter_text, qtgmc_opts):
+    out = []
+    replaced = False
+    pattern = re.compile(r"^\s*QTGMC\s*\(")
+    for line in filter_text.splitlines():
+        if (not replaced) and pattern.search(line):
+            indent = line[: len(line) - len(line.lstrip())]
+            out.append(indent + qtgmc_call(qtgmc_opts))
+            replaced = True
+        else:
+            out.append(line)
+    if not replaced:
+        raise RuntimeError("Could not find QTGMC(...) in filter script.")
+    return "\n".join(out) + "\n"
+
+
+def build_avs(src_path, start_frame, end_frame, filter_text):
     src = str(src_path).replace("\\", "/")
-
     lines = [
         f'LoadPlugin("{QTGMC_DIR}/ffms2.dll")',
         f'LoadPlugin("{QTGMC_DIR}/masktools2.dll")',
@@ -68,64 +124,57 @@ def build_avs(
         f'LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll")',
         f'Import("{QTGMC_DIR}/Zs_RF_Shared.avsi")',
         f'Import("{QTGMC_DIR}/QTGMC.avsi")',
-        f'src = FFmpegSource2("{src}", atrack=-1)',
-        f'src = src.Trim({start_frame},{end_frame})',
-        'src = src.AssumeFPS(30000,1001)',
+        f'FFmpegSource2("{src}", atrack=-1)',
+        f"Trim({start_frame},{end_frame})",
     ]
+    return "\n".join(lines) + "\n" + filter_text
 
-    if field_order == "BFF":
-        lines.append('src = src.AssumeBFF()')
-    elif field_order == "TFF":
-        lines.append('src = src.AssumeTFF()')
 
-    lines += [
-        'src = src.ConvertToYV12(matrix="Rec601")',
-        f'src = src.{qtgmc_call(qtgmc_opts)}',
-        '# stabilization disabled',
-        'src = src.Crop(4,2,-8,-10)',
-        'src = src.LanczosResize(640,480)',
-        'src = src.ConvertToYV12(interlaced=false)',
-        'src = src.SmoothLevels(16, 1.0, 255, 16, 235, limiter=1, tvrange=true, dither=0)',
+def encode_variant(avs_path, out_path):
+    cmd = [
+        FFMPEG_BIN,
+        "-nostdin",
+        "-v", "error",
+        "-i", str(avs_path),
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "18",
+        "-pix_fmt", "yuv420p",
+        "-an",
+        "-y", str(out_path),
     ]
-
-    if gamma and abs(gamma - 1.0) > 1e-6:
-        lines.append(f'src = src.Levels(0, {gamma}, 255, 0, 255)')
-
-    if wobble_fix:
-        lines.append(f'src = src.TurnLeft().Blur({wobble_strength}).TurnRight()')
+    run(cmd)
 
 
-    lines.append('return src')
-
-    return "\n".join(lines) + "\n"
+def make_full_size_quadrant(inputs, out_path):
+    if len(inputs) != 4:
+        raise ValueError(f"Quadrant needs 4 inputs, got {len(inputs)}")
+    cmd = [
+        FFMPEG_BIN,
+        "-nostdin",
+        "-v", "error",
+    ]
+    for f in inputs:
+        cmd += ["-i", str(f)]
+    cmd += [
+        "-filter_complex",
+        "[0:v][1:v][2:v][3:v]xstack=inputs=4:layout=0_0|w0_0|0_h0|w0_h0:fill=black[v]",
+        "-map", "[v]",
+        "-an",
+        "-shortest",
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "18",
+        "-pix_fmt", "yuv420p",
+        "-y", str(out_path),
+    ]
+    run(cmd)
 
 
 def main():
     ensure_ffmpeg_exists()
 
-    archive_path = None
-    archive_stem = None
-
-    if TARGET_ARCHIVE:
-        archive_stem = TARGET_ARCHIVE
-        archive_path = ARCHIVE_DIR / f"{archive_stem}.mkv"
-    else:
-        candidates = sorted(
-            ARCHIVE_DIR.glob("*.mkv"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
-        for p in candidates:
-            if (METADATA_DIR / p.stem / "chapters.ffmetadata").exists():
-                archive_path = p
-                archive_stem = p.stem
-                break
-
-    if not archive_path.exists():
-        print(f"Archive MKV not found: {archive_path}")
-        sys.exit(1)
-
-    base_dir = CLIPS_DIR / "filter_tests" / archive_stem
+    base_dir = CLIPS_DIR / "filter_tests" / "qtgmc_preset_quadrants"
     base_dir.mkdir(parents=True, exist_ok=True)
     existing = []
     for p in base_dir.glob("run_*"):
@@ -140,136 +189,75 @@ def main():
     avs_dir = out_dir / "avs"
     avs_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Using archive: {archive_path}")
-    for seg in TEST_SEGMENTS:
-        print(f"Segment: {seg['name']} frames {seg['start_frame']} -> {seg['end_frame']}")
     print(f"Output: {out_dir}")
-
-    qtgmc_variants = [
-        (
-            "qtgmc_base",
-            {
-                "Preset": "Very Slow",
-                "EZKeepGrain": 1.0,
-                "Sharpness": 1.2,
-                "SourceMatch": 3,
-                "Lossless": 2,
-                "TR2": 3,
-                "MatchEdi": "NNEDI3",
-                "MatchEdi2": "NNEDI3",
-            },
-            0.0,
-        ),
-        (
-            "qtgmc_soft",
-            {
-                "Preset": "Very Slow",
-                "EZKeepGrain": 1.0,
-                "Sharpness": 0.8,
-                "SourceMatch": 2,
-                "Lossless": 0,
-                "TR2": 2,
-                "MatchEdi": "NNEDI3",
-                "MatchEdi2": "NNEDI3",
-            },
-            0.6,
-        ),
-        (
-            "qtgmc_very_soft",
-            {
-                "Preset": "Slow",
-                "EZKeepGrain": 1.0,
-                "Sharpness": 0.6,
-                "SourceMatch": 1,
-                "Lossless": 0,
-                "TR2": 1,
-                "MatchEdi": "NNEDI3",
-                "MatchEdi2": "NNEDI3",
-            },
-            1.0,
-        ),
-    ]
-
-    brightness_variants = [
-        ("bright_100", 1.00, 0.0),
-        ("bright_110", 1.10, 0.10),
-        ("bright_125", 1.25, 0.25),
-        ("bright_140", 1.40, 0.40),
-        ("bright_160", 1.60, 0.60),
-        ("bright_180", 1.80, 0.80),
-        ("bright_195", 1.95, 0.95),
-    ]
-
-    wobble_variants = [
-        ("wobble_off", False, 0.0),
-        ("wobble_mild", True, 0.3),
-        ("wobble_strong", True, 0.6),
-    ]
-
-    field_order = FIELD_ORDER
-
     summary_lines = []
-    for seg in TEST_SEGMENTS:
-        idx = 1
-        start_frame = seg["start_frame"]
-        end_frame = seg["end_frame"]
-        if end_frame < start_frame:
-            print(f"Invalid segment range: {seg}")
-            sys.exit(1)
+    generated_cases = 0
 
-        if seg["name"] == "darkness":
-            combos = []
-            for q in qtgmc_variants:
-                for b in brightness_variants:
-                    combos.append((q, b, ("wobble_off", False, 0.0)))
-            combos.sort(key=lambda c: (c[0][2] + c[1][2]))
-        else:
-            combos = []
-            for q in qtgmc_variants:
-                for w in wobble_variants:
-                    combos.append((q, ("bright_100", 1.0, 0.0), w))
-            combos.sort(key=lambda c: (c[0][2] + c[2][2]))
+    for case in TEST_CASES:
+        archive_stem = case["archive"]
+        archive_path = ARCHIVE_DIR / f"{archive_stem}.mkv"
+        chapters_file = METADATA_DIR / archive_stem / "chapters.ffmetadata"
+        filter_path = METADATA_DIR / archive_stem / "filter.avs"
 
-        for (qname, qopts, qstrength), (bname, gamma, bstrength), (wname, wobble, wstrength) in combos:
-            variant_name = safe(f"{idx:03d}_{seg['name']}_{qname}_{bname}_{wname}")
-            avs_path = avs_dir / f"{variant_name}.avs"
-            out_path = out_dir / f"{variant_name}.mp4"
+        if not archive_path.exists():
+            print(f"Skipping {case['name']}: missing archive {archive_path}")
+            continue
+        if not chapters_file.exists():
+            print(f"Skipping {case['name']}: missing chapters {chapters_file}")
+            continue
+        if not filter_path.exists():
+            print(f"Skipping {case['name']}: missing filter {filter_path}")
+            continue
 
-            avs_text = build_avs(
-                archive_path,
-                start_frame,
-                end_frame,
-                field_order,
-                qopts,
-                gamma,
-                wobble,
-                wstrength,
-            )
+        _, chapters = parse_chapters(chapters_file)
+        ch = pick_chapter(chapters, case.get("title_contains", ""))
+        if not ch:
+            print(f"Skipping {case['name']}: no chapter matched '{case.get('title_contains', '')}'")
+            continue
+
+        start_frame, end_frame = chapter_mid_window(ch, SAMPLE_FRAMES)
+        print(
+            f"Case {case['name']}: {archive_stem} | {ch.get('title')} | "
+            f"frames {start_frame}-{end_frame}"
+        )
+
+        base_filter = filter_path.read_text(encoding="utf-8")
+        case_outputs = []
+        for idx, preset in enumerate(QTGMC_PRESETS, start=1):
+            qopts = dict(BASE_QTGMC_OPTS)
+            qopts["Preset"] = preset
+            patched_filter = rewrite_filter_qtgmc(base_filter, qopts)
+
+            avs_name = safe(f"{case['name']}_{idx:02d}_{preset.lower().replace(' ', '_')}")
+            avs_path = avs_dir / f"{avs_name}.avs"
+            out_path = out_dir / f"{avs_name}.mp4"
+
+            avs_text = build_avs(archive_path, start_frame, end_frame, patched_filter)
             avs_path.write_text(avs_text, encoding="utf-8")
-
-            cmd = [
-                FFMPEG_BIN,
-                "-nostdin",
-                "-v", "error",
-                "-i", str(avs_path),
-            ]
-            cmd += [
-                "-c:v", "libx264",
-                "-preset", "veryfast",
-                "-crf", "18",
-                "-pix_fmt", "yuv420p",
-                "-an",
-                "-y", str(out_path),
-            ]
-            run(cmd)
+            encode_variant(avs_path, out_path)
+            case_outputs.append(out_path)
 
             summary_lines.append(
-                f"{out_path.name}\t{seg['name']}\t{qname}\t{bname}\t{wname}\tframes={start_frame}-{end_frame}\tQTGMC={qopts}\tGamma={gamma}\tStrength={qstrength + bstrength + wstrength:.2f}"
+                f"{out_path.name}\tcase={case['name']}\tarchive={archive_stem}\t"
+                f"title={ch.get('title')}\tpreset={preset}\tframes={start_frame}-{end_frame}"
             )
-            idx += 1
+
+        quadrant_path = out_dir / f"quadrant_{safe(case['name'])}.mp4"
+        make_full_size_quadrant(case_outputs, quadrant_path)
+        summary_lines.append(
+            f"{quadrant_path.name}\tcase={case['name']}\tarchive={archive_stem}\t"
+            f"title={ch.get('title')}\tquadrant_presets={','.join(QTGMC_PRESETS)}\t"
+            f"frames={start_frame}-{end_frame}"
+        )
+        generated_cases += 1
+
+    if generated_cases == 0:
+        print("No cases generated.")
+        sys.exit(1)
 
     (out_dir / "variants.txt").write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
-    print("Generated tests:", len(summary_lines))
+    print(f"Generated cases: {generated_cases}")
+    print(f"Presets per case: {len(QTGMC_PRESETS)}")
 
 
 if __name__ == "__main__":
