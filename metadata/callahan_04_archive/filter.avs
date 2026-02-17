@@ -1,7 +1,7 @@
 AssumeFPS(30000,1001)
 AssumeBFF()
 ConvertToYV12(matrix="Rec601")
-QTGMC(Preset="Very Slow",EZKeepGrain=1.0,Sharpness=1.2,SourceMatch=3,Lossless=2,TR2=3,MatchEdi="NNEDI3",MatchEdi2="NNEDI3")
+QTGMC(Preset="Slow",SourceMatch=3,Lossless=2,TR1=1,TR2=1,Rep0=2,Rep2=1,MatchEnhance=0.7,MatchEdi="NNEDI3",MatchEdi2="NNEDI3",Sharpness=0.35,SLMode=1)
 # stabilization disabled
 Crop(4,2,-8,-6)
 LanczosResize(640,480)

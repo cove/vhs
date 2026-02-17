@@ -8,7 +8,6 @@
 # - rerank top-N profiles over multiple windows
 # - optional IQA-PyTorch metric for final tie-breaking/penalty
 #
-import itertools
 import json
 import re
 import statistics
@@ -97,9 +96,160 @@ TEST_CASES = [
     },
 ]
 
-PRESETS = ["Slow", "Very Slow", "Placebo"]
-SOURCEMATCH_VALUES = [2, 3]
-TR2_VALUES = [2, 3]
+QTGMC_MACROS = [
+    {
+        "name": "balanced_ref",
+        "sharpness_range": (0.30, 1.45),
+        "opts": {
+            "Preset": "Very Slow",
+            "SourceMatch": 3,
+            "Lossless": 2,
+            "TR2": 3,
+            "EZKeepGrain": 1.0,
+            "MatchEdi": "NNEDI3",
+            "MatchEdi2": "NNEDI3",
+            "NoisePreset": "Fast",
+        },
+    },
+    {
+        "name": "balanced_yadif_match",
+        "sharpness_range": (0.25, 1.25),
+        "opts": {
+            "Preset": "Very Slow",
+            "SourceMatch": 3,
+            "Lossless": 2,
+            "TR2": 3,
+            "EZKeepGrain": 1.0,
+            "MatchEdi": "Yadif",
+            "MatchEdi2": "Yadif",
+            "NoisePreset": "Fast",
+        },
+    },
+    {
+        "name": "sm1_fastmatch_ll2",
+        "sharpness_range": (0.20, 0.95),
+        "opts": {
+            "Preset": "Slow",
+            "SourceMatch": 1,
+            "Lossless": 2,
+            "TR2": 2,
+            "MatchPreset": "Very Fast",
+            "MatchEdi": "NNEDI3",
+            "MatchEdi2": "Bob",
+            "EZKeepGrain": 0.5,
+            "NoisePreset": "Fast",
+        },
+    },
+    {
+        "name": "sm3_matchenhance",
+        "sharpness_range": (0.22, 1.10),
+        "opts": {
+            "Preset": "Slow",
+            "SourceMatch": 3,
+            "Lossless": 2,
+            "TR2": 2,
+            "MatchPreset": "Faster",
+            "MatchPreset2": "Ultra Fast",
+            "MatchEnhance": 0.75,
+            "NoiseProcess": 1,
+            "Sigma": 1.5,
+            "NoiseRestore": 0.7,
+            "MatchEdi": "NNEDI3",
+            "MatchEdi2": "NNEDI3",
+        },
+    },
+    {
+        "name": "motion_stable",
+        "sharpness_range": (0.20, 1.05),
+        "opts": {
+            "Preset": "Placebo",
+            "SourceMatch": 3,
+            "Lossless": 2,
+            "TR0": 2,
+            "TR1": 2,
+            "TR2": 3,
+            "Rep0": 4,
+            "Rep2": 4,
+            "Search": 5,
+            "SearchParam": 2,
+            "SubPel": 2,
+            "NoiseProcess": 1,
+            "Denoiser": "fft3df",
+            "NoisePreset": "Slow",
+            "Sigma": 1.6,
+            "GrainRestore": 0.18,
+            "NoiseRestore": 0.06,
+            "MatchEdi": "Yadif",
+            "MatchEdi2": "Yadif",
+        },
+    },
+    {
+        "name": "detail_focus",
+        "sharpness_range": (0.70, 1.80),
+        "opts": {
+            "Preset": "Very Slow",
+            "SourceMatch": 3,
+            "Lossless": 1,
+            "TR0": 2,
+            "TR1": 1,
+            "TR2": 1,
+            "MatchEnhance": 0.72,
+            "SMode": 2,
+            "SLMode": 0,
+            "NoiseProcess": 1,
+            "Denoiser": "fft3df",
+            "NoisePreset": "Fast",
+            "Sigma": 0.9,
+            "GrainRestore": 0.08,
+            "NoiseRestore": 0.02,
+            "MatchEdi": "NNEDI3",
+            "MatchEdi2": "NNEDI3",
+        },
+    },
+    {
+        "name": "grain_keep",
+        "sharpness_range": (0.25, 1.20),
+        "opts": {
+            "Preset": "Slow",
+            "SourceMatch": 2,
+            "Lossless": 1,
+            "TR0": 2,
+            "TR1": 1,
+            "TR2": 2,
+            "MatchEnhance": 0.45,
+            "NoiseProcess": 2,
+            "Denoiser": "fft3df",
+            "NoisePreset": "Medium",
+            "Sigma": 2.0,
+            "GrainRestore": 0.42,
+            "NoiseRestore": 0.18,
+            "StabilizeNoise": True,
+            "MatchEdi": "Yadif",
+            "MatchEdi2": "NNEDI3",
+        },
+    },
+    {
+        "name": "clean_restore",
+        "sharpness_range": (0.35, 1.15),
+        "opts": {
+            "Preset": "Slow",
+            "SourceMatch": 2,
+            "Lossless": 0,
+            "TR0": 1,
+            "TR1": 1,
+            "TR2": 1,
+            "MatchEnhance": 0.55,
+            "NoiseProcess": 1,
+            "Denoiser": "fft3df",
+            "NoisePreset": "Fast",
+            "Sigma": 1.35,
+            "GrainRestore": 0.12,
+            "NoiseRestore": 0.03,
+            "MatchEdi": "NNEDI3",
+            "MatchEdi2": "Yadif",
+        },
+    },
+]
 
 
 def safe_div(a, b, default=1.0):
@@ -119,6 +269,8 @@ def fmt_avs_value(v):
 def qtgmc_call(opts):
     parts = []
     for k, v in opts.items():
+        if str(k).startswith("_"):
+            continue
         parts.append(f"{k}={fmt_avs_value(v)}")
     return "QTGMC(" + ",".join(parts) + ")"
 
@@ -713,44 +865,55 @@ def search_sharpness(case_ctx, run_ctx, qtgmc_opts, low, high, iterations, stage
 
 def qtgmc_profile_grid():
     profiles = []
-    for preset, source_match, tr2 in itertools.product(PRESETS, SOURCEMATCH_VALUES, TR2_VALUES):
-        profiles.append(
-            {
-                "Preset": preset,
-                "EZKeepGrain": 1.0,
-                "SourceMatch": source_match,
-                "Lossless": 2 if tr2 >= 3 else 1,
-                "TR2": tr2,
-                "MatchEdi": "NNEDI3",
-                "MatchEdi2": "NNEDI3",
-            }
-        )
+    for macro in QTGMC_MACROS:
+        profile = dict(macro["opts"])
+        profile["_macro"] = macro["name"]
+        low, high = macro["sharpness_range"]
+        profile["_sharpness_min"] = float(low)
+        profile["_sharpness_max"] = float(high)
+        profiles.append(profile)
     return profiles
 
 
+def profile_sharpness_range(profile):
+    low = float(profile.get("_sharpness_min", SHARPNESS_MIN))
+    high = float(profile.get("_sharpness_max", SHARPNESS_MAX))
+    if high < low:
+        low, high = high, low
+    return low, high
+
+
 def profile_name(profile):
-    preset = str(profile["Preset"]).lower().replace(" ", "")
-    return f"{preset}_sm{profile['SourceMatch']}_tr2{profile['TR2']}_ll{profile['Lossless']}"
+    macro = str(profile.get("_macro", "macro")).lower().replace(" ", "_")
+    preset = str(profile.get("Preset", "na")).lower().replace(" ", "")
+    return (
+        f"{macro}_{preset}_sm{profile.get('SourceMatch', 'na')}"
+        f"_tr2{profile.get('TR2', 'na')}_ll{profile.get('Lossless', 'na')}"
+    )
 
 
 def write_case_results(stage_dir, stage_name, case_results):
     rows = [
-        "rank\tprofile\tpreset\tsource_match\ttr2\tlossless\tbest_sharpness\t"
+        "rank\tprofile\tmacro\tpreset\tsource_match\ttr2\tlossless\tsharpness_min\tsharpness_max\tbest_sharpness\t"
         "score\tstability_ratio\tdetail_ratio\tdetail_penalty\tbrisque_ratio\tbrisque_penalty\t"
         "temporal_ratio\tsmoothness_penalty\tiqa_ratio\tiqa_penalty\tstability_score\t"
         "x_std\ty_std\tw_std\th_std\tsamples\tevals"
     ]
     for i, r in enumerate(case_results, start=1):
         best = r["best"]
+        s_low, s_high = profile_sharpness_range(r["profile"])
         rows.append(
             "\t".join(
                 [
                     str(i),
                     r["profile_name"],
-                    str(r["profile"]["Preset"]),
-                    str(r["profile"]["SourceMatch"]),
-                    str(r["profile"]["TR2"]),
-                    str(r["profile"]["Lossless"]),
+                    str(r["profile"].get("_macro", "")),
+                    str(r["profile"].get("Preset", "")),
+                    str(r["profile"].get("SourceMatch", "")),
+                    str(r["profile"].get("TR2", "")),
+                    str(r["profile"].get("Lossless", "")),
+                    f"{s_low:.4f}",
+                    f"{s_high:.4f}",
                     f"{best['sharpness']:.4f}",
                     f"{best['score']:.6f}",
                     f"{best['stability_ratio']:.6f}",
@@ -867,7 +1030,7 @@ def make_quadrant(inputs, out_path):
 
 def write_archive_summary(out_dir, archive_best_entries):
     rows = [
-        "archive\tbest_profile\tpreset\tsource_match\ttr2\tlossless\tmedian_sharpness\tmean_score\tcases"
+        "archive\tbest_profile\tmacro\tpreset\tsource_match\ttr2\tlossless\tmedian_sharpness\tmean_score\tcases"
     ]
 
     by_archive = {}
@@ -908,10 +1071,11 @@ def write_archive_summary(out_dir, archive_best_entries):
                 [
                     archive,
                     best_profile_name,
-                    str(prof["Preset"]),
-                    str(prof["SourceMatch"]),
-                    str(prof["TR2"]),
-                    str(prof["Lossless"]),
+                    str(prof.get("_macro", "")),
+                    str(prof.get("Preset", "")),
+                    str(prof.get("SourceMatch", "")),
+                    str(prof.get("TR2", "")),
+                    str(prof.get("Lossless", "")),
                     f"{best_profile_stats['median_sharpness']:.4f}",
                     f"{best_profile_stats['mean_score']:.6f}",
                     ",".join(best_profile_stats["cases"]),
@@ -963,10 +1127,10 @@ def main():
     print(f"Output: {out_dir}")
 
     profiles = qtgmc_profile_grid()
-    print(f"Stage1 profiles: {len(profiles)} | Stage2 rerank top-N: {STAGE2_TOP_N}")
+    print(f"Stage1 macro profiles: {len(profiles)} | Stage2 rerank top-N: {STAGE2_TOP_N}")
 
     overall_rows = [
-        "case\tarchive\tchapter\tbest_profile\tbest_sharpness\tscore\tstability_ratio\t"
+        "case\tarchive\tchapter\tbest_profile\tmacro\tbest_sharpness\tscore\tstability_ratio\t"
         "detail_ratio\ttemporal_ratio\tbrisque_ratio\tsamples"
     ]
     archive_best_entries = []
@@ -1040,7 +1204,11 @@ def main():
         stage1_results = []
         for idx, profile in enumerate(profiles, start=1):
             pname = profile_name(profile)
-            print(f"  [S1 {idx:02d}/{len(profiles)}] searching {pname}")
+            s_low, s_high = profile_sharpness_range(profile)
+            print(
+                f"  [S1 {idx:02d}/{len(profiles)}] searching {pname} "
+                f"(sharpness {s_low:.2f}-{s_high:.2f})"
+            )
             run_ctx = {
                 "profile_name": pname,
                 "avs_dir": s1_avs_dir,
@@ -1052,8 +1220,8 @@ def main():
                 case_ctx,
                 run_ctx,
                 profile,
-                SHARPNESS_MIN,
-                SHARPNESS_MAX,
+                s_low,
+                s_high,
                 s1_cfg["search_iters"],
                 s1_cfg,
                 metric_ctx,
@@ -1092,7 +1260,11 @@ def main():
         for idx, item in enumerate(stage2_candidates, start=1):
             profile = item["profile"]
             pname = item["profile_name"]
-            print(f"  [S2 {idx:02d}/{len(stage2_candidates)}] searching {pname}")
+            s_low, s_high = profile_sharpness_range(profile)
+            print(
+                f"  [S2 {idx:02d}/{len(stage2_candidates)}] searching {pname} "
+                f"(sharpness {s_low:.2f}-{s_high:.2f})"
+            )
             run_ctx = {
                 "profile_name": pname,
                 "avs_dir": s2_avs_dir,
@@ -1104,8 +1276,8 @@ def main():
                 case_ctx,
                 run_ctx,
                 profile,
-                SHARPNESS_MIN,
-                SHARPNESS_MAX,
+                s_low,
+                s_high,
                 s2_cfg["search_iters"],
                 s2_cfg,
                 metric_ctx,
@@ -1149,6 +1321,7 @@ def main():
                     archive_stem,
                     case_ctx["chapter_title"],
                     best["profile_name"],
+                    str(best["profile"].get("_macro", "")),
                     f"{best['best']['sharpness']:.4f}",
                     f"{best['best']['score']:.6f}",
                     f"{best['best']['stability_ratio']:.6f}",
