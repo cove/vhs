@@ -27,12 +27,23 @@ SHARPNESS_MAX = 1.60
 
 CROP_LIMIT = 24
 CROP_ROUND = 2
+DETAIL_LOSS_TOLERANCE = 0.01
+
+# Priority: stability > detail > smoothness
+WEIGHT_STABILITY = 1.0
+WEIGHT_DETAIL = 0.6
+WEIGHT_SMOOTHNESS = 0.2
+
+DETAIL_METRIC_VF = "edgedetect=mode=colormix,signalstats,metadata=mode=print"
+TEMPORAL_METRIC_VF = "tblend=all_mode=difference,signalstats,metadata=mode=print"
+SIGNALSTATS_YAVG_RE = re.compile(r"lavfi\.signalstats\.YAVG=([0-9]+(?:\.[0-9]+)?)")
 
 TEST_CASES = [
     {
         "name": "wedding_vows_mid",
         "archive": "callahan_01_archive",
         "title_contains": "Wedding Vows",
+        "offset_sec": 150,
     },
     {
         "name": "ultrasound_mid",
@@ -81,6 +92,20 @@ def chapter_mid_window(ch, sample_frames):
         clip_end = end_frame
         clip_start = max(start_frame, clip_end - n + 1)
     return clip_start, clip_end
+
+
+def chapter_offset_window(ch, offset_sec, sample_frames):
+    ch_start = sec_to_frame(ch["start"])
+    ch_end = sec_to_frame(ch["end"])
+    start_frame = sec_to_frame(ch["start"] + float(offset_sec))
+    end_frame = start_frame + sample_frames - 1
+    if end_frame > ch_end:
+        end_frame = ch_end
+        start_frame = max(ch_start, end_frame - sample_frames + 1)
+    if start_frame < ch_start:
+        start_frame = ch_start
+        end_frame = min(ch_end, start_frame + sample_frames - 1)
+    return start_frame, end_frame
 
 
 def pick_chapter(chapters, title_contains):
@@ -133,6 +158,16 @@ def build_avs(src_path, start_frame, end_frame, filter_text):
     return "\n".join(lines) + "\n" + filter_text
 
 
+def build_raw_avs(src_path, start_frame, end_frame):
+    src = str(src_path).replace("\\", "/")
+    lines = [
+        f'LoadPlugin("{QTGMC_DIR}/ffms2.dll")',
+        f'FFmpegSource2("{src}", atrack=-1)',
+        f"Trim({start_frame},{end_frame})",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def parse_crop_text(text):
     pat = re.compile(r"crop=(\d+):(\d+):(\d+):(\d+)")
     rows = []
@@ -181,6 +216,60 @@ def parse_crop_text(text):
     }
 
 
+def run_signalstats_metric(avs_path, vf, log_path):
+    cmd = [
+        FFMPEG_BIN,
+        "-nostdin",
+        "-v", "info",
+        "-i", str(avs_path),
+        "-vf", vf,
+        "-an",
+        "-f", "null",
+        "-",
+    ]
+    print("Command: " + " ".join(map(str, cmd)))
+    proc = subprocess.run(
+        [str(c) for c in cmd],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    text = (proc.stderr or "") + "\n" + (proc.stdout or "")
+    log_path.write_text(text, encoding="utf-8")
+
+    vals = [float(m.group(1)) for m in SIGNALSTATS_YAVG_RE.finditer(text)]
+    if not vals:
+        raise RuntimeError(f"No signalstats YAVG values parsed from {avs_path}")
+    return statistics.fmean(vals), len(vals)
+
+
+def compute_quality_metrics(avs_path, log_dir, tag):
+    detail_log = log_dir / f"{safe(tag)}.detail.log"
+    temporal_log = log_dir / f"{safe(tag)}.temporal.log"
+    detail_mean, detail_samples = run_signalstats_metric(avs_path, DETAIL_METRIC_VF, detail_log)
+    temporal_mean, temporal_samples = run_signalstats_metric(avs_path, TEMPORAL_METRIC_VF, temporal_log)
+    return {
+        "detail_mean": detail_mean,
+        "detail_samples": detail_samples,
+        "detail_log_path": str(detail_log),
+        "temporal_mean": temporal_mean,
+        "temporal_samples": temporal_samples,
+        "temporal_log_path": str(temporal_log),
+    }
+
+
+def compute_composite_score(stability_score, detail_ratio, temporal_ratio):
+    detail_floor = 1.0 - DETAIL_LOSS_TOLERANCE
+    detail_penalty = max(0.0, (detail_floor - detail_ratio) / DETAIL_LOSS_TOLERANCE)
+    smoothness_penalty = temporal_ratio
+    score = (
+        WEIGHT_STABILITY * stability_score
+        + WEIGHT_DETAIL * detail_penalty
+        + WEIGHT_SMOOTHNESS * smoothness_penalty
+    )
+    return score, detail_penalty, smoothness_penalty
+
+
 def evaluate_stability(case_ctx, run_ctx, qtgmc_opts, sharpness, eval_index):
     opts = dict(qtgmc_opts)
     opts["Sharpness"] = round(float(sharpness), 4)
@@ -217,12 +306,32 @@ def evaluate_stability(case_ctx, run_ctx, qtgmc_opts, sharpness, eval_index):
     )
     crop_text = (proc.stderr or "") + "\n" + (proc.stdout or "")
     log_path.write_text(crop_text, encoding="utf-8")
-    metrics = parse_crop_text(crop_text)
+    crop_metrics = parse_crop_text(crop_text)
+    quality = compute_quality_metrics(avs_path, run_ctx["log_dir"], tag)
+
+    raw_detail = float(case_ctx["raw_detail_mean"])
+    raw_temporal = float(case_ctx["raw_temporal_mean"])
+    detail_ratio = (quality["detail_mean"] / raw_detail) if raw_detail > 0 else 1.0
+    temporal_ratio = (quality["temporal_mean"] / raw_temporal) if raw_temporal > 0 else 1.0
+
+    stability_score = float(crop_metrics["score"])
+    score, detail_penalty, smoothness_penalty = compute_composite_score(
+        stability_score, detail_ratio, temporal_ratio
+    )
+
+    metrics = dict(crop_metrics)
+    metrics.update(quality)
     metrics.update(
         {
+            "score": score,
+            "stability_score": stability_score,
+            "detail_ratio": detail_ratio,
+            "temporal_ratio": temporal_ratio,
+            "detail_penalty": detail_penalty,
+            "smoothness_penalty": smoothness_penalty,
             "sharpness": opts["Sharpness"],
             "avs_path": str(avs_path),
-            "log_path": str(log_path),
+            "log_path": str(log_path),  # cropdetect log path
         }
     )
     return metrics
@@ -299,11 +408,10 @@ def encode_preview(case_ctx, qtgmc_opts, sharpness, out_path):
 
 
 def encode_control_preview(case_ctx, out_path):
-    avs_text = build_avs(
+    avs_text = build_raw_avs(
         case_ctx["archive_path"],
         case_ctx["start_frame"],
         case_ctx["end_frame"],
-        case_ctx["filter_text"],
     )
     avs_path = out_path.with_suffix(".avs")
     avs_path.write_text(avs_text, encoding="utf-8")
@@ -374,7 +482,8 @@ def profile_name(profile):
 def write_case_results(case_dir, case_results):
     rows = [
         "rank\tprofile\tpreset\tsource_match\ttr2\tlossless\tbest_sharpness\t"
-        "score\tx_std\ty_std\tw_std\th_std\tsamples\tevals"
+        "score\tstability_score\tdetail_ratio\tdetail_penalty\ttemporal_ratio\tsmoothness_penalty\t"
+        "x_std\ty_std\tw_std\th_std\tsamples\tevals"
     ]
     for i, r in enumerate(case_results, start=1):
         rows.append(
@@ -388,6 +497,11 @@ def write_case_results(case_dir, case_results):
                     str(r["profile"]["Lossless"]),
                     f"{r['best']['sharpness']:.4f}",
                     f"{r['best']['score']:.6f}",
+                    f"{r['best']['stability_score']:.6f}",
+                    f"{r['best']['detail_ratio']:.6f}",
+                    f"{r['best']['detail_penalty']:.6f}",
+                    f"{r['best']['temporal_ratio']:.6f}",
+                    f"{r['best']['smoothness_penalty']:.6f}",
                     f"{r['best']['x_std']:.6f}",
                     f"{r['best']['y_std']:.6f}",
                     f"{r['best']['w_std']:.6f}",
@@ -436,7 +550,8 @@ def main():
     print(f"Testing {len(profiles)} QTGMC discrete profiles; binary search iters={SEARCH_ITERS}")
 
     overall_rows = [
-        "case\tarchive\tchapter\tbest_profile\tbest_sharpness\tscore\tx_std\ty_std\tsamples"
+        "case\tarchive\tchapter\tbest_profile\tbest_sharpness\tscore\tstability_score\t"
+        "detail_ratio\ttemporal_ratio\tx_std\ty_std\tsamples"
     ]
 
     for case in TEST_CASES:
@@ -462,7 +577,11 @@ def main():
             print(f"Skipping {case_name}: no chapter match for '{case.get('title_contains', '')}'")
             continue
 
-        start_frame, end_frame = chapter_mid_window(ch, SAMPLE_FRAMES)
+        offset_sec = case.get("offset_sec")
+        if offset_sec is not None:
+            start_frame, end_frame = chapter_offset_window(ch, offset_sec, SAMPLE_FRAMES)
+        else:
+            start_frame, end_frame = chapter_mid_window(ch, SAMPLE_FRAMES)
         case_dir = out_dir / safe(case_name)
         avs_dir = case_dir / "eval_avs"
         log_dir = case_dir / "eval_logs"
@@ -480,9 +599,21 @@ def main():
             "end_frame": end_frame,
             "filter_text": filter_path.read_text(encoding="utf-8"),
         }
+        raw_avs = avs_dir / f"{safe(case_name)}_raw_baseline.avs"
+        raw_avs.write_text(
+            build_raw_avs(case_ctx["archive_path"], case_ctx["start_frame"], case_ctx["end_frame"]),
+            encoding="utf-8",
+        )
+        raw_metrics = compute_quality_metrics(raw_avs, log_dir, f"{case_name}_raw_baseline")
+        case_ctx["raw_detail_mean"] = raw_metrics["detail_mean"]
+        case_ctx["raw_temporal_mean"] = raw_metrics["temporal_mean"]
         print(
             f"\nCase {case_name}: {archive_stem} | {case_ctx['chapter_title']} | "
             f"frames {start_frame}-{end_frame}"
+        )
+        print(
+            f"  Raw baselines: detail_mean={case_ctx['raw_detail_mean']:.6f} "
+            f"temporal_mean={case_ctx['raw_temporal_mean']:.6f}"
         )
 
         case_results = []
@@ -510,7 +641,7 @@ def main():
         case_results.sort(key=lambda r: r["best"]["score"])
         write_case_results(case_dir, case_results)
 
-        control_mp4 = preview_dir / "00_control_original_filter.mp4"
+        control_mp4 = preview_dir / "00_control_raw.mp4"
         encode_control_preview(case_ctx, control_mp4)
 
         top = case_results[:3]
@@ -540,6 +671,9 @@ def main():
                     best["profile_name"],
                     f"{best['best']['sharpness']:.4f}",
                     f"{best['best']['score']:.6f}",
+                    f"{best['best']['stability_score']:.6f}",
+                    f"{best['best']['detail_ratio']:.6f}",
+                    f"{best['best']['temporal_ratio']:.6f}",
                     f"{best['best']['x_std']:.6f}",
                     f"{best['best']['y_std']:.6f}",
                     str(best["best"]["samples"]),
@@ -548,7 +682,10 @@ def main():
         )
         print(
             f"  Best: {best['profile_name']} sharpness={best['best']['sharpness']:.4f} "
-            f"score={best['best']['score']:.6f}"
+            f"score={best['best']['score']:.6f} "
+            f"stability={best['best']['stability_score']:.6f} "
+            f"detail_ratio={best['best']['detail_ratio']:.4f} "
+            f"temporal_ratio={best['best']['temporal_ratio']:.4f}"
         )
 
     (out_dir / "overall_best.tsv").write_text("\n".join(overall_rows) + "\n", encoding="utf-8")
