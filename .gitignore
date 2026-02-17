@@ -4,6 +4,8 @@
 # Large binaries
 *.exe
 models/WhisperModel/*.pt
+models/BRISQUE/
+test/Clips/filter_tests/
 *blake3.txt
 *blake3sums.txt
 *sha3-256sums.txt
