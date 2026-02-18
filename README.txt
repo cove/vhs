@@ -57,14 +57,10 @@ step_6_make_videos.py
     - Chapter extraction uses frame-derived exact timestamps to keep chapter-local frame indices aligned with archive frames.
     - Manual bad-frame repair sidecar: metadata/<archive>/badframes.tsv (archive-global start/end frame ranges, applied automatically before QTGMC; optional source_frame column can force a specific replacement frame per range; optional no_pad boolean column (true/false) disables automatic pad per row; very long ranges are skipped unless note includes allow_long; adaptive pre-pad defaults to 0 for single-frame, 1 for 2-3 frame bursts, 2 for 4+ frame bursts; note supports no_pad or pad= / pad_before= / pad_after= as fallback).
 
-step_15_detect_corner_black_candidates.py
-    - Scans the hardcoded archive 01 proxy for sudden corner-black events and outputs candidate frame TSVs plus review JPGs.
-
-step_16_detect_temporal_jump_candidates.py
-    - Scans the hardcoded archive 01 proxy for temporal jump/swap artifacts and exports prev/current/next JPG triplets per candidate.
-
-step_17_rank_badframe_candidates_from_labels.py
-    - Learns a frame score from badframes.tsv labels on the hardcoded archive 01 proxy and exports ranked candidate triplets.
+step_15_train_badframe_classifier_ultralytics.py
+    - Builds a frame classification dataset from `<archive>_proxy.mp4` + `metadata/<archive>/badframes.tsv`.
+    - Uses `badframes.tsv` ranges as `bad` labels; all other frames are treated as `good`.
+    - Optionally trains an Ultralytics classifier (default `yolo11n-cls.pt`) on those labels.
 
 step_7_generate_drive_checksum.py
     - Creates a SHA3-256 checksum manifest for the full drive/archive.

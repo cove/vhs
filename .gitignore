@@ -5,6 +5,9 @@
 *.exe
 models/WhisperModel/*.pt
 models/BRISQUE/
+models/badframe_ultralytics/
+yolo11*-cls.pt
+test/_proxy_badframe_e2e/
 test/Clips/filter_tests/
 *blake3.txt
 *blake3sums.txt
