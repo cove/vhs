@@ -17,7 +17,7 @@ ASS_NEWLINE = "\\N"
 BADFRAME_MAX_SPAN_DEFAULT = 1200
 BADFRAME_PAD_BEFORE_DEFAULT = 2
 BADFRAME_PAD_AFTER_DEFAULT = 0
-BADFRAME_MONOTONIC_NEARBY_WINDOW = 30
+BADFRAME_POST_QTGMC_MULTIPLIER = 2
 
 def auto_badframe_pad(span):
     # Minimize repaired-frame count while still protecting QTGMC temporal context.
@@ -65,15 +65,20 @@ def parse_args(argv=None):
         default=[],
         help="Only process chapter titles that contain this substring (case-insensitive). Repeatable.",
     )
+    p.add_argument(
+        "--no-bob",
+        action="store_true",
+        help="Disable bob output by selecting even frames after the QTGMC filter chain.",
+    )
     return p.parse_args(argv)
 
-def build_badframe_prefilter_lines(bad_source_frames=None, bad_repair_ranges=None):
+def _normalize_bad_repair_ranges(bad_source_frames=None, bad_repair_ranges=None):
     ranges = []
     if bad_repair_ranges is None:
         bad_source_frames = bad_source_frames or []
         frames = sorted({int(f) for f in bad_source_frames if int(f) >= 0})
         if not frames:
-            return ""
+            return []
         start = prev = frames[0]
         for f in frames[1:]:
             if f == prev + 1:
@@ -104,55 +109,113 @@ def build_badframe_prefilter_lines(bad_source_frames=None, bad_repair_ranges=Non
             a = max(0, a)
             ranges.append((a, b, src))
         if not ranges:
-            return ""
+            return []
+    return ranges
+
+def _resolve_badframe_repair_ranges(
+    bad_source_frames=None,
+    bad_repair_ranges=None,
+    max_source_frame=None,
+):
+    ranges = _normalize_bad_repair_ranges(
+        bad_source_frames=bad_source_frames,
+        bad_repair_ranges=bad_repair_ranges,
+    )
+    if not ranges:
+        return []
 
     bad_set = set()
     for a, b, _src in ranges:
         for f in range(a, b + 1):
             bad_set.add(f)
 
-    def choose_repair_source_nearest(a, b):
-        # Pick nearest clean source frame outside [a,b], scanning both sides.
-        # Ties favor the previous frame to preserve motion direction.
-        d = 1
-        while True:
-            left = a - d
-            if left >= 0 and left not in bad_set:
-                return left
-            right = b + d
-            if right not in bad_set:
-                return right
-            d += 1
+    max_allowed_src = None if max_source_frame is None else int(max_source_frame)
 
     def choose_repair_source_at_or_after(floor_frame, b):
         src = max(int(floor_frame), b + 1)
         while src in bad_set:
             src += 1
+        if max_allowed_src is not None and src > max_allowed_src:
+            return None
+        return src
+
+    def choose_repair_source_before(a):
+        src = a - 1
+        if max_allowed_src is not None:
+            src = min(src, max_allowed_src)
+        while src >= 0 and src in bad_set:
+            src -= 1
+        if src < 0:
+            return None
         return src
 
     resolved_ranges = []
-    prev_auto = None  # (a, b, src)
+    # Keep replacement sources strictly forward in source time:
+    # - never use a frame that has already played in output ([0..b])
+    # - never move backward once a later source frame has been used
+    last_used_src = -1
     for a, b, src_override in sorted(ranges, key=lambda x: (x[0], x[1])):
+        min_src = max(last_used_src, b + 1)
         src = src_override
-        auto_selected = src is None or src < 0 or src in bad_set
-        if auto_selected:
-            src = choose_repair_source_nearest(a, b)
-            if prev_auto is not None:
-                _pa, prev_b, prev_src = prev_auto
-                nearby = (a - prev_b) <= BADFRAME_MONOTONIC_NEARBY_WINDOW
-                prev_is_future = prev_src > prev_b
-                switched_to_past = src < a
-                if nearby and (src < prev_src or (prev_is_future and switched_to_past)):
-                    src = choose_repair_source_at_or_after(prev_src, b)
-            prev_auto = (a, b, src)
+        src_out_of_bounds = (
+            max_allowed_src is not None and src is not None and src > max_allowed_src
+        )
+        if src is None or src < min_src or src in bad_set or src_out_of_bounds:
+            if src is not None and (src < min_src or src in bad_set or src_out_of_bounds):
+                print(
+                    f"Badframe source override {src} is invalid for range {a}-{b}; "
+                    f"using forward source >= {min_src}."
+                )
+            src = choose_repair_source_at_or_after(min_src, b)
+            if src is None:
+                # Chapter/timeline-bound fallback: if no forward clean frame exists,
+                # use the nearest previous clean frame rather than risking a bad-frame clamp.
+                src = choose_repair_source_before(a)
+                if src is None:
+                    print(
+                        f"Unable to find any clean source frame for bad range {a}-{b}; "
+                        "leaving this range unrepaired."
+                    )
+                    continue
+                print(
+                    f"No forward clean source within bounds for bad range {a}-{b}; "
+                    f"falling back to previous clean frame {src}."
+                )
+        last_used_src = max(last_used_src, src)
         resolved_ranges.append((a, b, src))
+    return resolved_ranges
+
+def _build_badframe_freezeframe_lines(resolved_ranges, frame_multiplier=1):
+    if not resolved_ranges:
+        return ""
+    m = max(1, int(frame_multiplier))
 
     fix_lines = ["c = last"]
     # Freeze contiguous bad-frame runs to one neighboring clean frame.
     for a, b, src in sorted(resolved_ranges, key=lambda x: (x[0], x[1]), reverse=True):
-        fix_lines.append(f"c = c.FreezeFrame({a},{b},{src})")
+        out_a = a * m
+        out_b = ((b + 1) * m) - 1
+        out_src = src * m
+        fix_lines.append(f"c = c.FreezeFrame({out_a},{out_b},{out_src})")
     fix_lines.append("c")
     return "\n".join(fix_lines) + "\n"
+
+def build_badframe_prefilter_lines(bad_source_frames=None, bad_repair_ranges=None):
+    resolved_ranges = _resolve_badframe_repair_ranges(
+        bad_source_frames=bad_source_frames,
+        bad_repair_ranges=bad_repair_ranges,
+    )
+    return _build_badframe_freezeframe_lines(resolved_ranges, frame_multiplier=1)
+
+def build_badframe_postfilter_lines(bad_source_frames=None, bad_repair_ranges=None):
+    resolved_ranges = _resolve_badframe_repair_ranges(
+        bad_source_frames=bad_source_frames,
+        bad_repair_ranges=bad_repair_ranges,
+    )
+    return _build_badframe_freezeframe_lines(
+        resolved_ranges,
+        frame_multiplier=BADFRAME_POST_QTGMC_MULTIPLIER,
+    )
 
 def cleanup_stale_dialogue_files(*paths):
     removed = []
@@ -535,12 +598,27 @@ def make_create_avs(
     bad_repair_ranges=None,
     chapter_start_frame=0,
     chapter_end_frame=0,
+    no_bob=False,
 ):
-    filter_text = Path(avs_filter_path).read_text(encoding="utf-8")
-    prefilter_text = build_badframe_prefilter_lines(
-        bad_source_frames or [],
+    chapter_len_frames = int(chapter_end_frame) - int(chapter_start_frame)
+    max_source_frame = chapter_len_frames - 1
+    resolved_bad_repair_ranges = _resolve_badframe_repair_ranges(
+        bad_source_frames=bad_source_frames or [],
         bad_repair_ranges=bad_repair_ranges,
+        max_source_frame=max_source_frame,
     )
+    prefilter_text = _build_badframe_freezeframe_lines(
+        resolved_bad_repair_ranges,
+        frame_multiplier=1,
+    )
+    postfilter_text = _build_badframe_freezeframe_lines(
+        resolved_bad_repair_ranges,
+        frame_multiplier=BADFRAME_POST_QTGMC_MULTIPLIER,
+    )
+    no_bob_text = ""
+    if no_bob:
+        no_bob_text = "c = last\nc = c.SelectEven()\nc\n"
+    filter_import_path = Path(avs_filter_path).resolve().as_posix()
     return f'''
 LoadPlugin("{QTGMC_DIR}/ffms2.dll") 
 LoadPlugin("{QTGMC_DIR}/masktools2.dll") 
@@ -560,7 +638,9 @@ FFmpegSource2("{temp_extracted}", atrack=-1)
 chapter_start_frame = {int(chapter_start_frame)}
 chapter_end_frame = {int(chapter_end_frame)}
 {prefilter_text}
-{filter_text}
+Import("{filter_import_path}")
+{postfilter_text}
+{no_bob_text}
 '''
 
 def make_extract_audio(temp_extracted, temp_transcript):
@@ -844,6 +924,7 @@ def main(argv=None):
                             bad_repair_ranges=manual_repairs,
                             chapter_start_frame=chapter_start_frame,
                             chapter_end_frame=chapter_end_frame,
+                            no_bob=args.no_bob,
                         )
                         avs.write_text(script, encoding="ascii")
                         run(make_deinterlace(avs, extracted, qtgmc))
