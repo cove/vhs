@@ -23,8 +23,11 @@ def main():
              "-i", str(src),
              "-f", "ffmetadata", "-i", str(ffmetadata_path),
              "-map", "0:v:0",
-             "-map", "0:a:0",
+             "-map", "0:a:0?",
              "-map_metadata", "1",
+             # Keep source frame cadence/order; avoid implicit dup/drop sync behavior.
+             "-fps_mode:v:0", "passthrough",
+             "-vsync", "0",
              "-c:v", "libx264", "-preset", "superfast",  "-tune", "fastdecode", "-crf", "28",
              "-x264-params", "keyint=30:min-keyint=1:scenecut=40",
              "-pix_fmt", "yuv420p",

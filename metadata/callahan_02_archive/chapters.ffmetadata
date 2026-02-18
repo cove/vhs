@@ -35,11 +35,11 @@ creation_time=1995
 TIMEBASE=1001/30000
 START=13347
 END=13612
-title=1995 - Lynda & Jim's Wedding - 04 Gathering Before Wedding (March 18, 1995)
-TRANSCRIPT=off
+title=1995 - Lynda & Jim's Wedding - 04 Pre-Ceremony, Donald, Friends (March 18, 1995)
 DATE_RECORDED=1995; UTC
 DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 creation_time=1995
+comment=Donald Cordell and friends before wedding ceremony
 
 [CHAPTER]
 TIMEBASE=1001/30000

@@ -1,4 +1,4 @@
-﻿VHS Digital Archive Project
+VHS Digital Archive Project
 ===========================
 
 This project contains tools and scripts for capturing, processing, and archiving VHS and U-matic tapes.
@@ -48,11 +48,23 @@ step_4_verify_archive.py
 
 step_5_make_proxies.py
     - Generates proxy MP4 files (_proxy.mp4) from archive MKVs for easier playback.
+    - Uses ffmpeg passthrough frame sync mode so proxy frame cadence/order matches source archives.
 
 step_6_make_videos.py
     - Main script to produce final video clips from archive.
     - Performs deinterlacing and applies filters (Windows-only).
     - Extracts audio, transcribes with Whisper, generates subtitles (.srt, .vtt, .ass), and encodes final videos.
+    - Chapter extraction uses frame-derived exact timestamps to keep chapter-local frame indices aligned with archive frames.
+    - Manual bad-frame repair sidecar: metadata/<archive>/badframes.tsv (archive-global start/end frame ranges, applied automatically before QTGMC; optional source_frame column can force a specific replacement frame per range; optional no_pad boolean column (true/false) disables automatic pad per row; very long ranges are skipped unless note includes allow_long; adaptive pre-pad defaults to 0 for single-frame, 1 for 2-3 frame bursts, 2 for 4+ frame bursts; note supports no_pad or pad= / pad_before= / pad_after= as fallback).
+
+step_15_detect_corner_black_candidates.py
+    - Scans the hardcoded archive 01 proxy for sudden corner-black events and outputs candidate frame TSVs plus review JPGs.
+
+step_16_detect_temporal_jump_candidates.py
+    - Scans the hardcoded archive 01 proxy for temporal jump/swap artifacts and exports prev/current/next JPG triplets per candidate.
+
+step_17_rank_badframe_candidates_from_labels.py
+    - Learns a frame score from badframes.tsv labels on the hardcoded archive 01 proxy and exports ranked candidate triplets.
 
 step_7_generate_drive_checksum.py
     - Creates a SHA3-256 checksum manifest for the full drive/archive.
@@ -60,6 +72,12 @@ step_7_generate_drive_checksum.py
 step_8_verify_drive_checksum.py
     - Verifies the drive checksum manifest created in step_7 (SHA3-256 by default,
       supports legacy BLAKE3 manifests).
+
+step_14_make_original_chapter_comparisons.py
+    - Creates side-by-side chapter comparison videos.
+    - Left side is the original chapter section, sourced from `<archive>_proxy.mp4` for speed.
+    - Right side is the processed chapter MP4 from step_6 output.
+    - Outputs to `Clips/chapter_comparisons/<archive>/` by default.
 
 Usage Notes
 -----------

@@ -49,24 +49,26 @@ DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 RECORDING_LOCATION=US, California, Pasadena
 location=+34.15756-118.13637+274.03/Church of Truth, 690 E Orange Grove Blvd, Pasadena, CA 91104
 creation_time=1995-03-18T15:06:00-08:00
+comment=Family entering ceremony, walking toward the altar
 
 [CHAPTER]
 TIMEBASE=1001/30000
 START=6205
 END=7282
-title=1995 - Jim & Linda Wedding - 05 Linda & Loyd Processional (March 18, 1995)
+title=1995 - Jim & Linda Wedding - 05 Bride Processional (March 18, 1995)
 TRANSCRIPT=off
 DATE_RECORDED=1995-03-18 23:21:00.000 ; UTC
 DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 RECORDING_LOCATION=US, California, Pasadena
 location=+34.15756-118.13637+274.03/Church of Truth, 690 E Orange Grove Blvd, Pasadena, CA 91104
 creation_time=1995-03-18T15:21:00-08:00
+comment=Linda & Loyd entering ceremony, walking toward the altar
 
 [CHAPTER]
 TIMEBASE=1001/30000
 START=7283
 END=26716
-title=1995 - Jim & Linda Wedding - 06 Vow Exchange & Ring Exchange (March 18, 1995)
+title=1995 - Jim & Linda Wedding - 06 Nuptials (March 18, 1995)
 DATE_RECORDED=1995-03-18 23:21:00.000 ; UTC
 DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 RECORDING_LOCATION=US, California, Pasadena
@@ -76,7 +78,7 @@ creation_time=1995-03-18T15:21:00-08:00
 [CHAPTER]
 TIMEBASE=1001/30000
 START=26717
-END=27816
+END=27186
 title=1995 - Jim & Linda Wedding - 07 Pronouncement & Recessional (March 18, 1995)
 TRANSCRIPT=off
 DATE_RECORDED=1995-03-18 23:24:00.000 ; UTC
@@ -84,11 +86,12 @@ DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 RECORDING_LOCATION=US, California, Pasadena
 location=+34.15756-118.13637+274.03/Church of Truth, 690 E Orange Grove Blvd, Pasadena, CA 91104
 creation_time=1995-03-18T15:24:00-08:00
+comment=Linda & Jimmy pronounced married, exiting ceremony, walking away from the altar
 
 [CHAPTER]
 TIMEBASE=1001/30000
-START=27817
-END=27816
+START=27187
+END=28224
 title=1995 - Jim & Linda Wedding - 08 Bridal Party Recessional (March 18, 1995)
 TRANSCRIPT=off
 DATE_RECORDED=1995-03-18 23:24:00.000 ; UTC
@@ -96,10 +99,11 @@ DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 RECORDING_LOCATION=US, California, Pasadena
 location=+34.15756-118.13637+274.03/Church of Truth, 690 E Orange Grove Blvd, Pasadena, CA 91104
 creation_time=1995-03-18T15:24:00-08:00
+comment=Family exiting ceremony, walking away from the altar
 
 [CHAPTER]
 TIMEBASE=1001/30000
-START=26717
+START=28225
 END=30875
 title=1995 - Jim & Linda Wedding - 09 Portraits (March 18, 1995)
 TRANSCRIPT=off
@@ -108,20 +112,20 @@ DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 RECORDING_LOCATION=US, California, Pasadena
 location=+34.15756-118.13637+274.03/Church of Truth, 690 E Orange Grove Blvd, Pasadena, CA 91104
 creation_time=1995-03-18T15:28:00-08:00
-comment=Linda & Jimmy Wedding Photos with Family
+comment=Wedding photos with family
 
 [CHAPTER]
 TIMEBASE=1001/30000
 START=30876
 END=32227
-title=1995 - Jim & Linda Wedding - 10 Recessional Rice Toss (March 18, 1995)
+title=1995 - Jim & Linda Wedding - 10 Rice Toss Send-Off (March 18, 1995)
 TRANSCRIPT=off
 DATE_RECORDED=1995-03-18 23:42:00.000 ; UTC
 DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 RECORDING_LOCATION=US, California, Pasadena
 location=+34.15756-118.13637+274.03/Church of Truth, 690 E Orange Grove Blvd, Pasadena, CA 91104
 creation_time=1995-03-18T15:42:00-08:00
-comment=Linda & Jimmy Leaving Church, throwing rice
+comment=Linda & Jimmy Leaving Church, rice toss, and getting into car
 
 [CHAPTER]
 TIMEBASE=1001/30000
@@ -134,20 +138,20 @@ DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 RECORDING_LOCATION=US, California, Altadena
 location=+34.18653-118.12936+388.24/Gloria Dilbeck's Home, 1034 Beverly Way, Altadena, CA 91001
 creation_time=1995-03-18T16:06:00-08:00
-comment=Reception in Gloria Dilbecks back yard
+comment=Reception at Gloria Dilbeck's home
 
 [CHAPTER]
 TIMEBASE=1001/30000
 START=35743
 END=36052
-title=1995 - Jim & Linda Wedding - 12 Reception Rings (March 18, 1995)
+title=1995 - Jim & Linda Wedding - 12 Reception Ring Close-Ups (March 18, 1995)
 TRANSCRIPT=off
 DATE_RECORDED=1995-03-19 00:30:00.000 ; UTC
 DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 RECORDING_LOCATION=US, California, Altadena
 location=+34.18653-118.12936+388.24/Gloria Dilbeck's Home, 1034 Beverly Way, Altadena, CA 91001
 creation_time=1995-03-18T16:30:00-08:00
-comment=Linda & Jimmy showing rings
+comment=Linda & Jimmy showing wedding rings
 
 [CHAPTER]
 TIMEBASE=1001/30000
@@ -171,7 +175,7 @@ DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 RECORDING_LOCATION=US, California, Altadena
 location=+34.18653-118.12936+388.24/Gloria Dilbeck's Home, 1034 Beverly Way, Altadena, CA 91001
 creation_time=1995-03-18T17:46:00-08:00
-comment=Dinner table with Linda, Jimmy and Gloria
+comment=Head table with Linda, Jimmy and Gloria
 
 [CHAPTER]
 TIMEBASE=1001/30000
@@ -197,7 +201,7 @@ DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 RECORDING_LOCATION=US, California, Altadena
 location=+34.18653-118.12936+388.24/Gloria Dilbeck's Home, 1034 Beverly Way, Altadena, CA 91001
 creation_time=1995-03-18T18:13:00-08:00
-comment=Jimmy and Linda Toast and Photos
+comment=Jimmy & Linda Toast and Photos
 
 [CHAPTER]
 TIMEBASE=1001/30000
@@ -216,14 +220,14 @@ comment=Linda & Jimmy dancing to Heaven by Bryan Adams
 TIMEBASE=1001/30000
 START=47125
 END=55365
-title=1995 - Jim & Linda Wedding - 18 Reception Parents Dance (March 18, 1995)
+title=1995 - Jim & Linda Wedding - 18 Reception Parent Dance (March 18, 1995)
 TRANSCRIPT=off
 DATE_RECORDED=1995-03-19 02:26:00.000 ; UTC
 DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 RECORDING_LOCATION=US, California, Altadena
 location=+34.18653-118.12936+388.24/Gloria Dilbeck's Home, 1034 Beverly Way, Altadena, CA 91001
 creation_time=1995-03-18T18:26:00-08:00
-comment=Family dancing to Hey Jude by the Beatles
+comment=Family dancing to Hey Jude by The Beatles
 
 [CHAPTER]
 TIMEBASE=1001/30000
@@ -236,7 +240,7 @@ DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 RECORDING_LOCATION=US, California, Altadena
 location=+34.18653-118.12936+388.24/Gloria Dilbeck's Home, 1034 Beverly Way, Altadena, CA 91001
 creation_time=1995-03-18T19:09:00-08:00
-comment=Linda & Jimmy wedding cake
+comment=Linda & Jimmy cutting wedding cake
 
 [CHAPTER]
 TIMEBASE=1001/30000
@@ -287,6 +291,7 @@ DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 RECORDING_LOCATION=US, California, Altadena
 location=+34.18653-118.12936+388.24/Gloria Dilbeck's Home, 1034 Beverly Way, Altadena, CA 91001
 creation_time=1995-03-18T19:24:00-08:00
+comment=Jimmy standing on back stairs of house removing garter from Linda
 
 [CHAPTER]
 TIMEBASE=1001/30000
@@ -299,4 +304,4 @@ DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
 RECORDING_LOCATION=US, California, Altadena
 location=+34.18653-118.12936+388.24/Gloria Dilbeck's Home, 1034 Beverly Way, Altadena, CA 91001
 creation_time=1995-03-18T19:25:00-08:00
-comment=Throwing bouquet
+comment=Throwing the garter
