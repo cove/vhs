@@ -47,6 +47,8 @@ CROP_LIMIT = 24
 CROP_ROUND = 2
 DETAIL_LOSS_TOLERANCE = 0.10
 EPS = 1e-6
+STABILITY_BASELINE_FLOOR = 0.05
+STABILITY_RATIO_MAX = 10.0
 
 # Priority requested by user: stability > detail > smoothness.
 STAGE1_WEIGHTS = {
@@ -86,7 +88,7 @@ TEST_CASES = [
     {
         "name": "wedding_vows_mid",
         "archive": "callahan_01_archive",
-        "title_contains": "Wedding Vows",
+        "title_contains": "Nuptials",
         "offset_sec": 150,
     },
     {
@@ -258,6 +260,166 @@ def safe_div(a, b, default=1.0):
     return float(a) / float(b)
 
 
+def parse_badframe_ranges(tsv_path):
+    ranges = []
+    if not tsv_path:
+        return ranges
+    p = Path(tsv_path)
+    if not p.exists():
+        return ranges
+
+    for raw_line in p.read_text(encoding="utf-8-sig", errors="ignore").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [x.strip() for x in (line.split("\t") if "\t" in line else line.split(","))]
+        if len(parts) < 2:
+            continue
+        try:
+            start = int(parts[0])
+            end = int(parts[1])
+        except ValueError:
+            continue
+        if end < start:
+            start, end = end, start
+        if end < 0:
+            continue
+        ranges.append((max(0, start), max(0, end)))
+    return ranges
+
+
+def chapter_frame_bounds(ch):
+    start = sec_to_frame(ch["start"])
+    end = sec_to_frame(ch["end"])
+    if end < start:
+        end = start
+    return start, end
+
+
+def badframe_set_for_chapter(ch, bad_ranges):
+    chapter_start, chapter_end = chapter_frame_bounds(ch)
+    out = set()
+    for start, end in (bad_ranges or []):
+        lo = max(chapter_start, int(start))
+        hi = min(chapter_end, int(end))
+        if hi < lo:
+            continue
+        for frame_idx in range(lo, hi + 1):
+            out.add(frame_idx)
+    return out
+
+
+def count_bad_frames_in_window(start_frame, end_frame, bad_frame_set):
+    if not bad_frame_set:
+        return 0
+    lo = int(min(start_frame, end_frame))
+    hi = int(max(start_frame, end_frame))
+    return sum(1 for frame_idx in range(lo, hi + 1) if frame_idx in bad_frame_set)
+
+
+def relocate_window_away_from_badframes(ch, start_frame, end_frame, bad_frame_set):
+    chapter_start, chapter_end = chapter_frame_bounds(ch)
+    n = max(1, int(end_frame) - int(start_frame) + 1)
+    min_start = chapter_start
+    max_start = max(chapter_start, chapter_end - n + 1)
+    start0 = max(min_start, min(max_start, int(start_frame)))
+
+    def bad_count_for_start(start_value):
+        s = int(start_value)
+        e = s + n - 1
+        return count_bad_frames_in_window(s, e, bad_frame_set), e
+
+    initial_bad, end0 = bad_count_for_start(start0)
+    if initial_bad <= 0:
+        return start0, end0, 0, 0
+
+    radius = max(start0 - min_start, max_start - start0)
+    best_bad = initial_bad
+    best_start = start0
+    best_end = end0
+    best_delta = 0
+    for delta in range(1, radius + 1):
+        for candidate_start in (start0 - delta, start0 + delta):
+            if candidate_start < min_start or candidate_start > max_start:
+                continue
+            bad_count, candidate_end = bad_count_for_start(candidate_start)
+            if bad_count < best_bad:
+                best_bad = bad_count
+                best_start = int(candidate_start)
+                best_end = int(candidate_end)
+                best_delta = int(delta)
+            if bad_count <= 0:
+                return int(candidate_start), int(candidate_end), int(delta), 0
+
+    return best_start, best_end, best_delta, best_bad
+
+
+def filter_windows_for_badframes(ch, windows, bad_frame_set, stage_name):
+    if not windows:
+        return []
+    if not bad_frame_set:
+        return windows
+
+    accepted = []
+    fallback_candidates = []
+    for w in windows:
+        bad_before = count_bad_frames_in_window(w["start_frame"], w["end_frame"], bad_frame_set)
+        if bad_before <= 0:
+            accepted.append(dict(w))
+            continue
+
+        new_start, new_end, shift_delta, bad_after = relocate_window_away_from_badframes(
+            ch,
+            w["start_frame"],
+            w["end_frame"],
+            bad_frame_set,
+        )
+        if bad_after <= 0:
+            print(
+                f"  {stage_name} moved window {w['name']} "
+                f"{w['start_frame']}-{w['end_frame']} -> {new_start}-{new_end} "
+                f"to avoid {bad_before} bad frame(s)."
+            )
+            moved = dict(w)
+            moved["start_frame"] = int(new_start)
+            moved["end_frame"] = int(new_end)
+            moved["window_shift_frames"] = int(shift_delta)
+            accepted.append(moved)
+            continue
+
+        fallback = dict(w)
+        fallback["start_frame"] = int(new_start)
+        fallback["end_frame"] = int(new_end)
+        fallback["bad_frames_in_window"] = int(bad_after)
+        fallback_candidates.append(fallback)
+        print(
+            f"  {stage_name} rejected window {w['name']} due to {bad_before} bad frame(s); "
+            f"best nearby still had {bad_after} bad frame(s) at {new_start}-{new_end}."
+        )
+
+    if accepted:
+        dropped = len(windows) - len(accepted)
+        if dropped > 0:
+            print(f"  {stage_name} kept {len(accepted)} clean window(s), dropped {dropped}.")
+        return accepted
+
+    fallback_candidates.sort(
+        key=lambda w: (
+            int(w.get("bad_frames_in_window", 10**9)),
+            int(w["start_frame"]),
+            int(w["end_frame"]),
+        )
+    )
+    best = fallback_candidates[:1] if fallback_candidates else []
+    if best:
+        b = best[0]
+        print(
+            f"  {stage_name} fallback: no clean windows available; using {b['name']} "
+            f"{b['start_frame']}-{b['end_frame']} with {b.get('bad_frames_in_window', 0)} bad frame(s)."
+        )
+    return best
+
+
 def fmt_avs_value(v):
     if isinstance(v, bool):
         return "true" if v else "false"
@@ -308,7 +470,7 @@ def unique_windows(windows):
     return out
 
 
-def build_stage_windows(ch, case):
+def build_stage_windows(ch, case, bad_frame_set=None):
     chapter_start = float(ch["start"])
     chapter_end = float(ch["end"])
     chapter_duration = max(0.0, chapter_end - chapter_start)
@@ -352,7 +514,14 @@ def build_stage_windows(ch, case):
             }
         )
 
+    if bad_frame_set:
+        stage1_windows = filter_windows_for_badframes(ch, stage1_windows, bad_frame_set, "Stage1")
+        stage2_windows = filter_windows_for_badframes(ch, stage2_windows, bad_frame_set, "Stage2")
+
+    stage1_windows = unique_windows(stage1_windows)
     stage2_windows = unique_windows(stage2_windows)
+    if not stage1_windows and stage2_windows:
+        stage1_windows = [stage2_windows[0]]
     if not stage2_windows:
         stage2_windows = stage1_windows
 
@@ -386,8 +555,17 @@ def rewrite_filter_qtgmc(filter_text, qtgmc_opts):
     return "\n".join(out) + "\n"
 
 
-def build_avs(src_path, start_frame, end_frame, filter_text):
+def build_avs(
+    src_path,
+    start_frame,
+    end_frame,
+    filter_text,
+    chapter_start_frame=None,
+    chapter_end_frame=None,
+):
     src = str(src_path).replace("\\", "/")
+    chapter_start = int(start_frame if chapter_start_frame is None else chapter_start_frame)
+    chapter_end = int(end_frame if chapter_end_frame is None else chapter_end_frame)
     lines = [
         f'LoadPlugin("{QTGMC_DIR}/ffms2.dll")',
         f'LoadPlugin("{QTGMC_DIR}/masktools2.dll")',
@@ -405,6 +583,8 @@ def build_avs(src_path, start_frame, end_frame, filter_text):
         f'Import("{QTGMC_DIR}/QTGMC.avsi")',
         f'FFmpegSource2("{src}", atrack=-1)',
         f"Trim({start_frame},{end_frame})",
+        f"chapter_start_frame = {chapter_start}",
+        f"chapter_end_frame = {chapter_end}",
     ]
     return "\n".join(lines) + "\n" + filter_text
 
@@ -479,15 +659,21 @@ def run_cropdetect_metrics(avs_path, log_path):
         "-",
     ]
     print("Command: " + " ".join(map(str, cmd)))
-    proc = subprocess.run(
-        [str(c) for c in cmd],
-        check=True,
-        text=True,
-        capture_output=True,
-    )
-    text = (proc.stderr or "") + "\n" + (proc.stdout or "")
-    log_path.write_text(text, encoding="utf-8")
-    return parse_crop_text(text)
+    try:
+        proc = subprocess.run(
+            [str(c) for c in cmd],
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        text = (proc.stderr or "") + "\n" + (proc.stdout or "")
+        log_path.write_text(text, encoding="utf-8")
+        return parse_crop_text(text)
+    except subprocess.CalledProcessError as exc:
+        text = (exc.stderr or "") + "\n" + (exc.stdout or "")
+        log_path.write_text(text, encoding="utf-8")
+        tail = (text.strip().splitlines()[-1] if text.strip() else str(exc))
+        raise RuntimeError(f"cropdetect failed for {avs_path}: {tail}") from exc
 
 
 def run_signalstats_metric(avs_path, vf, log_path):
@@ -502,18 +688,50 @@ def run_signalstats_metric(avs_path, vf, log_path):
         "-",
     ]
     print("Command: " + " ".join(map(str, cmd)))
-    proc = subprocess.run(
-        [str(c) for c in cmd],
-        check=True,
-        text=True,
-        capture_output=True,
-    )
-    text = (proc.stderr or "") + "\n" + (proc.stdout or "")
-    log_path.write_text(text, encoding="utf-8")
-    vals = [float(m.group(1)) for m in SIGNALSTATS_YAVG_RE.finditer(text)]
-    if not vals:
-        raise RuntimeError(f"No signalstats YAVG values parsed from {avs_path}")
-    return statistics.fmean(vals), len(vals)
+    try:
+        proc = subprocess.run(
+            [str(c) for c in cmd],
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        text = (proc.stderr or "") + "\n" + (proc.stdout or "")
+        log_path.write_text(text, encoding="utf-8")
+        vals = [float(m.group(1)) for m in SIGNALSTATS_YAVG_RE.finditer(text)]
+        if not vals:
+            raise RuntimeError(f"No signalstats YAVG values parsed from {avs_path}")
+        return statistics.fmean(vals), len(vals)
+    except subprocess.CalledProcessError as exc:
+        text = (exc.stderr or "") + "\n" + (exc.stdout or "")
+        log_path.write_text(text, encoding="utf-8")
+        tail = (text.strip().splitlines()[-1] if text.strip() else str(exc))
+        raise RuntimeError(f"signalstats failed for {avs_path}: {tail}") from exc
+
+
+def failed_metrics_payload():
+    return {
+        "stability_score": float("inf"),
+        "samples": 0,
+        "x_std": float("inf"),
+        "y_std": float("inf"),
+        "w_std": float("inf"),
+        "h_std": float("inf"),
+        "x_span": float("inf"),
+        "y_span": float("inf"),
+        "w_span": float("inf"),
+        "h_span": float("inf"),
+        "detail_mean": 0.0,
+        "detail_samples": 0,
+        "temporal_mean": float("inf"),
+        "temporal_samples": 0,
+        "brisque_mean": float("inf"),
+        "brisque_samples": 0,
+        "iqa_mean": None,
+        "iqa_samples": 0,
+        "crop_log_path": "",
+        "detail_log_path": "",
+        "temporal_log_path": "",
+    }
 
 
 def ensure_brisque_models():
@@ -671,7 +889,18 @@ def compute_avs_metrics(avs_path, log_dir, tag, metric_ctx, stage_cfg, with_iqa=
 
 
 def score_components(metrics, baseline, weights):
-    stability_ratio = safe_div(metrics["stability_score"], baseline["stability_score"], default=float("inf"))
+    raw_stability = float(metrics["stability_score"])
+    raw_baseline_stability = float(baseline["stability_score"])
+    if np.isfinite(raw_stability):
+        effective_baseline_stability = max(raw_baseline_stability, STABILITY_BASELINE_FLOOR)
+        stability_ratio = safe_div(raw_stability, effective_baseline_stability, default=1.0)
+        if not np.isfinite(stability_ratio):
+            stability_ratio = STABILITY_RATIO_MAX
+        stability_ratio = max(0.0, min(float(stability_ratio), STABILITY_RATIO_MAX))
+    else:
+        effective_baseline_stability = STABILITY_BASELINE_FLOOR
+        stability_ratio = STABILITY_RATIO_MAX
+
     detail_ratio = safe_div(metrics["detail_mean"], baseline["detail_mean"], default=1.0)
     temporal_ratio = safe_div(metrics["temporal_mean"], baseline["temporal_mean"], default=1.0)
     brisque_ratio = safe_div(metrics["brisque_mean"], baseline["brisque_mean"], default=1.0)
@@ -679,7 +908,8 @@ def score_components(metrics, baseline, weights):
     detail_floor = 1.0 - DETAIL_LOSS_TOLERANCE
     detail_penalty = max(0.0, (detail_floor - detail_ratio) / max(DETAIL_LOSS_TOLERANCE, EPS))
     brisque_penalty = max(0.0, brisque_ratio - 1.0)
-    smoothness_penalty = temporal_ratio
+    induced_motion = max(0.0, temporal_ratio - 1.0)
+    smoothness_penalty = induced_motion
 
     iqa_ratio = None
     iqa_penalty = 0.0
@@ -697,6 +927,7 @@ def score_components(metrics, baseline, weights):
     return {
         "score": score,
         "stability_ratio": stability_ratio,
+        "effective_baseline_stability": float(effective_baseline_stability),
         "detail_ratio": detail_ratio,
         "temporal_ratio": temporal_ratio,
         "brisque_ratio": brisque_ratio,
@@ -778,17 +1009,30 @@ def evaluate_candidate(case_ctx, run_ctx, qtgmc_opts, sharpness, eval_index, sta
         )
         avs_path = run_ctx["avs_dir"] / f"{safe(tag)}.avs"
         avs_path.write_text(
-            build_avs(case_ctx["archive_path"], w["start_frame"], w["end_frame"], patched_filter),
+            build_avs(
+                case_ctx["archive_path"],
+                w["start_frame"],
+                w["end_frame"],
+                patched_filter,
+                chapter_start_frame=case_ctx["chapter_start_frame"],
+                chapter_end_frame=case_ctx["chapter_end_frame"],
+            ),
             encoding="utf-8",
         )
-        metrics = compute_avs_metrics(
-            avs_path,
-            run_ctx["log_dir"],
-            tag,
-            metric_ctx,
-            stage_cfg,
-            with_iqa=with_iqa,
-        )
+        metric_error = None
+        try:
+            metrics = compute_avs_metrics(
+                avs_path,
+                run_ctx["log_dir"],
+                tag,
+                metric_ctx,
+                stage_cfg,
+                with_iqa=with_iqa,
+            )
+        except Exception as exc:
+            metric_error = str(exc)
+            metrics = failed_metrics_payload()
+            print(f"    WARNING: metric eval failed for {tag}: {metric_error}")
         baseline = run_ctx["baseline_by_window"][w["name"]]
         score_bits = score_components(metrics, baseline, stage_cfg["weights"])
         one = dict(metrics)
@@ -799,6 +1043,7 @@ def evaluate_candidate(case_ctx, run_ctx, qtgmc_opts, sharpness, eval_index, sta
                 "window_start_frame": w["start_frame"],
                 "window_end_frame": w["end_frame"],
                 "avs_path": str(avs_path),
+                "metric_error": metric_error,
             }
         )
         window_results.append(one)
@@ -962,6 +1207,8 @@ def encode_preview(case_ctx, window, qtgmc_opts, sharpness, out_path):
         window["start_frame"],
         window["end_frame"],
         patched_filter,
+        chapter_start_frame=case_ctx["chapter_start_frame"],
+        chapter_end_frame=case_ctx["chapter_end_frame"],
     )
     avs_path = out_path.with_suffix(".avs")
     avs_path.write_text(avs_text, encoding="utf-8")
@@ -1161,7 +1408,24 @@ def main():
             print(f"Skipping {case_name}: no chapter match for '{case.get('title_contains', '')}'")
             continue
 
-        stage1_windows, stage2_windows = build_stage_windows(ch, case)
+        badframes_override = case.get("badframes_tsv")
+        if badframes_override:
+            badframes_path = Path(badframes_override)
+            if not badframes_path.is_absolute():
+                badframes_path = (BASE / badframes_path).resolve()
+        else:
+            badframes_path = METADATA_DIR / archive_stem / "badframes.tsv"
+        bad_ranges = parse_badframe_ranges(badframes_path)
+        bad_frame_set = badframe_set_for_chapter(ch, bad_ranges)
+        if badframes_path.exists():
+            print(
+                f"  Badframe prefilter: {badframes_path.name} "
+                f"({len(bad_ranges)} range(s), {len(bad_frame_set)} bad frame(s) in chapter)"
+            )
+        else:
+            print("  Badframe prefilter: none (sidecar not found)")
+
+        stage1_windows, stage2_windows = build_stage_windows(ch, case, bad_frame_set=bad_frame_set)
 
         case_dir = out_dir / safe(case_name)
         preview_dir = case_dir / "previews"
@@ -1176,11 +1440,14 @@ def main():
         for d in (s1_avs_dir, s1_log_dir, s2_avs_dir, s2_log_dir):
             d.mkdir(parents=True, exist_ok=True)
 
+        chapter_start_frame, chapter_end_frame = chapter_frame_bounds(ch)
         case_ctx = {
             "name": case_name,
             "archive_stem": archive_stem,
             "archive_path": archive_path,
             "chapter_title": ch.get("title", ""),
+            "chapter_start_frame": chapter_start_frame,
+            "chapter_end_frame": chapter_end_frame,
             "filter_text": filter_path.read_text(encoding="utf-8"),
         }
         print(

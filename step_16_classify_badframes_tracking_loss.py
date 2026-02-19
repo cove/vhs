@@ -1,41 +1,33 @@
 #!/usr/bin/env python3.11
 #
-# TAPE-style frame quality classification for VHS archives.
-# Mirrors the frame classification stage from TAPE's real_world_inference.py:
-#   CLIP image/text similarity -> Otsu threshold -> good/bad frame split.
+# Tracking-loss bad frame classification for VHS archives.
+# Uses intra-frame artifact signals that remain effective even when multiple
+# consecutive frames are degraded:
+#   1) Horizontal edge energy (Sobel Y)
+#   2) Scanline luma instability (adjacent row mean differences)
+#   3) Field mismatch (even/odd line absolute difference)
 #
 import argparse
-import contextlib
 import json
 import re
 from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import Image
-import torch
-import torch.nn.functional as F
 from tqdm import tqdm
 
 from common import ARCHIVE_DIR, METADATA_DIR
 
 
 DEFAULT_ARCHIVE = "callahan_01_archive"
-DEFAULT_CLIP_MODEL = "RN50x4"
-TAPE_PROMPTS = [
-    "an image that has lost its tracking is bad",
-    "an image that is tearing is bad",
-    "an image that is very soft is ok though, don't mark it as bad"
-    "an image that's interlaced looking is fine too, or has a comb effect is ok",
-    "if an image that has a clear date and time in it, that's not warped then it's ok",
-    "an image that has lot its color is bad",
-    "there's a date and time that appears doubled, then it's a bad image"
-]
 
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(
-        description="Classify VHS frames as good/bad using TAPE's CLIP+Otsu method."
+        description=(
+            "Classify VHS frames as good/bad using tracking-loss specific "
+            "scanline and field artifact signals."
+        )
     )
     parser.add_argument(
         "--archive",
@@ -50,12 +42,12 @@ def parse_args(argv=None):
     parser.add_argument(
         "--output-dir",
         default="",
-        help="Output folder. Default: metadata/<archive>/tape_badframe",
+        help="Output folder. Default: metadata/<archive>/tracking_badframe",
     )
     parser.add_argument(
         "--scores-tsv",
         default="",
-        help="Optional existing frame_scores.tsv to reuse (skips CLIP scoring).",
+        help="Optional existing frame_scores.tsv to reuse (skips video scoring).",
     )
     parser.add_argument(
         "--existing-badframes",
@@ -81,20 +73,52 @@ def parse_args(argv=None):
         help="Evaluate every Nth frame (default: 1).",
     )
     parser.add_argument(
-        "--clip-model",
-        default=DEFAULT_CLIP_MODEL,
-        help=f"CLIP model name for clip.load() (default: {DEFAULT_CLIP_MODEL}).",
-    )
-    parser.add_argument(
-        "--batch-size",
+        "--crop-top",
         type=int,
-        default=16,
-        help="CLIP image batch size (default: 16).",
+        default=0,
+        help="Crop this many rows from top before scoring (default: 0).",
     )
     parser.add_argument(
-        "--device",
-        default="",
-        help="Torch device override (examples: cpu, cuda). Default: auto.",
+        "--crop-bottom",
+        type=int,
+        default=0,
+        help="Crop this many rows from bottom before scoring (default: 0).",
+    )
+    parser.add_argument(
+        "--crop-left",
+        type=int,
+        default=0,
+        help="Crop this many columns from left before scoring (default: 0).",
+    )
+    parser.add_argument(
+        "--crop-right",
+        type=int,
+        default=0,
+        help="Crop this many columns from right before scoring (default: 0).",
+    )
+    parser.add_argument(
+        "--sobel-ksize",
+        type=int,
+        default=3,
+        help="Sobel kernel size for horizontal edge energy (odd, 1/3/5/7; default: 3).",
+    )
+    parser.add_argument(
+        "--weight-edge",
+        type=float,
+        default=0.45,
+        help="Composite score weight for horizontal edge energy signal (default: 0.45).",
+    )
+    parser.add_argument(
+        "--weight-row",
+        type=float,
+        default=0.25,
+        help="Composite score weight for scanline luma instability signal (default: 0.25).",
+    )
+    parser.add_argument(
+        "--weight-field",
+        type=float,
+        default=0.30,
+        help="Composite score weight for field mismatch signal (default: 0.30).",
     )
     parser.add_argument(
         "--otsu-bins",
@@ -137,12 +161,6 @@ def parse_args(argv=None):
         help="PNG sample output folder. Default: <output-dir>/badframe_samples",
     )
     return parser.parse_args(argv)
-
-
-def resolve_device(device_arg):
-    if device_arg:
-        return torch.device(device_arg)
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def parse_badframe_ranges(tsv_path):
@@ -229,16 +247,81 @@ def otsu_threshold(values, bins=256):
     return float(centers[best_idx])
 
 
-def encode_batch(clip_model, text_features, tensors, device):
-    batch = torch.stack(tensors, dim=0).to(device)
-    amp_ctx = torch.autocast(device_type="cuda", dtype=torch.float16) if device.type == "cuda" else contextlib.nullcontext()
-    with torch.no_grad(), amp_ctx:
-        img_feats = F.normalize(clip_model.encode_image(batch), dim=-1)
-        sim = img_feats @ text_features.T
-    return sim.squeeze(1).detach().cpu().numpy().astype(float).tolist()
+def robust_zscore(values):
+    vals = np.asarray(values, dtype=np.float64)
+    if vals.size == 0:
+        raise ValueError("Cannot normalize empty signal.")
+
+    center = float(np.median(vals))
+    mad = float(np.median(np.abs(vals - center)))
+    scale = 1.4826 * mad
+    if scale <= 1e-12:
+        std = float(np.std(vals))
+        scale = std if std > 1e-12 else 1.0
+
+    z = (vals - center) / scale
+    return z, center, scale
 
 
-def score_video_frames(video_path, start_frame, max_frame, frame_step, batch_size, clip_model, clip_preprocess, text_features, device):
+def sanitize_sobel_ksize(ksize):
+    k = int(ksize)
+    if k <= 0:
+        return 3
+    if k % 2 == 0:
+        k += 1
+    return max(1, min(k, 31))
+
+
+def crop_frame(gray, top, bottom, left, right):
+    h, w = gray.shape[:2]
+    t = max(0, int(top))
+    b = max(0, int(bottom))
+    l = max(0, int(left))
+    r = max(0, int(right))
+
+    y0 = min(t, max(0, h - 1))
+    y1 = max(y0 + 1, h - b)
+    x0 = min(l, max(0, w - 1))
+    x1 = max(x0 + 1, w - r)
+
+    roi = gray[y0:y1, x0:x1]
+    if roi.size == 0:
+        return gray
+    return roi
+
+
+def compute_tracking_signals(gray, sobel_ksize):
+    sobel_y = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=sobel_ksize)
+    edge_energy = float(np.mean(np.abs(sobel_y)))
+
+    row_means = gray.mean(axis=1, dtype=np.float32)
+    if row_means.shape[0] > 1:
+        row_instability = float(np.mean(np.abs(np.diff(row_means))))
+    else:
+        row_instability = 0.0
+
+    even = gray[0::2, :].astype(np.float32)
+    odd = gray[1::2, :].astype(np.float32)
+    paired_rows = min(even.shape[0], odd.shape[0])
+    if paired_rows > 0:
+        field_mismatch = float(np.mean(np.abs(even[:paired_rows] - odd[:paired_rows])))
+    else:
+        field_mismatch = 0.0
+
+    return edge_energy, row_instability, field_mismatch
+
+
+def score_video_frames(
+    video_path,
+    start_frame,
+    max_frame,
+    frame_step,
+    crop_top,
+    crop_bottom,
+    crop_left,
+    crop_right,
+    sobel_ksize,
+):
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise RuntimeError(f"Unable to open video: {video_path}")
@@ -263,9 +346,9 @@ def score_video_frames(video_path, start_frame, max_frame, frame_step, batch_siz
     pbar = tqdm(total=target_count, desc="Scoring frames", unit="frame")
 
     indices = []
-    scores = []
-    tensors = []
-    tensor_indices = []
+    edge_scores = []
+    row_scores = []
+    field_scores = []
 
     frame_idx = start
     while frame_idx <= end:
@@ -274,49 +357,104 @@ def score_video_frames(video_path, start_frame, max_frame, frame_step, batch_siz
             break
 
         if ((frame_idx - start) % step) == 0:
-            frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-            pil = Image.fromarray(frame_rgb)
-            tensors.append(clip_preprocess(pil))
-            tensor_indices.append(frame_idx)
-            if len(tensors) >= batch_size:
-                batch_scores = encode_batch(clip_model, text_features, tensors, device)
-                indices.extend(tensor_indices)
-                scores.extend(batch_scores)
-                tensors.clear()
-                tensor_indices.clear()
+            gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+            roi = crop_frame(
+                gray,
+                top=crop_top,
+                bottom=crop_bottom,
+                left=crop_left,
+                right=crop_right,
+            )
+            edge_energy, row_instability, field_mismatch = compute_tracking_signals(
+                roi, sobel_ksize=sobel_ksize
+            )
+            indices.append(int(frame_idx))
+            edge_scores.append(float(edge_energy))
+            row_scores.append(float(row_instability))
+            field_scores.append(float(field_mismatch))
             pbar.update(1)
         frame_idx += 1
-
-    if tensors:
-        batch_scores = encode_batch(clip_model, text_features, tensors, device)
-        indices.extend(tensor_indices)
-        scores.extend(batch_scores)
 
     pbar.close()
     cap.release()
 
     if not indices:
         raise RuntimeError("No frame scores produced.")
-    return total_frames, start, end, indices, scores
+    return total_frames, start, end, indices, edge_scores, row_scores, field_scores
+
+
+def combine_signals(edge_scores, row_scores, field_scores, weight_edge, weight_row, weight_field):
+    w_edge = float(weight_edge)
+    w_row = float(weight_row)
+    w_field = float(weight_field)
+    weight_sum = w_edge + w_row + w_field
+    if weight_sum <= 0.0:
+        raise ValueError("At least one signal weight must be > 0.")
+
+    edge_z, edge_center, edge_scale = robust_zscore(edge_scores)
+    row_z, row_center, row_scale = robust_zscore(row_scores)
+    field_z, field_center, field_scale = robust_zscore(field_scores)
+
+    score = (
+        w_edge * edge_z +
+        w_row * row_z +
+        w_field * field_z
+    ) / weight_sum
+
+    signal_norm = {
+        "edge": {"center": float(edge_center), "scale": float(edge_scale)},
+        "row": {"center": float(row_center), "scale": float(row_scale)},
+        "field": {"center": float(field_center), "scale": float(field_scale)},
+    }
+    return score.astype(np.float64), signal_norm
+
+
+def _try_parse_float(text):
+    try:
+        return float(text)
+    except Exception:
+        return np.nan
 
 
 def load_scores_tsv(scores_tsv_path):
     rows = []
+    header_map = {}
+
     for raw_line in Path(scores_tsv_path).read_text(encoding="utf-8", errors="ignore").splitlines():
         line = raw_line.strip()
         if not line:
             continue
-        if line.lower().startswith("frame\t"):
-            continue
         parts = line.split("\t")
-        if len(parts) < 2:
+        lowered = [p.strip().lower() for p in parts]
+        if lowered and lowered[0] == "frame":
+            header_map = {name: idx for idx, name in enumerate(lowered)}
+            continue
+
+        if header_map:
+            frame_idx_col = header_map.get("frame", 0)
+            score_col = header_map.get("score", 1)
+            edge_col = header_map.get("edge_energy", -1)
+            row_col = header_map.get("row_instability", -1)
+            field_col = header_map.get("field_mismatch", -1)
+        else:
+            frame_idx_col = 0
+            score_col = 1
+            edge_col = -1
+            row_col = -1
+            field_col = -1
+
+        if len(parts) <= max(frame_idx_col, score_col):
             continue
         try:
-            frame_idx = int(parts[0])
-            score = float(parts[1])
+            frame_idx = int(parts[frame_idx_col])
+            score = float(parts[score_col])
         except ValueError:
             continue
-        rows.append((frame_idx, score))
+
+        edge_energy = _try_parse_float(parts[edge_col]) if edge_col >= 0 and edge_col < len(parts) else np.nan
+        row_instability = _try_parse_float(parts[row_col]) if row_col >= 0 and row_col < len(parts) else np.nan
+        field_mismatch = _try_parse_float(parts[field_col]) if field_col >= 0 and field_col < len(parts) else np.nan
+        rows.append((frame_idx, score, edge_energy, row_instability, field_mismatch))
 
     if not rows:
         raise ValueError(f"No frame/score rows found in {scores_tsv_path}")
@@ -324,7 +462,10 @@ def load_scores_tsv(scores_tsv_path):
     rows.sort(key=lambda x: x[0])
     indices = [int(r[0]) for r in rows]
     scores = [float(r[1]) for r in rows]
-    return indices, scores
+    edge_scores = [float(r[2]) for r in rows]
+    row_scores = [float(r[3]) for r in rows]
+    field_scores = [float(r[4]) for r in rows]
+    return indices, scores, edge_scores, row_scores, field_scores
 
 
 def pick_evenly_spaced_samples(frame_ids, count):
@@ -344,7 +485,6 @@ def pick_evenly_spaced_samples(frame_ids, count):
         seen.add(frame_id)
         chosen.append(frame_id)
 
-    # Guard against duplicate linspace indices on small ranges.
     if len(chosen) < sample_count:
         for frame_id in ordered:
             if frame_id in seen:
@@ -385,14 +525,29 @@ def export_frame_png_samples(video_path, frame_ids, sample_dir, prefix="bad_samp
     return written, failed_frames
 
 
-def write_outputs(output_dir, indices, scores, labels, bad_ranges, summary, note="tape_clip"):
+def write_outputs(
+    output_dir,
+    indices,
+    scores,
+    edge_scores,
+    row_scores,
+    field_scores,
+    labels,
+    bad_ranges,
+    summary,
+    note="tracking_loss",
+):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     frame_scores_path = output_dir / "frame_scores.tsv"
     with frame_scores_path.open("w", encoding="utf-8") as f:
-        f.write("frame\tscore\tlabel\n")
-        for frame_idx, score, label in zip(indices, scores, labels):
-            f.write(f"{frame_idx}\t{score:.8f}\t{label}\n")
+        f.write("frame\tscore\tedge_energy\trow_instability\tfield_mismatch\tlabel\n")
+        for frame_idx, score, edge, row, field, label in zip(
+            indices, scores, edge_scores, row_scores, field_scores, labels
+        ):
+            f.write(
+                f"{frame_idx}\t{score:.8f}\t{edge:.8f}\t{row:.8f}\t{field:.8f}\t{label}\n"
+            )
 
     badframes_path = output_dir / "badframes.tsv"
     with badframes_path.open("w", encoding="utf-8") as f:
@@ -406,6 +561,18 @@ def write_outputs(output_dir, indices, scores, labels, bad_ranges, summary, note
     return frame_scores_path, badframes_path, summary_path
 
 
+def finite_stats(values):
+    vals = np.asarray(values, dtype=np.float64)
+    finite = vals[np.isfinite(vals)]
+    if finite.size <= 0:
+        return {"min": None, "max": None, "mean": None}
+    return {
+        "min": float(np.min(finite)),
+        "max": float(np.max(finite)),
+        "mean": float(np.mean(finite)),
+    }
+
+
 def main(argv=None):
     args = parse_args(argv)
 
@@ -413,8 +580,10 @@ def main(argv=None):
     if not archive_name:
         raise ValueError("--archive cannot be empty.")
 
+    sobel_ksize = sanitize_sobel_ksize(args.sobel_ksize)
+
     video_path = Path(args.video) if args.video else (ARCHIVE_DIR / f"{archive_name}.mkv")
-    output_dir = Path(args.output_dir) if args.output_dir else (METADATA_DIR / archive_name / "tape_badframe")
+    output_dir = Path(args.output_dir) if args.output_dir else (METADATA_DIR / archive_name / "tracking_badframe")
     png_output_dir = (
         Path(args.png_output_dir) if args.png_output_dir else (output_dir / "badframe_samples")
     )
@@ -425,16 +594,19 @@ def main(argv=None):
     )
     scores_tsv_path = Path(args.scores_tsv) if args.scores_tsv else None
 
-    device = resolve_device(args.device)
-    print(f"Using device: {device}")
+    indices = []
+    edge_scores = []
+    row_scores = []
+    field_scores = []
+    signal_norm = None
+    total_frames = None
 
     if scores_tsv_path:
         if not scores_tsv_path.exists():
             raise FileNotFoundError(f"Scores TSV not found: {scores_tsv_path}")
-        indices, scores = load_scores_tsv(scores_tsv_path)
+        indices, scores, edge_scores, row_scores, field_scores = load_scores_tsv(scores_tsv_path)
         start_frame = min(indices)
         end_frame = max(indices)
-        total_frames = None
         if video_path.exists():
             cap = cv2.VideoCapture(str(video_path))
             if cap.isOpened():
@@ -445,37 +617,26 @@ def main(argv=None):
         if not video_path.exists():
             raise FileNotFoundError(f"Video file not found: {video_path}")
 
-        try:
-            import clip
-        except Exception as exc:
-            raise RuntimeError(
-                "Failed to import `clip`. Install dependencies with:\n"
-                "  .\\.venv\\Scripts\\python.exe -m pip install openai-clip \"setuptools<81\""
-            ) from exc
-
-        print(f"Loading CLIP model: {args.clip_model}")
-        # `jit=True` is used in the original TAPE code, but it is incompatible with
-        # some modern torch/clip combinations on CPU.
-        clip_model, clip_preprocess = clip.load(args.clip_model, device=device, jit=False)
-        clip_model.eval()
-
-        amp_ctx = torch.autocast(device_type="cuda", dtype=torch.float16) if device.type == "cuda" else contextlib.nullcontext()
-        with torch.no_grad(), amp_ctx:
-            tokenized_prompts = clip.tokenize(TAPE_PROMPTS).to(device)
-            text_features = F.normalize(clip_model.encode_text(tokenized_prompts), dim=-1)
-            text_features = F.normalize(text_features.mean(dim=0), dim=-1).unsqueeze(0)
-
-        total_frames, start_frame, end_frame, indices, scores = score_video_frames(
+        total_frames, start_frame, end_frame, indices, edge_scores, row_scores, field_scores = score_video_frames(
             video_path=video_path,
             start_frame=args.start_frame,
             max_frame=args.max_frame,
             frame_step=args.frame_step,
-            batch_size=max(1, int(args.batch_size)),
-            clip_model=clip_model,
-            clip_preprocess=clip_preprocess,
-            text_features=text_features,
-            device=device,
+            crop_top=args.crop_top,
+            crop_bottom=args.crop_bottom,
+            crop_left=args.crop_left,
+            crop_right=args.crop_right,
+            sobel_ksize=sobel_ksize,
         )
+        scores, signal_norm = combine_signals(
+            edge_scores=edge_scores,
+            row_scores=row_scores,
+            field_scores=field_scores,
+            weight_edge=args.weight_edge,
+            weight_row=args.weight_row,
+            weight_field=args.weight_field,
+        )
+        scores = scores.astype(np.float64).tolist()
 
     scores_np = np.asarray(scores, dtype=np.float64)
     evaluated_set = set(indices)
@@ -521,6 +682,7 @@ def main(argv=None):
     labels = ["good" if score < threshold else "bad" for score in scores]
     bad_frames = sorted(frame for frame, label in zip(indices, labels) if label == "bad")
     bad_ranges = ranges_from_sorted_frames(bad_frames)
+
     requested_png_count = max(0, int(args.export_bad_png_count))
     selected_sample_frames = []
     sample_png_paths = []
@@ -542,14 +704,30 @@ def main(argv=None):
     summary = {
         "archive": archive_name,
         "video_path": str(video_path),
-        "device": str(device),
-        "clip_model": args.clip_model,
-        "prompts_count": len(TAPE_PROMPTS),
+        "detector": "tracking_loss_scanline_field",
         "total_video_frames": (None if total_frames is None else int(total_frames)),
         "evaluated_frame_start": int(start_frame),
         "evaluated_frame_end": int(end_frame),
         "evaluated_frame_step": int(max(1, args.frame_step)),
         "evaluated_frames": int(len(indices)),
+        "crop": {
+            "top": int(max(0, args.crop_top)),
+            "bottom": int(max(0, args.crop_bottom)),
+            "left": int(max(0, args.crop_left)),
+            "right": int(max(0, args.crop_right)),
+        },
+        "signals": {
+            "sobel_ksize": int(sobel_ksize),
+            "weights": {
+                "edge": float(args.weight_edge),
+                "row": float(args.weight_row),
+                "field": float(args.weight_field),
+            },
+            "normalization": signal_norm,
+            "edge_energy": finite_stats(edge_scores),
+            "row_instability": finite_stats(row_scores),
+            "field_mismatch": finite_stats(field_scores),
+        },
         "threshold_mode": threshold_mode,
         "threshold_source": threshold_source,
         "score_threshold": float(threshold),
@@ -605,10 +783,13 @@ def main(argv=None):
         output_dir=output_dir,
         indices=indices,
         scores=scores_np.tolist(),
+        edge_scores=edge_scores,
+        row_scores=row_scores,
+        field_scores=field_scores,
         labels=labels,
         bad_ranges=bad_ranges,
         summary=summary,
-        note=f"tape_clip_{threshold_mode}",
+        note=f"tracking_loss_{threshold_mode}",
     )
 
     print(f"Frame scores: {frame_scores_path}")

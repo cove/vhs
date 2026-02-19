@@ -70,6 +70,22 @@ def parse_args(argv=None):
         action="store_true",
         help="Disable bob output by selecting even frames after the QTGMC filter chain.",
     )
+    p.add_argument(
+        "--badframes-tsv",
+        default="",
+        help=(
+            "Optional alternate badframes TSV sidecar path. "
+            "Useful for testing step_16-generated badframes.tsv files."
+        ),
+    )
+    p.add_argument(
+        "--badframes-archive",
+        default="",
+        help=(
+            "Archive stem to apply --badframes-tsv to (example: callahan_01_archive). "
+            "Default: apply override to every processed archive."
+        ),
+    )
     return p.parse_args(argv)
 
 def _normalize_bad_repair_ranges(bad_source_frames=None, bad_repair_ranges=None):
@@ -266,6 +282,11 @@ def find_people_tsv(archive_name):
 def find_badframes_tsv(archive_name):
     path = METADATA_DIR / archive_name / "badframes.tsv"
     return path if path.exists() else None
+
+def resolve_badframes_tsv(archive_name, override_path=None, override_archive=""):
+    if override_path and (not override_archive or archive_name == override_archive):
+        return Path(override_path)
+    return find_badframes_tsv(archive_name)
 
 def _merge_badframe_repairs(repairs):
     if not repairs:
@@ -817,6 +838,22 @@ def main(argv=None):
     args = parse_args(argv)
     model = None
     rebuild_selected = bool(args.title)
+    badframes_override = None
+    badframes_override_archive = str(args.badframes_archive or "").strip()
+    badframes_override_applied = False
+    if args.badframes_tsv:
+        badframes_override = Path(args.badframes_tsv).expanduser()
+        if not badframes_override.is_absolute():
+            badframes_override = (Path.cwd() / badframes_override).resolve()
+        if not badframes_override.exists():
+            raise FileNotFoundError(f"Alternate badframes TSV not found: {badframes_override}")
+        if badframes_override_archive:
+            print(
+                f"Using alternate badframes TSV for archive '{badframes_override_archive}': "
+                f"{badframes_override}"
+            )
+        else:
+            print(f"Using alternate badframes TSV for all archives: {badframes_override}")
 
     for src in ARCHIVE_DIR.glob("*.mkv"):
         archive_name = src.stem
@@ -830,7 +867,13 @@ def main(argv=None):
             print(f"No chapters for {src.name}")
             continue
 
-        badframes_tsv = find_badframes_tsv(archive_name)
+        badframes_tsv = resolve_badframes_tsv(
+            archive_name,
+            override_path=badframes_override,
+            override_archive=badframes_override_archive,
+        )
+        if badframes_override and badframes_tsv == badframes_override:
+            badframes_override_applied = True
         archive_badframe_repairs = load_badframe_repairs(badframes_tsv) if badframes_tsv else []
         archive_badframe_ranges = [(a, b) for (a, b, _src) in archive_badframe_repairs]
         if badframes_tsv:
@@ -1007,6 +1050,10 @@ def main(argv=None):
             cur_count += 1
 
         print(f"All done")
+    if badframes_override and badframes_override_archive and not badframes_override_applied:
+        print(
+            f"WARNING: --badframes-archive '{badframes_override_archive}' did not match any processed archive."
+        )
 
 if __name__ == "__main__":
     main()
