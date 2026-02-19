@@ -785,6 +785,22 @@ def make_deinterlace(temp_avs, temp_extracted, temp_qtgmc):
         "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
         "-y", str(temp_qtgmc)]
 
+def make_deinterlace_ffmpeg_fallback(temp_extracted, temp_qtgmc, no_bob=False):
+    # Cross-platform fallback when AviSynth/QTGMC is unavailable.
+    # no_bob=True approximates SelectEven() behavior by emitting one frame per input frame.
+    bwdif_mode = "send_frame" if no_bob else "send_field"
+    return [FFMPEG_BIN,
+        "-nostdin",
+        "-v", "error",
+        "-i", str(temp_extracted),
+        "-vf", f"bwdif=mode={bwdif_mode}:parity=auto:deint=interlaced",
+        "-pix_fmt", "yuv422p",
+        "-map", "0:v:0", "-c:v", "ffv1",
+        "-level", "3", "-coder", "1", "-context", "1",
+        "-map", "0:a:0?", "-c:a", "copy",
+        "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
+        "-y", str(temp_qtgmc)]
+
 def transcribe_audio(model, temp_transcript, final_srt, final_vtt, final_dir):
     if get_writer is None:
         raise RuntimeError("Whisper is unavailable. Install whisper to generate transcripts.")
@@ -935,7 +951,15 @@ def main(argv=None):
                     print("Skipping deinterlacing for test run...")
                     shutil.copy(extracted, qtgmc)
                 else:
-                    raise RuntimeError("Unsupported platform for QTGMC: " + sys.platform)
+                    print(
+                        "AviSynth/QTGMC is Windows-only. "
+                        f"Using FFmpeg bwdif fallback on {sys.platform}."
+                    )
+                    if filter_script.exists():
+                        print(
+                            f"Skipping AviSynth filter script on this platform: {filter_script.name}"
+                        )
+                    run(make_deinterlace_ffmpeg_fallback(extracted, qtgmc, no_bob=args.no_bob))
 
                 subtitle_tracks = []
 

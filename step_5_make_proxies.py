@@ -25,9 +25,13 @@ def main():
              "-map", "0:v:0",
              "-map", "0:a:0?",
              "-map_metadata", "1",
-             # Keep source frame cadence/order; avoid implicit dup/drop sync behavior.
-             "-fps_mode:v:0", "passthrough",
-             "-vsync", "0",
+             # Build proxy timestamps from frame index to avoid player/display drift
+             # when source timebase quantization is coarse (e.g., 1/1000).
+             "-vf", "setpts=N/(30000/1001*TB)",
+             "-r", "30000/1001",
+             "-fps_mode:v:0", "cfr",
+             "-vsync", "cfr",
+             "-video_track_timescale", "30000",
              "-c:v", "libx264", "-preset", "superfast",  "-tune", "fastdecode", "-crf", "28",
              "-x264-params", "keyint=30:min-keyint=1:scenecut=40",
              "-pix_fmt", "yuv420p",
