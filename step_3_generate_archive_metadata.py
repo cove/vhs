@@ -102,12 +102,19 @@ def write_mediainfo_outputs(input_path, output_dir):
     for fmt, filename in outputs:
         out_path = output_dir / filename
         cmd = [str(MEDIAINFO_BIN), f"--Output={fmt}", str(input_path)]
-
-        with open(out_path, "w", encoding="utf-8") as out:
-            r = subprocess.run(cmd, cwd=output_dir, stdout=out, text=True)
-            if r.returncode:
-                print(f"  ERROR: mediainfo {fmt} failed for {input_path}")
-                sys.exit(r.returncode)
+        try:
+            with open(out_path, "w", encoding="utf-8") as out:
+                r = subprocess.run(cmd, cwd=output_dir, stdout=out, text=True)
+                if r.returncode:
+                    print(f"  ERROR: mediainfo {fmt} failed for {input_path}")
+                    sys.exit(r.returncode)
+        except FileNotFoundError:
+            print(f"  ERROR: mediainfo command not found: {MEDIAINFO_BIN}")
+            print(
+                "  Install MediaInfo CLI (e.g. sudo apt-get install mediainfo) "
+                "or set MEDIAINFO_BIN."
+            )
+            sys.exit(1)
 
     return True
 

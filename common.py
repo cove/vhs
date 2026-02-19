@@ -9,7 +9,7 @@
 # - Checks if chapter files are done based on size and existence.
 # - Measures media duration via ffprobe.
 #
-import os, subprocess, sys
+import os, shutil, subprocess, sys
 import hashlib
 from pathlib import Path
 
@@ -20,12 +20,38 @@ from pathlib import Path
 BASE = Path(__file__).parent.resolve()
 FFMPEG_DIR = None
 
+def _resolve_command(cmd_name, bundled_path=None):
+    """
+    Resolve an executable command, preferring a bundled path, then PATH lookup.
+    Returns (command, parent_dir_or_none).
+    """
+    if bundled_path is not None:
+        p = Path(bundled_path)
+        if p.exists():
+            p = p.resolve()
+            return p, p.parent
+
+    found = shutil.which(cmd_name)
+    if found:
+        p = Path(found)
+        return p, p.parent
+
+    # Keep a simple command token fallback so subprocess can still try PATH.
+    return Path(cmd_name), None
+
+def _command_exists(cmd):
+    cmd_text = str(cmd)
+    p = Path(cmd_text)
+    if p.is_absolute() or "/" in cmd_text or "\\" in cmd_text:
+        return p.exists()
+    return shutil.which(cmd_text) is not None
+
 if sys.platform == "win32":
     FFMPEG_DIR = BASE / "software" / "Windows" / "FFmpeg-QTGMC Easy 2025.01.11"
     FFMPEG_BIN = FFMPEG_DIR / "ffmpeg.exe"
     FFPROBE_BIN = FFMPEG_DIR / "ffprobe.exe"
     B3SUM_BIN = BASE / "bin" / "b3sum_windows_x64_bin.exe"
-    MEDIAINFO_BIN = BASE / "bin" / "mediainfo.exe"
+    MEDIAINFO_BIN = BASE / "bin" / "MediaInfo.exe"
     WHISPER_MODEL_DIR = BASE / "models" / "WhisperModel"
 elif sys.platform == "darwin":
     FFMPEG_DIR = BASE / "bin"
@@ -34,6 +60,46 @@ elif sys.platform == "darwin":
     B3SUM_BIN = BASE / "bin" / "b3sum"
     MEDIAINFO_BIN = "mediainfo"
     WHISPER_MODEL_DIR = BASE / "models" / "WhisperModel"
+elif sys.platform.startswith("linux"):
+    ffmpeg_override = os.getenv("FFMPEG_BIN")
+    ffprobe_override = os.getenv("FFPROBE_BIN")
+    b3sum_override = os.getenv("B3SUM_BIN")
+    mediainfo_override = os.getenv("MEDIAINFO_BIN")
+
+    if ffmpeg_override:
+        FFMPEG_BIN = Path(ffmpeg_override)
+        ffmpeg_dir = (
+            Path(ffmpeg_override).parent
+            if (Path(ffmpeg_override).is_absolute() or "/" in ffmpeg_override or "\\" in ffmpeg_override)
+            else None
+        )
+    else:
+        FFMPEG_BIN, ffmpeg_dir = _resolve_command("ffmpeg", BASE / "bin" / "ffmpeg")
+
+    if ffprobe_override:
+        FFPROBE_BIN = Path(ffprobe_override)
+        ffprobe_dir = (
+            Path(ffprobe_override).parent
+            if (Path(ffprobe_override).is_absolute() or "/" in ffprobe_override or "\\" in ffprobe_override)
+            else None
+        )
+    else:
+        FFPROBE_BIN, ffprobe_dir = _resolve_command("ffprobe", BASE / "bin" / "ffprobe")
+
+    if b3sum_override:
+        B3SUM_BIN = Path(b3sum_override)
+    else:
+        B3SUM_BIN, _ = _resolve_command("b3sum", BASE / "bin" / "b3sum")
+
+    if mediainfo_override:
+        mediainfo_cmd = Path(mediainfo_override)
+    else:
+        mediainfo_cmd, _ = _resolve_command("mediainfo")
+
+    MEDIAINFO_BIN = mediainfo_cmd
+    WHISPER_MODEL_DIR = BASE / "models" / "WhisperModel"
+    # Prefer ffmpeg folder for PATH augmentation; fall back to ffprobe folder.
+    FFMPEG_DIR = ffmpeg_dir or ffprobe_dir
 else:
     raise Exception(f"Unsupported platform: {sys.platform}")
 
@@ -67,7 +133,8 @@ LEGACY_ARCHIVE_CHECKSUM_FILE = ARCHIVE_DIR / "00-archive-manifest-blake3sums.txt
 LEGACY_DRIVE_CHECKSUM_FILE = ARCHIVE_DIR / "00-drive-manifest-blake3sums.txt"
 
 # Add FFmpeg binaries early to PATH so all scripts inherit it
-os.environ["PATH"] = str(FFMPEG_DIR) + os.pathsep + os.environ.get("PATH", "")
+if FFMPEG_DIR:
+    os.environ["PATH"] = str(FFMPEG_DIR) + os.pathsep + os.environ.get("PATH", "")
 
 # ---------------------------------------------------------
 # Shared FFmpeg Settings
@@ -210,7 +277,7 @@ def duration(path):
 # ---------------------------------------------------------
 
 def ensure_ffmpeg_exists():
-    if not FFMPEG_BIN.exists():
+    if not _command_exists(FFMPEG_BIN):
         raise FileNotFoundError(f"FFmpeg not found at {FFMPEG_BIN}")
 
 # ---------------------------------------------------------
@@ -296,7 +363,7 @@ def verify_sha3_manifest(root_dir, manifest_path):
     return 1
 
 def verify_blake3_manifest(root_dir, manifest_path):
-    if not B3SUM_BIN.exists():
+    if not _command_exists(B3SUM_BIN):
         print(f"ERROR: b3sum not found at {B3SUM_BIN}")
         return 1
 

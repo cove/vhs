@@ -2,7 +2,7 @@ VHS Digital Archive Project
 ===========================
 
 This project contains tools and scripts for capturing, processing, and archiving VHS and U-matic tapes.
-Most scripts assume a Windows environment for deinterlacing and filter application. On macOS/Linux, only basic processing works.
+Most scripts assume a Windows environment for full AviSynth/QTGMC filtering. On Linux/macOS, the pipeline now uses an FFmpeg fallback path where AviSynth is unavailable.
 
 Directory Structure
 -------------------
@@ -79,9 +79,10 @@ Usage Notes
 -----------
 
 1. All scripts rely on the paths defined in common.py. Adjust paths if moving the project.
-2. On macOS/Linux, deinterlacing and AVS filters in step_6_make_videos.py will be skipped; Windows is required for full processing.
-3. Virtual environments are platform-specific: venv-win/ for Windows, venv-mac/ for macOS.
+2. On Linux/macOS, step_6_make_videos.py now uses an FFmpeg `bwdif` fallback when AviSynth/QTGMC is unavailable. AviSynth `.avs` filter scripts (including chapter-specific QTGMC tuning) are Windows-only and are skipped on Linux/macOS.
+3. Virtual environments are platform-specific: venv-win/ for Windows, venv-mac/ for macOS, venv-linux/ for Linux.
 4. Make sure all software dependencies are installed (VirtualDub, UT Video codec, FFmpeg-QTGMC Easy, drivers for capture cards).
+5. Linux FFmpeg archives in `bin/` are kept compressed for Git compatibility; `setup.py` extracts `bin/ffmpeg` and `bin/ffprobe` on setup. MediaInfo is expected from the system package manager (e.g. `apt-get install mediainfo`) or `MEDIAINFO_BIN`.
 
 General Workflow
 ----------------
