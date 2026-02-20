@@ -7,160 +7,91 @@
 #   2) Scanline luma instability (adjacent row mean differences)
 #   3) Field mismatch (even/odd line absolute difference)
 #
+
+"""
+## Key Parameters to Experiment With
+
+### The Three Signals & Their Weights
+These are your biggest levers:
+
+- **`weight_edge`** (default 0.45) — Sobel Y energy; detects horizontal tearing/banding from tracking loss
+- **`weight_row`** (default 0.25) — Adjacent row mean differences; catches luma instability across scanlines
+- **`weight_field`** (default 0.30) — Even/odd field mismatch; catches interlacing artifacts when heads mistrack
+
+Try zeroing out two weights and leaving one at 1.0 to see what each signal is actually "seeing" in isolation. This tells you which signal is doing the real work (or not).
+
+### Threshold Mode
+This controls *how* the bad/good line is drawn:
+
+- **`otsu`** (default) — Automatic, finds the natural valley in the score histogram. Good starting point but assumes a bimodal distribution, which may not hold for your tape.
+- **`quantile` + `bad_rate`** — You say "I expect X% of frames to be bad." More direct control. Try `bad_rate=0.05` if you think ~5% are bad.
+- **`value` + `threshold_value`** — Hard-code a threshold after inspecting the `frame_scores.tsv` output.
+
+### Crop Parameters
+`crop_top`, `crop_bottom`, `crop_left`, `crop_right` — VHS tracking noise is heavily concentrated in the top and bottom edges of the frame. Cropping those out before scoring can dramatically clean up your signals, since otherwise stable content edge artifacts may be drowning out real tracking events.
+
+---
+
+## Why Sobel Ksize Doesn't Matter Much
+
+This is actually expected behavior. The edge *energy* signal (`mean(abs(sobel_y))`) is an **average over the whole frame** — it's a scalar summary, not a spatial detection. Large vs. small kernels both pick up the same dominant horizontal energy pattern; the kernel size mainly affects sensitivity to fine vs. coarse edges, but at the aggregate mean level these wash out.
+
+More importantly, your three signals are all **highly correlated by design** — a bad tracking frame will simultaneously spike all three. So if the same frames are bad across ksize 1 vs. 31, it likely means:
+
+1. The bad frames are genuinely obvious (large magnitude artifacts) and any reasonable signal catches them, or
+2. The **threshold** is the real discriminator, not signal sensitivity — Otsu may be drawing the line at roughly the same place regardless
+
+**What to actually try:** Rather than tweaking ksize, use the `intution` mode across a known-bad segment, then open the `frame_scores.tsv` and plot or inspect the score distribution. If you see a clean bimodal split, Otsu is fine. If scores are smeared, switch to `quantile` mode and tune `bad_rate` based on your ground-truth expectation.
+"""
+
 import argparse
+from dataclasses import dataclass
 import json
 import re
+import shutil
 from pathlib import Path
 
 import cv2
 import numpy as np
 from tqdm import tqdm
 
-from common import ARCHIVE_DIR, METADATA_DIR
+from common import ARCHIVE_DIR, METADATA_DIR, apply_config_overrides, require_non_empty
 
 
 DEFAULT_ARCHIVE = "callahan_01_archive"
 
 
-def parse_args(argv=None):
-    parser = argparse.ArgumentParser(
-        description=(
-            "Classify VHS frames as good/bad using tracking-loss specific "
-            "scanline and field artifact signals."
-        )
-    )
-    parser.add_argument(
-        "--archive",
-        default=DEFAULT_ARCHIVE,
-        help=f"Archive stem used for default paths (default: {DEFAULT_ARCHIVE}).",
-    )
-    parser.add_argument(
-        "--video",
-        default="",
-        help="Video path. Default: ../Archive/<archive>.mkv",
-    )
-    parser.add_argument(
-        "--output-dir",
-        default="",
-        help="Output folder. Default: metadata/<archive>/tracking_badframe",
-    )
-    parser.add_argument(
-        "--scores-tsv",
-        default="",
-        help="Optional existing frame_scores.tsv to reuse (skips video scoring).",
-    )
-    parser.add_argument(
-        "--existing-badframes",
-        default="",
-        help="Optional badframes TSV for comparison. Default: metadata/<archive>/badframes.tsv",
-    )
-    parser.add_argument(
-        "--start-frame",
-        type=int,
-        default=0,
-        help="First frame index to evaluate (default: 0).",
-    )
-    parser.add_argument(
-        "--max-frame",
-        type=int,
-        default=-1,
-        help="Last frame index to evaluate, inclusive (-1 = video end).",
-    )
-    parser.add_argument(
-        "--frame-step",
-        type=int,
-        default=1,
-        help="Evaluate every Nth frame (default: 1).",
-    )
-    parser.add_argument(
-        "--crop-top",
-        type=int,
-        default=0,
-        help="Crop this many rows from top before scoring (default: 0).",
-    )
-    parser.add_argument(
-        "--crop-bottom",
-        type=int,
-        default=0,
-        help="Crop this many rows from bottom before scoring (default: 0).",
-    )
-    parser.add_argument(
-        "--crop-left",
-        type=int,
-        default=0,
-        help="Crop this many columns from left before scoring (default: 0).",
-    )
-    parser.add_argument(
-        "--crop-right",
-        type=int,
-        default=0,
-        help="Crop this many columns from right before scoring (default: 0).",
-    )
-    parser.add_argument(
-        "--sobel-ksize",
-        type=int,
-        default=3,
-        help="Sobel kernel size for horizontal edge energy (odd, 1/3/5/7; default: 3).",
-    )
-    parser.add_argument(
-        "--weight-edge",
-        type=float,
-        default=0.45,
-        help="Composite score weight for horizontal edge energy signal (default: 0.45).",
-    )
-    parser.add_argument(
-        "--weight-row",
-        type=float,
-        default=0.25,
-        help="Composite score weight for scanline luma instability signal (default: 0.25).",
-    )
-    parser.add_argument(
-        "--weight-field",
-        type=float,
-        default=0.30,
-        help="Composite score weight for field mismatch signal (default: 0.30).",
-    )
-    parser.add_argument(
-        "--otsu-bins",
-        type=int,
-        default=256,
-        help="Histogram bins for Otsu thresholding (default: 256).",
-    )
-    parser.add_argument(
-        "--threshold-mode",
-        choices=("otsu", "quantile", "value"),
-        default="otsu",
-        help="Threshold mode for bad/good split (default: otsu).",
-    )
-    parser.add_argument(
-        "--bad-rate",
-        type=float,
-        default=-1.0,
-        help="When threshold-mode=quantile, label this fraction as bad (0<rate<1).",
-    )
-    parser.add_argument(
-        "--threshold-value",
-        type=float,
-        default=np.nan,
-        help="When threshold-mode=value, explicit threshold; score>=threshold => bad.",
-    )
-    parser.add_argument(
-        "--calibrate-bad-rate-from-existing",
-        action="store_true",
-        help="In quantile mode, infer bad-rate from existing badframes in the evaluated window.",
-    )
-    parser.add_argument(
-        "--export-bad-png-count",
-        type=int,
-        default=0,
-        help="Export up to N evenly spaced predicted bad frames as PNG (default: 0, disabled).",
-    )
-    parser.add_argument(
-        "--png-output-dir",
-        default="",
-        help="PNG sample output folder. Default: <output-dir>/badframe_samples",
-    )
-    return parser.parse_args(argv)
+@dataclass(frozen=True)
+class TrackingLossConfig:
+    archive: str = DEFAULT_ARCHIVE
+    video: str | Path = ""
+    output_dir: str | Path = ""
+    scores_tsv: str | Path = ""
+    existing_badframes: str | Path = ""
+    start_frame: int = 0
+    max_frame: int = -1
+    frame_step: int = 1
+    crop_top: int = 50
+    crop_bottom: int = 50
+    crop_left: int = 50
+    crop_right: int = 50
+    sobel_ksize: int = 3
+    weight_edge: float = 0.45
+    weight_row: float = 0.25
+    weight_field: float = 0.30
+    otsu_bins: int = 256
+    threshold_mode: str = "value"
+    bad_rate: float = -1.0
+    threshold_value: float = 5.5
+    calibrate_bad_rate_from_existing: bool = False
+    export_bad_png_count: int = -1
+    export_good_png_count: int = -1
+    export_review_png_count: int = 0
+    png_output_dir: str | Path = ""
+    metadata_copy_dir: str | Path = ""
+
+
+DEFAULT_CONFIG = TrackingLossConfig()
 
 
 def parse_badframe_ranges(tsv_path):
@@ -496,7 +427,14 @@ def pick_evenly_spaced_samples(frame_ids, count):
     return chosen
 
 
-def export_frame_png_samples(video_path, frame_ids, sample_dir, prefix="bad_sample"):
+def _resolve_export_count(requested_count, fallback_count):
+    requested = int(requested_count)
+    if requested >= 0:
+        return requested
+    return max(0, int(fallback_count))
+
+
+def export_frame_png_samples(video_path, frame_ids, sample_dir, label):
     sample_dir.mkdir(parents=True, exist_ok=True)
     if not frame_ids:
         return [], []
@@ -508,14 +446,14 @@ def export_frame_png_samples(video_path, frame_ids, sample_dir, prefix="bad_samp
     written = []
     failed_frames = []
     try:
-        for sample_idx, frame_idx in enumerate(frame_ids, start=1):
+        for frame_idx in frame_ids:
             cap.set(cv2.CAP_PROP_POS_FRAMES, int(frame_idx))
             ok, frame_bgr = cap.read()
             if not ok or frame_bgr is None:
                 failed_frames.append(int(frame_idx))
                 continue
 
-            out_path = sample_dir / f"{prefix}_{sample_idx:02d}_frame_{int(frame_idx)}.png"
+            out_path = sample_dir / f"{label}_frame_{int(frame_idx):08d}.png"
             if not cv2.imwrite(str(out_path), frame_bgr):
                 failed_frames.append(int(frame_idx))
                 continue
@@ -523,6 +461,34 @@ def export_frame_png_samples(video_path, frame_ids, sample_dir, prefix="bad_samp
     finally:
         cap.release()
     return written, failed_frames
+
+
+def write_review_png_manifest(manifest_path, rows):
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    with manifest_path.open("w", encoding="utf-8") as f:
+        f.write("frame\tlabel\tscore\tpng_path\n")
+        for row in rows:
+            f.write(
+                f"{int(row['frame'])}\t{row['label']}\t{float(row['score']):.8f}\t{row['png_path']}\n"
+            )
+
+
+def mirror_metadata_outputs(source_dir, target_dir):
+    source_dir = Path(source_dir)
+    target_dir = Path(target_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    copied = []
+    for path in source_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        if path.suffix.lower() not in {".tsv", ".json"}:
+            continue
+        rel = path.relative_to(source_dir)
+        dst = target_dir / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, dst)
+        copied.append(dst)
+    return copied
 
 
 def write_outputs(
@@ -573,26 +539,31 @@ def finite_stats(values):
     }
 
 
-def main(argv=None):
-    args = parse_args(argv)
+def _run_with_config(config: TrackingLossConfig):
+    archive_name = require_non_empty(config.archive, "archive")
 
-    archive_name = args.archive.strip()
-    if not archive_name:
-        raise ValueError("--archive cannot be empty.")
+    sobel_ksize = sanitize_sobel_ksize(config.sobel_ksize)
 
-    sobel_ksize = sanitize_sobel_ksize(args.sobel_ksize)
-
-    video_path = Path(args.video) if args.video else (ARCHIVE_DIR / f"{archive_name}.mkv")
-    output_dir = Path(args.output_dir) if args.output_dir else (METADATA_DIR / archive_name / "tracking_badframe")
+    video_path = Path(config.video) if config.video else (ARCHIVE_DIR / f"{archive_name}.mkv")
+    output_dir = (
+        Path(config.output_dir)
+        if config.output_dir
+        else (ARCHIVE_DIR / f"{archive_name}_tracking_badframe")
+    )
     png_output_dir = (
-        Path(args.png_output_dir) if args.png_output_dir else (output_dir / "badframe_samples")
+        Path(config.png_output_dir) if config.png_output_dir else (output_dir / "review_png")
+    )
+    metadata_copy_dir = (
+        Path(config.metadata_copy_dir)
+        if config.metadata_copy_dir
+        else (METADATA_DIR / archive_name / "tracking_badframe")
     )
     existing_badframes = (
-        Path(args.existing_badframes)
-        if args.existing_badframes
+        Path(config.existing_badframes)
+        if config.existing_badframes
         else (METADATA_DIR / archive_name / "badframes.tsv")
     )
-    scores_tsv_path = Path(args.scores_tsv) if args.scores_tsv else None
+    scores_tsv_path = Path(config.scores_tsv) if config.scores_tsv else None
 
     indices = []
     edge_scores = []
@@ -619,22 +590,22 @@ def main(argv=None):
 
         total_frames, start_frame, end_frame, indices, edge_scores, row_scores, field_scores = score_video_frames(
             video_path=video_path,
-            start_frame=args.start_frame,
-            max_frame=args.max_frame,
-            frame_step=args.frame_step,
-            crop_top=args.crop_top,
-            crop_bottom=args.crop_bottom,
-            crop_left=args.crop_left,
-            crop_right=args.crop_right,
+            start_frame=config.start_frame,
+            max_frame=config.max_frame,
+            frame_step=config.frame_step,
+            crop_top=config.crop_top,
+            crop_bottom=config.crop_bottom,
+            crop_left=config.crop_left,
+            crop_right=config.crop_right,
             sobel_ksize=sobel_ksize,
         )
         scores, signal_norm = combine_signals(
             edge_scores=edge_scores,
             row_scores=row_scores,
             field_scores=field_scores,
-            weight_edge=args.weight_edge,
-            weight_row=args.weight_row,
-            weight_field=args.weight_field,
+            weight_edge=config.weight_edge,
+            weight_row=config.weight_row,
+            weight_field=config.weight_field,
         )
         scores = scores.astype(np.float64).tolist()
 
@@ -648,14 +619,14 @@ def main(argv=None):
         manual_bad = expand_ranges_to_set(manual_ranges, start_frame, end_frame)
         manual_bad_eval = evaluated_set.intersection(manual_bad)
 
-    threshold_mode = args.threshold_mode
+    threshold_mode = config.threshold_mode
     threshold_source = threshold_mode
     target_bad_rate = None
     if threshold_mode == "otsu":
-        threshold = otsu_threshold(np.sort(scores_np), bins=args.otsu_bins)
+        threshold = otsu_threshold(np.sort(scores_np), bins=config.otsu_bins)
     elif threshold_mode == "quantile":
-        target_bad_rate = float(args.bad_rate)
-        if args.calibrate_bad_rate_from_existing:
+        target_bad_rate = float(config.bad_rate)
+        if config.calibrate_bad_rate_from_existing:
             if not existing_badframes.exists():
                 raise ValueError(
                     "--calibrate-bad-rate-from-existing requested, but existing badframes file does not exist."
@@ -673,31 +644,84 @@ def main(argv=None):
             )
         threshold = float(np.quantile(scores_np, 1.0 - target_bad_rate))
     elif threshold_mode == "value":
-        threshold = float(args.threshold_value)
+        threshold = float(config.threshold_value)
         if not np.isfinite(threshold):
             raise ValueError("--threshold-mode value requires a finite --threshold-value.")
     else:
         raise ValueError(f"Unknown threshold mode: {threshold_mode}")
 
     labels = ["good" if score < threshold else "bad" for score in scores]
+    score_by_frame = {int(frame_idx): float(score) for frame_idx, score in zip(indices, scores)}
+    good_frames = sorted(frame for frame, label in zip(indices, labels) if label == "good")
     bad_frames = sorted(frame for frame, label in zip(indices, labels) if label == "bad")
     bad_ranges = ranges_from_sorted_frames(bad_frames)
 
-    requested_png_count = max(0, int(args.export_bad_png_count))
-    selected_sample_frames = []
-    sample_png_paths = []
-    failed_sample_frames = []
-    if requested_png_count > 0:
+    requested_bad_png_count = _resolve_export_count(
+        config.export_bad_png_count,
+        config.export_review_png_count,
+    )
+    requested_good_png_count = _resolve_export_count(
+        config.export_good_png_count,
+        config.export_review_png_count,
+    )
+
+    selected_bad_frames = []
+    selected_good_frames = []
+    written_bad_pngs = []
+    written_good_pngs = []
+    failed_bad_frames = []
+    failed_good_frames = []
+    review_manifest_path = None
+    if requested_bad_png_count > 0 or requested_good_png_count > 0:
         if not video_path.exists():
             print(f"WARNING: skipping PNG export; video file not found: {video_path}")
         else:
-            selected_sample_frames = pick_evenly_spaced_samples(bad_frames, requested_png_count)
+            selected_bad_frames = pick_evenly_spaced_samples(bad_frames, requested_bad_png_count)
+            selected_good_frames = pick_evenly_spaced_samples(good_frames, requested_good_png_count)
             try:
-                sample_png_paths, failed_sample_frames = export_frame_png_samples(
+                written_bad_pngs, failed_bad_frames = export_frame_png_samples(
                     video_path=video_path,
-                    frame_ids=selected_sample_frames,
-                    sample_dir=png_output_dir,
+                    frame_ids=selected_bad_frames,
+                    sample_dir=png_output_dir / "bad",
+                    label="bad",
                 )
+                written_good_pngs, failed_good_frames = export_frame_png_samples(
+                    video_path=video_path,
+                    frame_ids=selected_good_frames,
+                    sample_dir=png_output_dir / "good",
+                    label="good",
+                )
+
+                review_rows = []
+                for png_path in written_bad_pngs:
+                    frame_match = re.search(r"frame_(\d+)\.png$", png_path.name)
+                    if not frame_match:
+                        continue
+                    frame_idx = int(frame_match.group(1))
+                    review_rows.append(
+                        {
+                            "frame": frame_idx,
+                            "label": "bad",
+                            "score": score_by_frame.get(frame_idx, np.nan),
+                            "png_path": png_path.relative_to(png_output_dir).as_posix(),
+                        }
+                    )
+                for png_path in written_good_pngs:
+                    frame_match = re.search(r"frame_(\d+)\.png$", png_path.name)
+                    if not frame_match:
+                        continue
+                    frame_idx = int(frame_match.group(1))
+                    review_rows.append(
+                        {
+                            "frame": frame_idx,
+                            "label": "good",
+                            "score": score_by_frame.get(frame_idx, np.nan),
+                            "png_path": png_path.relative_to(png_output_dir).as_posix(),
+                        }
+                    )
+                review_rows.sort(key=lambda row: (int(row["frame"]), str(row["label"])))
+                review_manifest_path = png_output_dir / "review_manifest.tsv"
+                write_review_png_manifest(review_manifest_path, review_rows)
             except Exception as exc:
                 print(f"WARNING: PNG export failed: {exc}")
 
@@ -708,20 +732,20 @@ def main(argv=None):
         "total_video_frames": (None if total_frames is None else int(total_frames)),
         "evaluated_frame_start": int(start_frame),
         "evaluated_frame_end": int(end_frame),
-        "evaluated_frame_step": int(max(1, args.frame_step)),
+        "evaluated_frame_step": int(max(1, config.frame_step)),
         "evaluated_frames": int(len(indices)),
         "crop": {
-            "top": int(max(0, args.crop_top)),
-            "bottom": int(max(0, args.crop_bottom)),
-            "left": int(max(0, args.crop_left)),
-            "right": int(max(0, args.crop_right)),
+            "top": int(max(0, config.crop_top)),
+            "bottom": int(max(0, config.crop_bottom)),
+            "left": int(max(0, config.crop_left)),
+            "right": int(max(0, config.crop_right)),
         },
         "signals": {
             "sobel_ksize": int(sobel_ksize),
             "weights": {
-                "edge": float(args.weight_edge),
-                "row": float(args.weight_row),
-                "field": float(args.weight_field),
+                "edge": float(config.weight_edge),
+                "row": float(config.weight_row),
+                "field": float(config.weight_field),
             },
             "normalization": signal_norm,
             "edge_energy": finite_stats(edge_scores),
@@ -735,15 +759,44 @@ def main(argv=None):
         "score_min": float(np.min(scores_np)),
         "score_max": float(np.max(scores_np)),
         "score_mean": float(np.mean(scores_np)),
-        "good_frames": int(sum(1 for x in labels if x == "good")),
-        "bad_frames": int(sum(1 for x in labels if x == "bad")),
+        "good_frames": int(len(good_frames)),
+        "bad_frames": int(len(bad_frames)),
         "predicted_bad_ranges": int(len(bad_ranges)),
         "png_samples": {
-            "requested_bad_samples": int(requested_png_count),
-            "selected_bad_frames": int(len(selected_sample_frames)),
-            "written_pngs": int(len(sample_png_paths)),
-            "failed_frames": [int(x) for x in failed_sample_frames],
-            "output_dir": str(png_output_dir) if requested_png_count > 0 else None,
+            "review_output_dir": (
+                str(png_output_dir)
+                if (requested_bad_png_count > 0 or requested_good_png_count > 0)
+                else None
+            ),
+            "review_manifest": (
+                str(review_manifest_path)
+                if review_manifest_path is not None
+                else None
+            ),
+            "bad": {
+                "requested_samples": int(requested_bad_png_count),
+                "available_predicted_frames": int(len(bad_frames)),
+                "selected_frames": int(len(selected_bad_frames)),
+                "written_pngs": int(len(written_bad_pngs)),
+                "failed_frames": [int(x) for x in failed_bad_frames],
+                "output_dir": (
+                    str(png_output_dir / "bad")
+                    if requested_bad_png_count > 0
+                    else None
+                ),
+            },
+            "good": {
+                "requested_samples": int(requested_good_png_count),
+                "available_predicted_frames": int(len(good_frames)),
+                "selected_frames": int(len(selected_good_frames)),
+                "written_pngs": int(len(written_good_pngs)),
+                "failed_frames": [int(x) for x in failed_good_frames],
+                "output_dir": (
+                    str(png_output_dir / "good")
+                    if requested_good_png_count > 0
+                    else None
+                ),
+            },
         },
     }
     if threshold_mode == "otsu":
@@ -795,9 +848,174 @@ def main(argv=None):
     print(f"Frame scores: {frame_scores_path}")
     print(f"Predicted badframe ranges: {badframes_path}")
     print(f"Summary: {summary_path}")
-    if requested_png_count > 0:
-        print(f"PNG samples: {png_output_dir} ({len(sample_png_paths)} written)")
+    mirrored_files = mirror_metadata_outputs(output_dir, metadata_copy_dir)
+    print(f"Mirrored metadata copy: {metadata_copy_dir} ({len(mirrored_files)} file(s))")
+    if requested_bad_png_count > 0 or requested_good_png_count > 0:
+        print(
+            "PNG samples: "
+            f"{png_output_dir} "
+            f"(bad={len(written_bad_pngs)} written, good={len(written_good_pngs)} written)"
+        )
+        if review_manifest_path is not None:
+            print(f"Review manifest: {review_manifest_path}")
+    return {
+        "frame_scores_path": frame_scores_path,
+        "badframes_path": badframes_path,
+        "summary_path": summary_path,
+        "output_dir": output_dir,
+        "png_output_dir": png_output_dir,
+        "requested_bad_png_count": int(requested_bad_png_count),
+        "requested_good_png_count": int(requested_good_png_count),
+        "written_bad_pngs": int(len(written_bad_pngs)),
+        "written_good_pngs": int(len(written_good_pngs)),
+        "review_manifest_path": review_manifest_path,
+        "metadata_copy_dir": metadata_copy_dir,
+        "mirrored_file_count": int(len(mirrored_files)),
+    }
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description=(
+            "Classify bad VHS frames with the tracking-loss detector and export "
+            "review PNG sets for model training."
+        )
+    )
+    parser.add_argument("--archive", default=DEFAULT_ARCHIVE)
+    parser.add_argument("--video", default="", help="Default: ../Archive/<archive>.mkv")
+    parser.add_argument(
+        "--output-dir",
+        default="",
+        help="Default: ../Archive/<archive>_tracking_badframe",
+    )
+    parser.add_argument(
+        "--scores-tsv",
+        default="",
+        help="Optional frame_scores TSV generated earlier; skips re-scoring video.",
+    )
+    parser.add_argument(
+        "--existing-badframes",
+        default="",
+        help="Optional comparison TSV. Default: metadata/<archive>/badframes.tsv",
+    )
+    parser.add_argument("--start-frame", type=int, default=0)
+    parser.add_argument("--max-frame", type=int, default=-1)
+    parser.add_argument("--frame-step", type=int, default=1)
+    parser.add_argument("--crop-top", type=int, default=0)
+    parser.add_argument("--crop-bottom", type=int, default=0)
+    parser.add_argument("--crop-left", type=int, default=0)
+    parser.add_argument("--crop-right", type=int, default=0)
+    parser.add_argument("--sobel-ksize", type=int, default=3)
+    parser.add_argument("--weight-edge", type=float, default=0.45)
+    parser.add_argument("--weight-row", type=float, default=0.25)
+    parser.add_argument("--weight-field", type=float, default=0.30)
+    parser.add_argument("--otsu-bins", type=int, default=256)
+    parser.add_argument(
+        "--threshold-mode",
+        choices=("otsu", "quantile", "value"),
+        default="otsu",
+    )
+    parser.add_argument(
+        "--bad-rate",
+        type=float,
+        default=-1.0,
+        help="Only used by --threshold-mode quantile.",
+    )
+    parser.add_argument(
+        "--threshold-value",
+        type=float,
+        default=np.nan,
+        help="Only used by --threshold-mode value.",
+    )
+    parser.add_argument(
+        "--calibrate-bad-rate-from-existing",
+        action="store_true",
+        help="Quantile mode only.",
+    )
+    parser.add_argument(
+        "--export-review-png-count",
+        type=int,
+        default=300,
+        help=(
+            "Default sample count per label for review PNG export "
+            "(applies to bad and good unless overridden)."
+        ),
+    )
+    parser.add_argument(
+        "--export-bad-png-count",
+        type=int,
+        default=-1,
+        help="Override bad PNG sample count. Use -1 to inherit --export-review-png-count.",
+    )
+    parser.add_argument(
+        "--export-good-png-count",
+        type=int,
+        default=-1,
+        help="Override good PNG sample count. Use -1 to inherit --export-review-png-count.",
+    )
+    parser.add_argument(
+        "--png-output-dir",
+        default="",
+        help="Default: <output-dir>/review_png (creates bad/ and good/ subfolders).",
+    )
+    parser.add_argument(
+        "--metadata-copy-dir",
+        default="",
+        help="Default: metadata/<archive>/tracking_badframe (mirror copy of .tsv/.json files).",
+    )
+    return parser.parse_args(argv)
+
+
+def args_to_config(args):
+    return TrackingLossConfig(
+        archive=str(args.archive),
+        video=str(args.video or ""),
+        output_dir=str(args.output_dir or ""),
+        scores_tsv=str(args.scores_tsv or ""),
+        existing_badframes=str(args.existing_badframes or ""),
+        start_frame=int(args.start_frame),
+        max_frame=int(args.max_frame),
+        frame_step=int(args.frame_step),
+        crop_top=int(args.crop_top),
+        crop_bottom=int(args.crop_bottom),
+        crop_left=int(args.crop_left),
+        crop_right=int(args.crop_right),
+        sobel_ksize=int(args.sobel_ksize),
+        weight_edge=float(args.weight_edge),
+        weight_row=float(args.weight_row),
+        weight_field=float(args.weight_field),
+        otsu_bins=int(args.otsu_bins),
+        threshold_mode=str(args.threshold_mode),
+        bad_rate=float(args.bad_rate),
+        threshold_value=float(args.threshold_value),
+        calibrate_bad_rate_from_existing=bool(args.calibrate_bad_rate_from_existing),
+        export_bad_png_count=int(args.export_bad_png_count),
+        export_good_png_count=int(args.export_good_png_count),
+        export_review_png_count=int(args.export_review_png_count),
+        png_output_dir=str(args.png_output_dir or ""),
+        metadata_copy_dir=str(args.metadata_copy_dir or ""),
+    )
+
+
+def run_tracking_loss_classification(
+    config: TrackingLossConfig | None = None,
+    **overrides,
+):
+    resolved = config or DEFAULT_CONFIG
+    if overrides:
+        resolved = apply_config_overrides(resolved, **overrides)
+    return _run_with_config(resolved)
+
+
+def main(argv=None, config: TrackingLossConfig | None = None):
+    if config is not None:
+        run_tracking_loss_classification(config=config)
+        return
+
+    args = parse_args(argv)
+    run_tracking_loss_classification(config=args_to_config(args))
 
 
 if __name__ == "__main__":
     main()
+
