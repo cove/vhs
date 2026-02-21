@@ -1,0 +1,88 @@
+{
+  "archive": "callahan_01_archive",
+  "video_path": "C:\\Users\\covec\\Videos\\Archive\\callahan_01_archive.mkv",
+  "detector": "tracking_loss_scanline_field",
+  "total_video_frames": 66080,
+  "evaluated_frame_start": 0,
+  "evaluated_frame_end": 66079,
+  "evaluated_frame_step": 1,
+  "evaluated_frames": 66047,
+  "crop": {
+    "top": 0,
+    "bottom": 0,
+    "left": 0,
+    "right": 0
+  },
+  "signals": {
+    "sobel_ksize": 3,
+    "weights": {
+      "edge": 0.45,
+      "row": 0.25,
+      "field": 0.3
+    },
+    "normalization": {
+      "edge": {
+        "center": 24.98383903503418,
+        "scale": 6.550303867721557
+      },
+      "row": {
+        "center": 1.711819052696228,
+        "scale": 0.37136314465999604
+      },
+      "field": {
+        "center": 6.330925941467285,
+        "scale": 1.8763986579895018
+      }
+    },
+    "edge_energy": {
+      "min": 0.0,
+      "max": 155.65138244628906,
+      "mean": 23.521800158669887
+    },
+    "row_instability": {
+      "min": 0.0,
+      "max": 201.0268096923828,
+      "mean": 2.1111935401803197
+    },
+    "field_mismatch": {
+      "min": 0.0,
+      "max": 201.51910400390625,
+      "mean": 7.7932121725969115
+    }
+  },
+  "threshold_mode": "otsu",
+  "threshold_source": "otsu",
+  "score_threshold": 66.32622335376001,
+  "target_bad_rate": null,
+  "score_min": -3.88094932810543,
+  "score_max": 164.87995401985285,
+  "score_mean": 0.40220775083191135,
+  "good_frames": 66006,
+  "bad_frames": 41,
+  "predicted_bad_ranges": 40,
+  "png_samples": {
+    "review_output_dir": "C:\\Users\\covec\\Videos\\Archive\\callahan_01_archive_tracking_badframe\\review_png",
+    "review_manifest": "C:\\Users\\covec\\Videos\\Archive\\callahan_01_archive_tracking_badframe\\review_png\\review_manifest.tsv",
+    "bad": {
+      "requested_samples": 1000,
+      "available_predicted_frames": 41,
+      "selected_frames": 41,
+      "written_pngs": 41,
+      "failed_frames": [],
+      "output_dir": "C:\\Users\\covec\\Videos\\Archive\\callahan_01_archive_tracking_badframe\\review_png\\bad"
+    },
+    "good": {
+      "requested_samples": 1000,
+      "available_predicted_frames": 66006,
+      "selected_frames": 1000,
+      "written_pngs": 1000,
+      "failed_frames": [],
+      "output_dir": "C:\\Users\\covec\\Videos\\Archive\\callahan_01_archive_tracking_badframe\\review_png\\good"
+    }
+  },
+  "score_threshold_otsu": 66.32622335376001,
+  "comparison_to_existing_badframes": {
+    "path": "C:\\Users\\covec\\Videos\\vhs\\metadata\\callahan_01_archive\\badframes.tsv",
+    "note": "file not found; comparison skipped"
+  }
+}
