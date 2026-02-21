@@ -14,10 +14,11 @@ import cv2
 import numpy as np
 from PIL import Image
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from common import ARCHIVE_DIR, METADATA_DIR
+from common import ARCHIVE_DIR, BASE, METADATA_DIR
 
 
 DEFAULT_ARCHIVE = "callahan_01_archive"
@@ -31,6 +32,7 @@ TAPE_PROMPTS = [
     "an image that has lot its color is bad",
     "there's a date and time that appears doubled, then it's a bad image"
 ]
+IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tif", ".tiff"}
 
 
 def parse_args(argv=None):
@@ -90,6 +92,28 @@ def parse_args(argv=None):
         type=int,
         default=16,
         help="CLIP image batch size (default: 16).",
+    )
+    parser.add_argument(
+        "--review-png-dir",
+        default="",
+        help=(
+            "Optional reviewed training PNG root with bad/ and good/ folders. "
+            "Default: ../Archive/<archive>_tracking_badframe/review_png"
+        ),
+    )
+    parser.add_argument(
+        "--prototype-batch-size",
+        type=int,
+        default=64,
+        help="Batch size for encoding review PNG prototypes (default: 64).",
+    )
+    parser.add_argument(
+        "--finetuned-weights",
+        default="",
+        help=(
+            "Optional Step 19 fine-tuned CLIP checkpoint (.pt). "
+            "Default: auto-detect latest models/clip_badframe_finetune/<archive>/**/best.pt"
+        ),
     )
     parser.add_argument(
         "--device",
@@ -229,16 +253,210 @@ def otsu_threshold(values, bins=256):
     return float(centers[best_idx])
 
 
-def encode_batch(clip_model, text_features, tensors, device):
+def list_images(folder):
+    path = Path(folder)
+    if not path.exists():
+        return []
+    out = []
+    for child in path.iterdir():
+        if child.is_file() and child.suffix.lower() in IMAGE_EXTS:
+            out.append(child)
+    return sorted(out, key=lambda p: p.name.lower())
+
+
+def encode_review_prototypes(
+    clip_model,
+    clip_preprocess,
+    device,
+    bad_dir,
+    good_dir,
+    batch_size=64,
+):
+    bad_paths = list_images(bad_dir)
+    good_paths = list_images(good_dir)
+    if not bad_paths:
+        raise RuntimeError(f"No bad prototype images found: {bad_dir}")
+    if not good_paths:
+        raise RuntimeError(f"No good prototype images found: {good_dir}")
+
+    def encode_paths(paths):
+        feats = []
+        tensors = []
+        amp_ctx = (
+            torch.autocast(device_type="cuda", dtype=torch.float16)
+            if device.type == "cuda"
+            else contextlib.nullcontext()
+        )
+        for img_path in paths:
+            with Image.open(img_path) as im:
+                tensors.append(clip_preprocess(im.convert("RGB")))
+            if len(tensors) >= int(batch_size):
+                batch = torch.stack(tensors, dim=0).to(device)
+                with torch.no_grad(), amp_ctx:
+                    batch_feats = F.normalize(clip_model.encode_image(batch), dim=-1)
+                feats.append(batch_feats.detach().cpu())
+                tensors.clear()
+        if tensors:
+            batch = torch.stack(tensors, dim=0).to(device)
+            with torch.no_grad(), amp_ctx:
+                batch_feats = F.normalize(clip_model.encode_image(batch), dim=-1)
+            feats.append(batch_feats.detach().cpu())
+        return torch.cat(feats, dim=0)
+
+    bad_feats = encode_paths(bad_paths)
+    good_feats = encode_paths(good_paths)
+    bad_proto = F.normalize(bad_feats.mean(dim=0), dim=-1).unsqueeze(0).to(device)
+    good_proto = F.normalize(good_feats.mean(dim=0), dim=-1).unsqueeze(0).to(device)
+    return bad_proto, good_proto, len(bad_paths), len(good_paths)
+
+
+class ClipBinaryHead(nn.Module):
+    def __init__(self, clip_model, feature_dim):
+        super().__init__()
+        self.clip_model = clip_model
+        self.head = nn.Linear(int(feature_dim), 1)
+
+    def forward(self, image_tensor):
+        features = F.normalize(self.clip_model.encode_image(image_tensor), dim=-1)
+        logits = self.head(features).squeeze(1)
+        return logits
+
+
+def resolve_latest_finetuned_weights(archive_name):
+    runs_root = BASE / "models" / "clip_badframe_finetune" / archive_name
+    if not runs_root.exists():
+        return None
+    candidates = sorted(
+        runs_root.glob("**/best.pt"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not candidates:
+        return None
+    return candidates[0]
+
+
+def load_finetuned_clip_model(weights_path, device):
+    try:
+        import clip
+    except Exception as exc:
+        raise RuntimeError("clip package is required to load fine-tuned checkpoints.") from exc
+
+    state = torch.load(str(weights_path), map_location=device)
+    clip_model_name = state.get("clip_model_name")
+    if not clip_model_name:
+        raise RuntimeError(f"Invalid checkpoint (missing clip_model_name): {weights_path}")
+
+    clip_model, clip_preprocess = clip.load(clip_model_name, device=device, jit=False)
+    feature_dim = int(state.get("feature_dim", 640))
+    model = ClipBinaryHead(clip_model, feature_dim).to(device)
+    model.load_state_dict(state["model_state_dict"], strict=True)
+    model.eval()
+    return model, clip_preprocess, state
+
+
+def encode_batch(clip_model, bad_features, tensors, device, good_features=None):
     batch = torch.stack(tensors, dim=0).to(device)
     amp_ctx = torch.autocast(device_type="cuda", dtype=torch.float16) if device.type == "cuda" else contextlib.nullcontext()
     with torch.no_grad(), amp_ctx:
         img_feats = F.normalize(clip_model.encode_image(batch), dim=-1)
-        sim = img_feats @ text_features.T
-    return sim.squeeze(1).detach().cpu().numpy().astype(float).tolist()
+        bad_sim = img_feats @ bad_features.T
+        if good_features is None:
+            score = bad_sim.squeeze(1)
+        else:
+            good_sim = img_feats @ good_features.T
+            score = (bad_sim - good_sim).squeeze(1)
+    return score.detach().cpu().numpy().astype(float).tolist()
 
 
-def score_video_frames(video_path, start_frame, max_frame, frame_step, batch_size, clip_model, clip_preprocess, text_features, device):
+def score_video_frames_finetuned(
+    video_path,
+    start_frame,
+    max_frame,
+    frame_step,
+    batch_size,
+    model,
+    clip_preprocess,
+    device,
+):
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"Unable to open video: {video_path}")
+
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    if total_frames <= 0:
+        cap.release()
+        raise RuntimeError(f"Unable to read frame count for: {video_path}")
+
+    start = max(0, int(start_frame))
+    end = total_frames - 1 if int(max_frame) < 0 else min(total_frames - 1, int(max_frame))
+    step = max(1, int(frame_step))
+
+    if start > end:
+        cap.release()
+        raise ValueError(f"start-frame ({start}) is after max-frame ({end}).")
+
+    if start > 0:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start)
+
+    target_count = ((end - start) // step) + 1
+    pbar = tqdm(total=target_count, desc="Scoring frames", unit="frame")
+
+    indices = []
+    probs = []
+    tensors = []
+    tensor_indices = []
+
+    frame_idx = start
+    while frame_idx <= end:
+        ok, frame_bgr = cap.read()
+        if not ok:
+            break
+
+        if ((frame_idx - start) % step) == 0:
+            frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            pil = Image.fromarray(frame_rgb)
+            tensors.append(clip_preprocess(pil))
+            tensor_indices.append(frame_idx)
+            if len(tensors) >= batch_size:
+                batch = torch.stack(tensors, dim=0).to(device)
+                with torch.no_grad():
+                    logits = model(batch)
+                    batch_probs = torch.sigmoid(logits).detach().cpu().numpy().astype(float).tolist()
+                indices.extend(tensor_indices)
+                probs.extend(batch_probs)
+                tensors.clear()
+                tensor_indices.clear()
+            pbar.update(1)
+        frame_idx += 1
+
+    if tensors:
+        batch = torch.stack(tensors, dim=0).to(device)
+        with torch.no_grad():
+            logits = model(batch)
+            batch_probs = torch.sigmoid(logits).detach().cpu().numpy().astype(float).tolist()
+        indices.extend(tensor_indices)
+        probs.extend(batch_probs)
+
+    pbar.close()
+    cap.release()
+    if not indices:
+        raise RuntimeError("No frame scores produced.")
+    return total_frames, start, end, indices, probs
+
+
+def score_video_frames(
+    video_path,
+    start_frame,
+    max_frame,
+    frame_step,
+    batch_size,
+    clip_model,
+    clip_preprocess,
+    bad_features,
+    device,
+    good_features=None,
+):
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise RuntimeError(f"Unable to open video: {video_path}")
@@ -279,7 +497,13 @@ def score_video_frames(video_path, start_frame, max_frame, frame_step, batch_siz
             tensors.append(clip_preprocess(pil))
             tensor_indices.append(frame_idx)
             if len(tensors) >= batch_size:
-                batch_scores = encode_batch(clip_model, text_features, tensors, device)
+                batch_scores = encode_batch(
+                    clip_model,
+                    bad_features,
+                    tensors,
+                    device,
+                    good_features=good_features,
+                )
                 indices.extend(tensor_indices)
                 scores.extend(batch_scores)
                 tensors.clear()
@@ -288,7 +512,13 @@ def score_video_frames(video_path, start_frame, max_frame, frame_step, batch_siz
         frame_idx += 1
 
     if tensors:
-        batch_scores = encode_batch(clip_model, text_features, tensors, device)
+        batch_scores = encode_batch(
+            clip_model,
+            bad_features,
+            tensors,
+            device,
+            good_features=good_features,
+        )
         indices.extend(tensor_indices)
         scores.extend(batch_scores)
 
@@ -423,6 +653,11 @@ def main(argv=None):
         if args.existing_badframes
         else (METADATA_DIR / archive_name / "badframes.tsv")
     )
+    review_png_dir = (
+        Path(args.review_png_dir)
+        if args.review_png_dir
+        else (ARCHIVE_DIR / f"{archive_name}_tracking_badframe" / "review_png")
+    )
     scores_tsv_path = Path(args.scores_tsv) if args.scores_tsv else None
 
     device = resolve_device(args.device)
@@ -445,37 +680,88 @@ def main(argv=None):
         if not video_path.exists():
             raise FileNotFoundError(f"Video file not found: {video_path}")
 
-        try:
-            import clip
-        except Exception as exc:
-            raise RuntimeError(
-                "Failed to import `clip`. Install dependencies with:\n"
-                "  .\\.venv\\Scripts\\python.exe -m pip install openai-clip \"setuptools<81\""
-            ) from exc
-
-        print(f"Loading CLIP model: {args.clip_model}")
-        # `jit=True` is used in the original TAPE code, but it is incompatible with
-        # some modern torch/clip combinations on CPU.
-        clip_model, clip_preprocess = clip.load(args.clip_model, device=device, jit=False)
-        clip_model.eval()
-
-        amp_ctx = torch.autocast(device_type="cuda", dtype=torch.float16) if device.type == "cuda" else contextlib.nullcontext()
-        with torch.no_grad(), amp_ctx:
-            tokenized_prompts = clip.tokenize(TAPE_PROMPTS).to(device)
-            text_features = F.normalize(clip_model.encode_text(tokenized_prompts), dim=-1)
-            text_features = F.normalize(text_features.mean(dim=0), dim=-1).unsqueeze(0)
-
-        total_frames, start_frame, end_frame, indices, scores = score_video_frames(
-            video_path=video_path,
-            start_frame=args.start_frame,
-            max_frame=args.max_frame,
-            frame_step=args.frame_step,
-            batch_size=max(1, int(args.batch_size)),
-            clip_model=clip_model,
-            clip_preprocess=clip_preprocess,
-            text_features=text_features,
-            device=device,
+        finetuned_weights = (
+            Path(args.finetuned_weights)
+            if args.finetuned_weights
+            else resolve_latest_finetuned_weights(archive_name)
         )
+        prototype_counts = {"bad": 0, "good": 0}
+        finetuned_weights_path = None
+        classifier_source = "tape_prompts"
+        if finetuned_weights and Path(finetuned_weights).exists():
+            finetuned_weights_path = Path(finetuned_weights)
+            print(f"Using fine-tuned CLIP checkpoint: {finetuned_weights_path}")
+            finetuned_model, clip_preprocess, ft_state = load_finetuned_clip_model(
+                finetuned_weights_path,
+                device=device,
+            )
+            classifier_source = "step19_finetuned_clip"
+            total_frames, start_frame, end_frame, indices, scores = score_video_frames_finetuned(
+                video_path=video_path,
+                start_frame=args.start_frame,
+                max_frame=args.max_frame,
+                frame_step=args.frame_step,
+                batch_size=max(1, int(args.batch_size)),
+                model=finetuned_model,
+                clip_preprocess=clip_preprocess,
+                device=device,
+            )
+        else:
+            try:
+                import clip
+            except Exception as exc:
+                raise RuntimeError(
+                    "Failed to import `clip`. Install dependencies with:\n"
+                    "  .\\.venv\\Scripts\\python.exe -m pip install openai-clip \"setuptools<81\""
+                ) from exc
+
+            print(f"Loading CLIP model: {args.clip_model}")
+            # `jit=True` is used in the original TAPE code, but it is incompatible with
+            # some modern torch/clip combinations on CPU.
+            clip_model, clip_preprocess = clip.load(args.clip_model, device=device, jit=False)
+            clip_model.eval()
+
+            bad_features = None
+            good_features = None
+            if (review_png_dir / "bad").exists() and (review_png_dir / "good").exists():
+                try:
+                    bad_features, good_features, bad_count, good_count = encode_review_prototypes(
+                        clip_model=clip_model,
+                        clip_preprocess=clip_preprocess,
+                        device=device,
+                        bad_dir=review_png_dir / "bad",
+                        good_dir=review_png_dir / "good",
+                        batch_size=max(1, int(args.prototype_batch_size)),
+                    )
+                    prototype_counts = {"bad": int(bad_count), "good": int(good_count)}
+                    classifier_source = "review_png_prototypes"
+                    print(
+                        f"Using review PNG prototypes from {review_png_dir} "
+                        f"(bad={bad_count}, good={good_count})"
+                    )
+                except Exception as exc:
+                    print(f"WARNING: prototype mode failed ({exc}); falling back to prompt mode.")
+
+            if bad_features is None:
+                amp_ctx = torch.autocast(device_type="cuda", dtype=torch.float16) if device.type == "cuda" else contextlib.nullcontext()
+                with torch.no_grad(), amp_ctx:
+                    tokenized_prompts = clip.tokenize(TAPE_PROMPTS).to(device)
+                    text_features = F.normalize(clip_model.encode_text(tokenized_prompts), dim=-1)
+                    bad_features = F.normalize(text_features.mean(dim=0), dim=-1).unsqueeze(0)
+                good_features = None
+
+            total_frames, start_frame, end_frame, indices, scores = score_video_frames(
+                video_path=video_path,
+                start_frame=args.start_frame,
+                max_frame=args.max_frame,
+                frame_step=args.frame_step,
+                batch_size=max(1, int(args.batch_size)),
+                clip_model=clip_model,
+                clip_preprocess=clip_preprocess,
+                bad_features=bad_features,
+                device=device,
+                good_features=good_features,
+            )
 
     scores_np = np.asarray(scores, dtype=np.float64)
     evaluated_set = set(indices)
@@ -544,6 +830,22 @@ def main(argv=None):
         "video_path": str(video_path),
         "device": str(device),
         "clip_model": args.clip_model,
+        "classifier_source": (
+            classifier_source if "classifier_source" in locals() else "scores_tsv"
+        ),
+        "finetuned_weights_path": (
+            str(finetuned_weights_path)
+            if "finetuned_weights_path" in locals() and finetuned_weights_path is not None
+            else None
+        ),
+        "review_png_dir": (
+            str(review_png_dir)
+            if "review_png_dir" in locals()
+            else None
+        ),
+        "prototype_counts": (
+            prototype_counts if "prototype_counts" in locals() else None
+        ),
         "prompts_count": len(TAPE_PROMPTS),
         "total_video_frames": (None if total_frames is None else int(total_frames)),
         "evaluated_frame_start": int(start_frame),

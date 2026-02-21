@@ -935,7 +935,7 @@ def parse_args(argv=None):
     parser.add_argument(
         "--export-review-png-count",
         type=int,
-        default=300,
+        default=1000,
         help=(
             "Default sample count per label for review PNG export "
             "(applies to bad and good unless overridden)."

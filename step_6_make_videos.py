@@ -280,8 +280,22 @@ def find_people_tsv(archive_name):
     return path if path.exists() else None
 
 def find_badframes_tsv(archive_name):
-    path = METADATA_DIR / archive_name / "badframes.tsv"
-    return path if path.exists() else None
+    metadata_path = METADATA_DIR / archive_name / "badframes.clip_finetune.tsv"
+    if metadata_path.exists():
+        return metadata_path
+
+    # archive_tracking_path = ARCHIVE_DIR / f"{archive_name}_tracking_badframe" / "badframes.tsv"
+    # if archive_tracking_path.exists():
+    #     return archive_tracking_path
+
+    # archive_sidecar_path = ARCHIVE_DIR / f"{archive_name}.badframes.tsv"
+    # if archive_sidecar_path.exists():
+    #     return archive_sidecar_path
+
+    # metadata_path = METADATA_DIR / archive_name / "badframes.tsv"
+    # if metadata_path.exists():
+    #     return metadata_path
+    return None
 
 def resolve_badframes_tsv(archive_name, override_path=None, override_archive=""):
     if override_path and (not override_archive or archive_name == override_archive):
@@ -834,8 +848,7 @@ def transcribe_audio(model, temp_transcript, final_srt, final_vtt, final_dir):
     srt_writer(result, str(final_srt))
     vtt_writer(result, str(final_vtt))
 
-def main(argv=None):
-    args = parse_args(argv)
+def _run_with_args(args):
     model = None
     rebuild_selected = bool(args.title)
     badframes_override = None
@@ -880,11 +893,11 @@ def main(argv=None):
             if archive_badframe_repairs:
                 explicit_count = sum(1 for (_a, _b, src) in archive_badframe_repairs if src is not None)
                 print(
-                    f"Loaded bad frame sidecar: {badframes_tsv.name} ({len(archive_badframe_repairs)} range(s), "
+                    f"Loaded bad frame sidecar: {badframes_tsv} ({len(archive_badframe_repairs)} range(s), "
                     f"{explicit_count} with source override)"
                 )
             else:
-                print(f"Bad frame sidecar is present but empty: {badframes_tsv.name}")
+                print(f"Bad frame sidecar is present but empty: {badframes_tsv}")
 
         for ch in chapters:
             ch["duration"] = float(ch.get("end", 0)) - float(ch.get("start", 0))
@@ -1054,6 +1067,27 @@ def main(argv=None):
         print(
             f"WARNING: --badframes-archive '{badframes_override_archive}' did not match any processed archive."
         )
+
+
+def run_make_videos(
+    *,
+    title_filters=None,
+    no_bob=False,
+    badframes_tsv="",
+    badframes_archive="",
+):
+    args = argparse.Namespace(
+        title=list(title_filters or []),
+        no_bob=bool(no_bob),
+        badframes_tsv=str(badframes_tsv) if badframes_tsv else "",
+        badframes_archive=str(badframes_archive or ""),
+    )
+    _run_with_args(args)
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    _run_with_args(args)
 
 if __name__ == "__main__":
     main()

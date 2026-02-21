@@ -11,6 +11,7 @@
 #
 import os, shutil, subprocess, sys
 import hashlib
+from dataclasses import replace as dataclass_replace
 from pathlib import Path
 
 # ---------------------------------------------------------
@@ -152,6 +153,31 @@ def format_hms(seconds):
 def run(cmd, cwd=None):
     print("Command: " + " ".join(map(str, cmd)))
     subprocess.run([str(c) for c in cmd], check=True, cwd=cwd)
+
+def resolve_path(path_value, base_dir=None):
+    path = Path(path_value).expanduser()
+    if path.is_absolute():
+        return path
+    base = Path(base_dir) if base_dir is not None else BASE
+    return (base / path).resolve()
+
+def resolve_optional_path(path_value, default_path, base_dir=None):
+    text = str(path_value or "").strip()
+    if text:
+        return resolve_path(text, base_dir=base_dir)
+    return Path(default_path)
+
+def require_non_empty(text, field_name):
+    value = str(text or "").strip()
+    if not value:
+        raise ValueError(f"{field_name} cannot be empty.")
+    return value
+
+def apply_config_overrides(config, **overrides):
+    cleaned = {k: v for k, v in overrides.items() if v is not None}
+    if not cleaned:
+        return config
+    return dataclass_replace(config, **cleaned)
 
 def read_ffmetadata_title(path):
     with path.open() as f:
