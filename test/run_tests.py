@@ -4,6 +4,7 @@ import sys
 import subprocess
 import types
 from pathlib import Path
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -12,11 +13,23 @@ if str(ROOT) not in sys.path:
 os.environ["TEST_ENV"] = "1"
 from common import *
 TESTDATA_DIR = BASE / "test" / "test_data"
+TEST_ARCHIVE_FIXTURE = TESTDATA_DIR / "test_01_archive.mkv"
 os.environ["PYTHONPATH"] = str(BASE)
 
 ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
 CLIPS_DIR.mkdir(parents=True, exist_ok=True)
+
+def _require_test_archive_fixture(test_name: str) -> bool:
+    if TEST_ARCHIVE_FIXTURE.exists():
+        return True
+    print(f"Skipping {test_name}: missing fixture {TEST_ARCHIVE_FIXTURE}")
+    return False
+
+def _ensure_test_archive_metadata_dir() -> Path:
+    p = METADATA_DIR / "test_01_archive"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
 def _framemd5_hashes(path: Path):
     hashes = []
@@ -128,7 +141,9 @@ def import_step_6_module():
 
 def test_step_4_generate_archive_metadata():
     print("Testing step_4_generate_archive_metadata.py...")
-    shutil.copy(TESTDATA_DIR / "test_01_archive.mkv", ARCHIVE_DIR / "test_01_archive.mkv")
+    if not _require_test_archive_fixture("test_step_4_generate_archive_metadata"):
+        return
+    shutil.copy(TEST_ARCHIVE_FIXTURE, ARCHIVE_DIR / "test_01_archive.mkv")
     import step_3_generate_archive_metadata
     assert step_3_generate_archive_metadata.main() is None
     assert step_3_generate_archive_metadata.ARCHIVE_CHECKSUM_FILE.stat().st_size > 50
@@ -145,7 +160,9 @@ def test_step_4_generate_archive_metadata():
 
 def test_step_6_make_videos():
     print("Testing step_6_make_videos.py...")
-    shutil.copy(TESTDATA_DIR / "test_01_archive.mkv", ARCHIVE_DIR / "test_01_archive.mkv")
+    if not _require_test_archive_fixture("test_step_6_make_videos"):
+        return
+    shutil.copy(TEST_ARCHIVE_FIXTURE, ARCHIVE_DIR / "test_01_archive.mkv")
     step_6_make_videos = import_step_6_module()
     assert step_6_make_videos.main() is None
     assert (CLIPS_DIR / "Test Video 01.mp4").stat().st_size > 100
@@ -161,7 +178,9 @@ def test_step_6_make_videos():
 
 def test_step_6_title_filter_and_rebuild():
     print("Testing step_6_make_videos title filter and rebuild...")
-    shutil.copy(TESTDATA_DIR / "test_01_archive.mkv", ARCHIVE_DIR / "test_01_archive.mkv")
+    if not _require_test_archive_fixture("test_step_6_title_filter_and_rebuild"):
+        return
+    shutil.copy(TEST_ARCHIVE_FIXTURE, ARCHIVE_DIR / "test_01_archive.mkv")
     step_6_make_videos = import_step_6_module()
 
     out_mp4 = CLIPS_DIR / "Test Video 01.mp4"
@@ -190,6 +209,7 @@ def test_step_6_title_filter_and_rebuild():
 def test_step_6_badframe_sidecar_mapping():
     print("Testing step_6_make_videos badframe sidecar mapping...")
     step_6_make_videos = import_step_6_module()
+    test_meta_dir = _ensure_test_archive_metadata_dir()
 
     chapter = {
         "start": 1000 * 1001.0 / 30000.0,
@@ -205,7 +225,7 @@ def test_step_6_badframe_sidecar_mapping():
     assert local == [0, 1, 2]
     assert local == [0, 1, 2]
 
-    tmp_tsv = METADATA_DIR / "test_01_archive" / "_badframes_test.tsv"
+    tmp_tsv = test_meta_dir / "_badframes_test.tsv"
     tmp_tsv.write_text(
         "start_frame\tend_frame\tnote\n"
         "100\t102\tshort,no_pad\n"
@@ -224,7 +244,7 @@ def test_step_6_badframe_sidecar_mapping():
     finally:
         tmp_tsv.unlink(missing_ok=True)
 
-    tmp_source_tsv = METADATA_DIR / "test_01_archive" / "_badframes_source_test.tsv"
+    tmp_source_tsv = test_meta_dir / "_badframes_source_test.tsv"
     tmp_source_tsv.write_text(
         "start_frame\tend_frame\tsource_frame\tnote\n"
         "100\t102\t98\tno_pad\n"
@@ -246,7 +266,7 @@ def test_step_6_badframe_sidecar_mapping():
     finally:
         tmp_source_tsv.unlink(missing_ok=True)
 
-    tmp_bool_tsv = METADATA_DIR / "test_01_archive" / "_badframes_no_pad_bool.tsv"
+    tmp_bool_tsv = test_meta_dir / "_badframes_no_pad_bool.tsv"
     tmp_bool_tsv.write_text(
         "start_frame\tend_frame\tsource_frame\tno_pad\tnote\n"
         "100\t101\t99\ttrue\t\n"
@@ -339,7 +359,7 @@ def test_step_6_badframe_repair_injection_and_comment():
 def test_step_6_make_create_avs_includes_chapter_bounds():
     print("Testing step_6_make_videos AVS generation with chapter bounds...")
     step_6_make_videos = import_step_6_module()
-    tmp_filter = METADATA_DIR / "test_01_archive" / "_tmp_filter.avs"
+    tmp_filter = _ensure_test_archive_metadata_dir() / "_tmp_filter.avs"
     tmp_filter.write_text("c = last\nreturn c\n", encoding="utf-8")
     try:
         script = step_6_make_videos.make_create_avs(
@@ -709,6 +729,53 @@ def test_blake3_verify_only():
     test_root.rmdir()
     print("Test BLAKE3 verify (legacy): PASSED.")
 
+def test_vhs_tuner_toggle_override_cycle():
+    print("Testing vhs_tuner frame-toggle override cycle...")
+    import vhs_tuner
+
+    fids = [100, 101, 102]
+    sigs = {
+        "chroma": np.array([0.0, 10.0, 20.0], dtype=np.float64),
+        "noise": np.zeros(3, dtype=np.float64),
+        "tear": np.zeros(3, dtype=np.float64),
+        "wave": np.zeros(3, dtype=np.float64),
+    }
+
+    # Frame 100 is auto-good at threshold 0, so first toggle should force bad.
+    overrides = vhs_tuner.toggle_frame_override(
+        fid=100, fids=fids, sigs=sigs, overrides={},
+        wc=1.0, wn=0.0, wt=0.0, ww=0.0, tm="value", ik=3.5, tv=0.0, bp=10.0,
+    )
+    assert overrides.get(100) == "bad"
+    overrides = vhs_tuner.toggle_frame_override(
+        fid=100, fids=fids, sigs=sigs, overrides=overrides,
+        wc=1.0, wn=0.0, wt=0.0, ww=0.0, tm="value", ik=3.5, tv=0.0, bp=10.0,
+    )
+    assert 100 not in overrides
+
+    # Frame 102 is auto-bad at threshold 0, so first toggle should force good.
+    overrides = vhs_tuner.toggle_frame_override(
+        fid=102, fids=fids, sigs=sigs, overrides={},
+        wc=1.0, wn=0.0, wt=0.0, ww=0.0, tm="value", ik=3.5, tv=0.0, bp=10.0,
+    )
+    assert overrides.get(102) == "good"
+    overrides = vhs_tuner.toggle_frame_override(
+        fid=102, fids=fids, sigs=sigs, overrides=overrides,
+        wc=1.0, wn=0.0, wt=0.0, ww=0.0, tm="value", ik=3.5, tv=0.0, bp=10.0,
+    )
+    assert 102 not in overrides
+
+    # Regression check: signal sparkline HTML should include the red cut line.
+    scores = vhs_tuner.combined_score(sigs, 1.0, 0.0, 0.0, 0.0)
+    thr = vhs_tuner.compute_threshold(scores, "value", 3.5, 0.0, 10.0)
+    sc_ch, sc_no, sc_te, sc_wa, _ = vhs_tuner.build_sparklines_html(
+        sigs=sigs, scores=scores, threshold=thr, wc=0.2, wn=0.3, wt=0.4, ww=0.5
+    )
+    for svg in (sc_ch, sc_no, sc_te, sc_wa):
+        assert 'stroke="#e03030"' in svg
+
+    print("Test vhs_tuner frame-toggle override cycle: PASSED.")
+
 def main():
     print("Running tests...")
     test_step_4_generate_archive_metadata()
@@ -722,6 +789,7 @@ def main():
     test_step_drive_checksums()
     test_sha3_generate_and_verify()
     test_blake3_verify_only()
+    test_vhs_tuner_toggle_override_cycle()
 
 if __name__ == "__main__":
     main()

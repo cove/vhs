@@ -12,8 +12,9 @@ Metadata layout (all under metadata/<archive>/)
     <slug>_signals.tsv          raw per-frame signals cache (accumulates across sessions)
     <slug>_overrides.tsv        manual good/bad overrides from the tuner UI
     <slug>_tuner_config.json    last-saved weight / IQR settings for this chapter
+    <slug>_badframes.tsv        chapter-specific bad ranges (auto + overrides merged)
   badframes.tsv                 ARCHIVE-LEVEL canonical file — read by step_6_make_videos
-                                 = single source of truth for archive bad frames
+                                 = union of all chapters' results with overrides applied
 
 step_6_make_videos.py reads  metadata/<archive>/badframes.tsv
                               which is kept up-to-date by "Apply & Regenerate"
@@ -21,8 +22,8 @@ step_6_make_videos.py reads  metadata/<archive>/badframes.tsv
 
 from __future__ import annotations
 
-import base64
 import ast
+import base64
 import io
 import json
 import re
@@ -33,7 +34,7 @@ from pathlib import Path
 import cv2
 import gradio as gr
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 # ── Project paths ─────────────────────────────────────────────────────────────
 _HERE        = Path(__file__).resolve().parent
@@ -119,6 +120,9 @@ def _overrides_path(archive: str, ch_title: str) -> Path:
 
 def _tuner_config_path(archive: str, ch_title: str) -> Path:
     return _tracking_dir(archive) / f"{slugify(ch_title)}_tuner_config.json"
+
+def _chapter_badframes_path(archive: str, ch_title: str) -> Path:
+    return _tracking_dir(archive) / f"{slugify(ch_title)}_badframes.tsv"
 
 def _archive_badframes_path(archive: str) -> Path:
     p = METADATA_DIR / archive / "badframes.tsv"
@@ -281,11 +285,25 @@ def load_overrides(archive: str, ch_title: str) -> dict[int, str]:
     return out
 
 
+def save_overrides(archive: str, ch_title: str, overrides: dict[int, str]) -> None:
+    p = _overrides_path(archive, ch_title)
+    lines = ["frame\toverride"]
+    for fid in sorted(overrides):
+        lines.append(f"{fid}\t{overrides[fid]}")
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def load_overrides_from_archive_badframes(
     archive: str,
     ch_start: int,
     ch_end: int,
 ) -> dict[int, str]:
+    """
+    Read manual override comments from the archive-level badframes.tsv and
+    return any that fall within [ch_start, ch_end].  These comments look like:
+      # Manual good overrides (forced good): [12345, 12399]
+      # Manual bad overrides  (forced bad):  [12350]
+    """
     out: dict[int, str] = {}
     p = _archive_badframes_path(archive)
     if not p.exists():
@@ -322,14 +340,6 @@ def load_overrides_from_archive_badframes(
                 if ch_start <= fid <= ch_end:
                     out[fid] = "bad"
     return out
-
-
-def save_overrides(archive: str, ch_title: str, overrides: dict[int, str]) -> None:
-    p = _overrides_path(archive, ch_title)
-    lines = ["frame\toverride"]
-    for fid in sorted(overrides):
-        lines.append(f"{fid}\t{overrides[fid]}")
-    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -475,6 +485,38 @@ def compute_threshold(
     return float(np.quantile(v, 1.0 - bad_pct / 100.0))
 
 
+def toggle_frame_override(
+    fid: int,
+    fids: list[int],
+    sigs: dict[str, np.ndarray],
+    overrides: dict[int, str],
+    wc: float,
+    wn: float,
+    wt: float,
+    ww: float,
+    tm: str,
+    ik: float,
+    tv: float,
+    bp: float,
+) -> dict[int, str]:
+    """
+    Toggle one frame between:
+    - auto state (no override)
+    - forced opposite of auto state
+    """
+    out = dict(overrides)
+    sc = combined_score(sigs, wc, wn, wt, ww)
+    thr = compute_threshold(sc, tm, ik, tv, bp)
+    idx = fids.index(fid) if fid in fids else -1
+    auto_bad = (idx >= 0 and sc[idx] >= thr)
+
+    if fid in out:
+        del out[fid]
+    else:
+        out[fid] = "good" if auto_bad else "bad"
+    return out
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # SVG Sparklines  — timeline charts with horizontal red cut line
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -547,21 +589,6 @@ def _sparkline_svg(
     )
 
 
-def _normalize_unit(values: np.ndarray) -> np.ndarray:
-    v = np.asarray(values, dtype=np.float64)
-    finite = v[np.isfinite(v)]
-    if finite.size == 0:
-        return np.array([], dtype=np.float64)
-    lo = float(np.min(finite))
-    hi = float(np.max(finite))
-    if hi <= lo:
-        out = np.zeros_like(v, dtype=np.float64)
-    else:
-        out = (v - lo) / (hi - lo)
-    out[~np.isfinite(out)] = 0.0
-    return out
-
-
 def build_sparklines_html(
     sigs: dict,
     scores: np.ndarray,
@@ -579,22 +606,40 @@ def build_sparklines_html(
         alpha = 0.25 + 0.75 * min(1.0, w / 0.5)
         return f"rgba(39,168,90,{alpha:.2f})"
 
-    chroma_n = _normalize_unit(sigs.get("chroma", np.array([])))
-    noise_n  = _normalize_unit(sigs.get("noise",  np.array([])))
-    tear_n   = _normalize_unit(sigs.get("tear",   np.array([])))
-    wave_n   = _normalize_unit(sigs.get("wave",   np.array([])))
+    def _unit(v: np.ndarray) -> np.ndarray:
+        arr = np.asarray(v, dtype=np.float64)
+        arr = arr[np.isfinite(arr)]
+        if arr.size == 0:
+            return arr
+        lo = float(np.min(arr))
+        hi = float(np.max(arr))
+        if hi <= lo:
+            return np.zeros_like(arr, dtype=np.float64)
+        return (arr - lo) / (hi - lo)
 
     sc_chroma = _sparkline_svg(
-        chroma_n, wc, f"chroma  w={wc:.2f}", line_color=_col(wc)
+        _unit(sigs.get("chroma", np.array([]))),
+        wc,
+        f"chroma  w={wc:.2f}",
+        line_color=_col(wc),
     )
     sc_noise = _sparkline_svg(
-        noise_n, wn, f"noise   w={wn:.2f}", line_color=_col(wn)
+        _unit(sigs.get("noise", np.array([]))),
+        wn,
+        f"noise   w={wn:.2f}",
+        line_color=_col(wn),
     )
     sc_tear = _sparkline_svg(
-        tear_n, wt, f"tear    w={wt:.2f}", line_color=_col(wt)
+        _unit(sigs.get("tear", np.array([]))),
+        wt,
+        f"tear    w={wt:.2f}",
+        line_color=_col(wt),
     )
     sc_wave = _sparkline_svg(
-        wave_n, ww, f"wave    w={ww:.2f}", line_color=_col(ww)
+        _unit(sigs.get("wave", np.array([]))),
+        ww,
+        f"wave    w={ww:.2f}",
+        line_color=_col(ww),
     )
     sc_score  = _sparkline_svg(scores, threshold, "composite score",
                                 height=52, line_color="#5599dd")
@@ -606,27 +651,10 @@ def build_sparklines_html(
 # Frame grid HTML
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_GRID_JS = """
-<script>
-(function() {
-  function setGradioValue(elemId, value) {
-    const c = document.getElementById(elemId);
-    if (!c) return;
-    const inp = c.querySelector('textarea') || c.querySelector('input[type="text"]');
-    if (!inp) return;
-    const proto = inp.tagName === 'TEXTAREA'
-      ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, 'value');
-    if (setter && setter.set) setter.set.call(inp, value);
-    else inp.value = value;
-    inp.dispatchEvent(new Event('input', {bubbles:true}));
-  }
-  window.toggleVHSFrame = function(fid) {
-    setGradioValue('vhs-click-recv', String(fid));
-  };
-})();
-</script>
-"""
+# NOTE: _GRID_JS is intentionally empty - the actual JS lives in a static
+# gr.HTML component that is never included in event outputs, so it survives
+# grid rebuilds. Cells call window.vhsToggleFrame(fid) via inline onclick.
+_GRID_JS = ""
 
 
 def build_grid_html(
@@ -647,17 +675,17 @@ def build_grid_html(
         auto  = sc >= threshold
         bad   = (ov == "bad") if ov else auto
         if ov == "bad":
-            color = "#8b1f1f"
+            color = "#8b1f1f"   # dark red = manual bad
             badge = " M:BAD"
         elif ov == "good":
-            color = "#1f6b3a"
+            color = "#1f6b3a"   # dark green = manual good
             badge = " M:GOOD"
         else:
             color = "#e03030" if bad else "#30c870"
             badge = ""
         label = f"#{fid} {sc:.2f}{badge}"
         cells.append(
-            f'<div class="vhs-cell" onclick="toggleVHSFrame({fid})"'
+            f'<div class="vhs-cell" data-fid="{fid}" onclick="if(window.vhsToggleFrame){{window.vhsToggleFrame({fid});}} return false;"'
             f' title="frame {fid} · score {sc:.4f} · click to toggle">'
             f'<div class="vhs-wrap" style="border-color:{color}">'
             f'<img src="{b64}" class="vhs-thumb"/></div>'
@@ -684,6 +712,40 @@ def build_grid_html(
 </style>
 <div class="vhs-grid">{''.join(cells)}</div>
 """
+
+
+def build_gallery_items(
+    frames_b64: list[str],
+    fids: list[int],
+    scores: np.ndarray,
+    overrides: dict[int, str],
+    threshold: float,
+) -> list[tuple[Image.Image, str]]:
+    items: list[tuple[Image.Image, str]] = []
+    for b64, fid, sc in zip(frames_b64, fids, scores):
+        # Gradio Gallery.select in v6 rejects data: URIs in event payload.
+        # Convert to in-memory PIL images so selected items are cache-safe.
+        try:
+            payload = b64.split(",", 1)[1] if "," in b64 else b64
+            img = Image.open(io.BytesIO(base64.b64decode(payload))).convert("RGB")
+        except Exception:
+            img = Image.new("RGB", (160, 90), (20, 20, 20))
+        ov = overrides.get(int(fid))
+        auto_bad = sc >= threshold
+        if ov == "bad":
+            state = "M:BAD"
+            color = "#8b1f1f"   # dark red = manual bad
+        elif ov == "good":
+            state = "M:GOOD"
+            color = "#1f6b3a"   # dark green = manual good
+        else:
+            state = "AUTO:BAD" if auto_bad else "AUTO:GOOD"
+            color = "#e03030" if auto_bad else "#30c870"
+
+        # Restore fast visual scanning: colored border per frame state.
+        styled = ImageOps.expand(img, border=BORDER, fill=color)
+        items.append((styled, f"#{fid}  S={sc:.2f}  {state}"))
+    return items
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -828,24 +890,33 @@ def apply_and_regenerate(
         iqr_mult             = iqr_mult,
         threshold_window_size= 1000,
         export_review_png_count = 0,
-        # Write directly to the archive-level canonical badframes.tsv
-        metadata_badframes_tsv = str(_archive_badframes_path(archive)),
+        # Keep tracking_loss metadata copy local to this chapter run output.
+        metadata_badframes_tsv = str(ch_output_dir / "chapter_badframes.metadata.tsv"),
     )
     try:
         result = run_tracking_loss_classification(config=config)  # type: ignore
-        logs.append(f"✅  tracking_loss done  →  {result['frame_scores_path'].name}")
+        frame_scores_out = Path(result.get("frame_scores_path", ch_output_dir / "frame_scores.tsv"))
+        logs.append(f"✅  tracking_loss done  →  {frame_scores_out.name}")
     except Exception as exc:
         logs.append(f"❌  tracking_loss failed: {exc}")
         return "\n".join(logs)
 
     # 4 ── Load auto bad ranges ─────────────────────────────────────────────
-    archive_bf_path = _archive_badframes_path(archive)
-    auto_ranges = []
-    for s, e, _ in _parse_badframes_tsv(archive_bf_path):
-        lo = max(int(s), int(ch_start))
-        hi = min(int(e), int(ch_end))
-        if hi >= lo:
-            auto_ranges.append((lo, hi))
+    run_badframes: Path | None = None
+    if isinstance(result, dict):
+        bf = result.get("badframes_path")
+        if bf:
+            run_badframes = Path(bf)
+        if (not run_badframes or not run_badframes.exists()) and result.get("output_dir"):
+            fallback = Path(result["output_dir"]) / "badframes.tsv"
+            if fallback.exists():
+                run_badframes = fallback
+
+    if not run_badframes or not run_badframes.exists():
+        logs.append("❌  tracking_loss did not produce badframes.tsv; archive badframes was not updated.")
+        return "\n".join(logs)
+
+    auto_ranges = [(s, e) for s, e, _ in _parse_badframes_tsv(run_badframes)]
     logs.append(f"   Auto bad ranges: {len(auto_ranges)}")
 
     # 5 ── Merge overrides into archive-level badframes.tsv ─────────────────
@@ -873,23 +944,6 @@ def apply_and_regenerate(
 
 _DARK_CSS = """
 body, .gradio-container { background:#0d0d0d !important; color:#ccc; }
-.gradio-container {
-  max-width: 100% !important;
-  width: 100% !important;
-  margin: 0 !important;
-  padding: 6px 8px !important;
-}
-.app, .contain {
-  max-width: 100% !important;
-}
-.gradio-container .main {
-  padding: 0 !important;
-}
-.gr-row, .gr-form, .gr-group { gap: 6px !important; }
-.gr-block, .block, .gr-box, .gr-padded {
-  padding-top: 4px !important;
-  padding-bottom: 4px !important;
-}
 .gr-box, .gr-padded { background:#141414 !important; }
 .gr-button-primary { background:#1a6b3a !important; border-color:#27a85a !important; }
 .gr-button { background:#222 !important; color:#bbb !important; border-color:#333 !important; }
@@ -1028,7 +1082,7 @@ with gr.Blocks(
                 twidth_sl = gr.Slider(80, 320, value=160, step=20, label="px wide")
 
             gr.Markdown("### ✅  Apply")
-            fstep_sl  = gr.Slider(1, 10, value=3, step=1,
+            fstep_sl  = gr.Slider(1, 10, value=1, step=1,
                                    label="Full-scan frame step  (1=accurate, 10=fast)")
             apply_btn = gr.Button("✅  Apply & Regenerate", variant="primary")
             apply_log = gr.Textbox(label="Apply log", lines=8,
@@ -1039,7 +1093,63 @@ with gr.Blocks(
         with gr.Column(scale=4):
 
             stats_md  = gr.Markdown("", elem_id="vhs-stats")
-            grid_html = gr.HTML("")
+            grid_gallery = gr.Gallery(
+                value=[],
+                label="Frames (click a tile to toggle good/bad)",
+                show_label=True,
+                columns=10,
+                object_fit="contain",
+                height="auto",
+                allow_preview=False,
+            )
+
+            # ── Static JS — never included in event outputs, so it persists
+            #    across grid rebuilds. We keep inline + delegated click paths
+            #    with dedupe so clicks still register if one path is filtered.
+            gr.HTML("""
+<script>
+(function() {
+  function _setGradio(elemId, val) {
+    var c = document.getElementById(elemId);
+    if (!c) return;
+    var inp = c.querySelector('textarea') || c.querySelector('input');
+    if (!inp) return;
+    var proto = (inp.tagName === 'TEXTAREA')
+      ? window.HTMLTextAreaElement.prototype
+      : window.HTMLInputElement.prototype;
+    var desc = Object.getOwnPropertyDescriptor(proto, 'value');
+    if (desc && desc.set) desc.set.call(inp, val);
+    else inp.value = val;
+    inp.dispatchEvent(new Event('input', {bubbles: true}));
+  }
+
+  var _lastFid = null;
+  var _lastTs = 0;
+  function _emit(fid, source) {
+    var sid = String(fid || '');
+    if (!sid) return;
+    var now = Date.now();
+    if (_lastFid === sid && (now - _lastTs) < 120) {
+      _setGradio('vhs-click-debug-js', 'dedupe ' + source + ' fid=' + sid + ' dt=' + (now - _lastTs) + 'ms');
+      return;
+    }
+    _lastFid = sid;
+    _lastTs = now;
+    var payload = sid + ':' + now;
+    _setGradio('vhs-click-debug-js', 'emit ' + source + ' payload=' + payload);
+    _setGradio('vhs-click-recv', payload);
+  }
+
+  window.vhsToggleFrame = function(fid) { _emit(fid, 'inline'); };
+  document.addEventListener('click', function(e) {
+    var cell = e.target.closest('.vhs-cell[data-fid]');
+    if (!cell) return;
+    _emit(cell.getAttribute('data-fid'), 'delegate');
+  }, true);
+
+})();
+</script>
+""")
 
             with gr.Row():
                 click_recv = gr.Textbox(
@@ -1047,7 +1157,16 @@ with gr.Blocks(
                     interactive=True, scale=1, max_lines=1,
                     elem_id="vhs-click-recv",
                 )
-                gr.HTML("<div style='flex:4'></div>")
+                click_debug_js = gr.Textbox(
+                    value="", label="JS click debug",
+                    interactive=False, scale=2, max_lines=1,
+                    elem_id="vhs-click-debug-js",
+                )
+                click_debug_srv = gr.Textbox(
+                    value="", label="Server click debug",
+                    interactive=False, scale=2, max_lines=1,
+                    elem_id="vhs-click-debug-srv",
+                )
 
             gr.Markdown("---")
             gr.Markdown("### 🎬  Render Chapter")
@@ -1072,11 +1191,12 @@ with gr.Blocks(
     def _rebuild(fids, b64, sigs, overrides, wc, wn, wt, ww,
                  t_mode, iqr_k, tval, bpct, cols, twidth):
         if not fids or not b64:
-            return ("", "*(no frames loaded)*",
+            return (gr.update(value=[]), "*(no frames loaded)*",
                     _E_SIG, _E_SIG, _E_SIG, _E_SIG, _E_SCORE)
         sc   = combined_score(sigs, wc, wn, wt, ww)
         thr  = compute_threshold(sc, t_mode, iqr_k, tval, bpct)
-        html = build_grid_html(b64, fids, sc, overrides, thr, cols, twidth)
+        gallery_items = build_gallery_items(b64, fids, sc, overrides, thr)
+        gallery_update = gr.update(value=gallery_items, columns=int(cols))
         n_bad  = sum(
             (overrides.get(int(f), "bad" if s >= thr else "good") == "bad")
             for f, s in zip(fids, sc)
@@ -1091,9 +1211,9 @@ with gr.Blocks(
         sc_ch, sc_no, sc_te, sc_wa, sc_sc = build_sparklines_html(
             sigs, sc, thr, wc, wn, wt, ww
         )
-        return html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc
+        return gallery_update, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc
 
-    _RB_OUTS = [grid_html, stats_md,
+    _RB_OUTS = [grid_gallery, stats_md,
                 spark_chroma, spark_noise, spark_tear, spark_wave, spark_score]
 
     # ── Archive change ─────────────────────────────────────────────────────
@@ -1128,7 +1248,7 @@ with gr.Blocks(
                 wc, wn, wt, ww, tmode, iqrk, tv, bp, cols, tw,
                 progress=gr.Progress()):
         FAIL = (gr.update(visible=False), "❌  No chapter/video found.",
-                [], [], {}, {}, "", "",
+                [], [], {}, {}, gr.update(value=[]), "",
                 _E_SIG, _E_SIG, _E_SIG, _E_SIG, _E_SCORE)
         if not archive or not ch_title or ch_title.startswith("—"):
             return FAIL
@@ -1143,15 +1263,15 @@ with gr.Blocks(
         )
         if err or fids is None:
             F2 = list(FAIL); F2[1] = f"❌  {err or 'Extraction failed'}"; return tuple(F2)
+        # Load overrides from dedicated file, then merge in any recorded in the
+        # archive-level badframes.tsv comment lines (from previous Apply runs).
         overrides = load_overrides(archive, ch_title)
         archive_overrides = load_overrides_from_archive_badframes(
-            archive=archive,
-            ch_start=int(start),
-            ch_end=int(end),
+            archive=archive, ch_start=int(start), ch_end=int(end),
         )
         if archive_overrides:
             merged = dict(archive_overrides)
-            merged.update(overrides)
+            merged.update(overrides)   # dedicated file wins on conflict
             overrides = merged
         html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc = _rebuild(
             fids, b64, sigs, overrides, wc, wn, wt, ww, tmode, iqrk, tv, bp, cols, tw
@@ -1167,8 +1287,8 @@ with gr.Blocks(
                   start_n, end_n, n_sl,
                   wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
                   cols_sl, twidth_sl]
-    load_btn.click(on_load,   _LOAD_INS, _LOAD_OUTS)
-    reload_btn.click(on_load, _LOAD_INS, _LOAD_OUTS)
+    load_btn.click(on_load,       _LOAD_INS, _LOAD_OUTS)
+    reload_btn.click(on_load,     _LOAD_INS, _LOAD_OUTS)
     apply_range_btn.click(on_load, _LOAD_INS, _LOAD_OUTS)
 
     # ── Live slider updates ────────────────────────────────────────────────
@@ -1186,56 +1306,85 @@ with gr.Blocks(
     def on_click(raw_click, fids, b64, sigs, overrides, archive, ch_title, ch_start, ch_end,
                  wc, wn, wt, ww, tm, ik, tv, bp, cols, tw):
         if not raw_click or not raw_click.strip() or not fids:
-            return (*[gr.update()] * 7, overrides, "")
+            return (*[gr.update()] * 7, overrides, "", "ignored: empty click payload or no frames")
         try:
-            fid = int(raw_click.strip())
+            # Value is "fid:timestamp" — timestamp guarantees every click is unique
+            fid = int(raw_click.strip().split(":")[0])
         except ValueError:
-            return (*[gr.update()] * 7, overrides, "")
+            return (*[gr.update()] * 7, overrides, "", f"ignored: invalid payload '{raw_click}'")
 
-        new_ov = dict(overrides)
-        sc = combined_score(sigs, wc, wn, wt, ww)
-        thr = compute_threshold(sc, tm, ik, tv, bp)
-        idx = fids.index(fid) if fid in fids else -1
-        auto_bad = (idx >= 0 and sc[idx] >= thr)
-        # Toggle behavior:
-        # 1st click: force opposite of auto state (manual dark color).
-        # 2nd click: remove manual override (back to auto/light color).
-        if fid in new_ov:
-            del new_ov[fid]
-        else:
-            new_ov[fid] = "good" if auto_bad else "bad"
+        before = overrides.get(fid)
 
-        ch_title_text = str(ch_title or "").strip().lower()
-        if archive and ch_title and ("select chapter" not in ch_title_text):
-            save_overrides(archive, ch_title, new_ov)
-            # Persist click immediately to archive-level badframes.tsv.
+        new_ov = toggle_frame_override(
+            fid=fid,
+            fids=fids,
+            sigs=sigs,
+            overrides=overrides,
+            wc=wc,
+            wn=wn,
+            wt=wt,
+            ww=ww,
+            tm=tm,
+            ik=ik,
+            tv=tv,
+            bp=bp,
+        )
+
+        ch_title_str = str(ch_title or "")
+        if archive and ch_title_str and "select chapter" not in ch_title_str.lower():
+            # Persist override file immediately
+            save_overrides(archive, ch_title_str, new_ov)
+            # Also merge into archive-level badframes.tsv immediately so nothing is lost
             archive_bf = _archive_badframes_path(archive)
-            auto_ranges = []
-            for s, e, _ in _parse_badframes_tsv(archive_bf):
-                lo = max(int(s), int(ch_start))
-                hi = min(int(e), int(ch_end))
-                if hi >= lo:
-                    auto_ranges.append((lo, hi))
+            # Retain auto ranges for this chapter from file (strip overrides, reapply below)
+            auto_ranges = [(s, e) for s, e, _ in _parse_badframes_tsv(archive_bf)
+                           if s >= int(ch_start) and e <= int(ch_end)]
             merge_chapter_into_archive_badframes(
-                archive=archive,
-                ch_start=int(ch_start),
-                ch_end=int(ch_end),
-                chapter_ranges=auto_ranges,
-                overrides=new_ov,
+                archive        = archive,
+                ch_start       = int(ch_start),
+                ch_end         = int(ch_end),
+                chapter_ranges = auto_ranges,
+                overrides      = new_ov,
             )
 
+        after = new_ov.get(fid)
+        in_sample = fid in {int(x) for x in fids}
+        srv_dbg = f"payload={raw_click} fid={fid} before={before} after={after} in_sample={in_sample}"
         html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc = _rebuild(
             fids, b64, sigs, new_ov, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw
         )
-        return html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, new_ov, ""
+        return html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, new_ov, "", srv_dbg
 
-    click_recv.change(
+    click_recv.input(
         on_click,
         [click_recv, st_fids, st_b64, st_sigs, st_overrides,
          archive_dd, chapter_dd, start_n, end_n,
          wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
          cols_sl, twidth_sl],
-        [*_RB_OUTS, st_overrides, click_recv],
+        [*_RB_OUTS, st_overrides, click_recv, click_debug_srv],
+    )
+
+    def on_gallery_select(fids, b64, sigs, overrides, archive, ch_title, ch_start, ch_end,
+                          wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, evt: gr.SelectData):
+        if evt is None or getattr(evt, "index", None) is None:
+            return (*[gr.update()] * 7, overrides, "", "ignored: no gallery selection event")
+        idx = int(evt.index)
+        if idx < 0 or idx >= len(fids):
+            return (*[gr.update()] * 7, overrides, "", f"ignored: gallery index out of range ({idx})")
+        fid = int(fids[idx])
+        payload = f"{fid}:{int(idx)}"
+        return on_click(
+            payload, fids, b64, sigs, overrides, archive, ch_title, ch_start, ch_end,
+            wc, wn, wt, ww, tm, ik, tv, bp, cols, tw
+        )
+
+    grid_gallery.select(
+        on_gallery_select,
+        [st_fids, st_b64, st_sigs, st_overrides,
+         archive_dd, chapter_dd, start_n, end_n,
+         wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
+         cols_sl, twidth_sl],
+        [*_RB_OUTS, st_overrides, click_recv, click_debug_srv],
     )
 
     # ── Apply & Regenerate ─────────────────────────────────────────────────
@@ -1256,44 +1405,41 @@ with gr.Blocks(
     def on_render(archive, ch_title, chapters, fids, sigs, overrides,
                   wc, wn, wt, ww, tm, ik, tv, bp, start, end, fstep,
                   progress=gr.Progress()):
-        NA = ("No chapter selected.", gr.update(visible=False), gr.update(visible=False))
+        NA = ("❌  No chapter selected.", gr.update(visible=False), gr.update(visible=False))
         ch_title_text = str(ch_title or "").strip().lower()
-        if (
-            not archive
-            or not ch_title
-            or "select chapter" in ch_title_text
-            or "no chapters" in ch_title_text
-        ):
+        if (not archive or not ch_title
+                or "select chapter" in ch_title_text
+                or "no chapters" in ch_title_text):
             return NA
         if not STEP6.exists():
-            return (f"{STEP6} not found.", gr.update(visible=False), gr.update(visible=False))
+            return (f"❌  {STEP6} not found.", gr.update(visible=False), gr.update(visible=False))
 
-        progress(0.05, desc="Regenerating badframes.tsv...")
-        apply_log = apply_and_regenerate(
+        # Always regenerate badframes.tsv with current weights before rendering
+        progress(0.05, desc="Regenerating badframes.tsv…")
+        regen_log = apply_and_regenerate(
             archive, ch_title, int(start), int(end),
             float(wc), float(wn), float(wt), float(ww), float(ik), int(fstep),
         )
-        failure_tokens = ["No chapter selected", "tracking_loss failed", "No video found", "module not found"]
-        if any(t in apply_log for t in failure_tokens):
-            return (f"Failed to regenerate badframes:\n{apply_log[-3000:]}",
+        failure_tokens = ["No chapter selected", "tracking_loss failed",
+                          "No video found", "module not found"]
+        if any(t in regen_log for t in failure_tokens):
+            return (f"❌  Failed to regenerate badframes:\n{regen_log[-3000:]}",
                     gr.update(visible=False), gr.update(visible=False))
 
-        progress(0.2, desc="Running step_6_make_videos...")
+        progress(0.2, desc="Running step_6_make_videos…")
         archive_bf = _archive_badframes_path(archive)
         result = subprocess.run(
-            [
-                sys.executable, str(STEP6),
-                "--archive", archive,
-                "--title", ch_title,
-                "--title-exact",
-                "--badframes-tsv", str(archive_bf),
-                "--badframes-archive", archive,
-            ],
+            [sys.executable, str(STEP6),
+             "--archive", archive,
+             "--title", ch_title,
+             "--title-exact",
+             "--badframes-tsv", str(archive_bf),
+             "--badframes-archive", archive],
             capture_output=True, text=True, cwd=str(PROJECT_ROOT),
         )
-        log = (apply_log + "\n\n" + (result.stdout or "") + (result.stderr or ""))[-5000:]
+        log = (regen_log + "\n\n" + (result.stdout or "") + (result.stderr or ""))[-5000:]
         if result.returncode != 0:
-            return (f"step_6 failed (exit {result.returncode}):\n{log}",
+            return (f"❌  step_6 failed (exit {result.returncode}):\n{log}",
                     gr.update(visible=False), gr.update(visible=False))
 
         rendered = None
@@ -1302,20 +1448,28 @@ with gr.Blocks(
             for d in [VIDEOS_DIR, CLIPS_DIR]:
                 c = d / f"{safe(ch_title)}.mp4"
                 if c.exists() and c.stat().st_size > 100_000:
-                    rendered = c
-                    break
+                    rendered = c; break
         except Exception:
             pass
 
         if not rendered:
-            return (f"Render done; output file not found.\n{log}",
+            return (f"✅  Render done; output file not found.\n{log}",
                     gr.update(visible=False), gr.update(visible=False))
 
-        progress(0.65, desc="Preparing preview...")
-        vid_path = str(rendered)
+        progress(0.65, desc="Building preview with burn-in…")
+        ch       = _find_chapter(chapters, ch_title)
+        ch_start = ch["start_frame"] if ch else 0
+        sc_np    = combined_score(sigs, wc, wn, wt, ww) if sigs else np.array([])
+        preview_p = rendered.parent / f"{rendered.stem}_tuner_preview.mp4"
+        try:
+            make_preview_video(rendered, preview_p, ch_start, fids or [], sc_np)
+            vid_path = str(preview_p)
+        except Exception as exc:
+            vid_path = str(rendered)
+            log += f"\n(Burn-in failed: {exc})"
 
         progress(1.0)
-        return (f"{rendered.name}",
+        return (f"✅  {rendered.name}",
                 gr.update(visible=True, value=vid_path),
                 gr.update(visible=True))
 
