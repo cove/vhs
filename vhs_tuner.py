@@ -1,81 +1,68 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.11
 """
-VHS Bad Frame Tuner
-===================
-Run: streamlit run vhs_tuner.py  (from the project root or scripts/ dir)
+VHS Bad Frame Tuner — Gradio edition
+=====================================
+Run:  python vhs_tuner.py
 
-Features:
-- Chapter dropdown auto-populates frame range
-- Per-chapter score caching under metadata/<archive>/tracking_badframe/
-- Manual good/bad frame overrides with persistent TSV storage
-- Run step_6_make_videos for a single chapter with spinner + log output
-- Video preview after render
-- Hover-to-enlarge frame grid (popup follows cursor)
+Requires:  pip install gradio opencv-python-headless numpy pillow pandas
+
+Metadata layout (all under metadata/<archive>/)
+────────────────────────────────────────────────
+  tracking_badframe/
+    <slug>_signals.tsv          raw per-frame signals cache (accumulates across sessions)
+    <slug>_overrides.tsv        manual good/bad overrides from the tuner UI
+    <slug>_tuner_config.json    last-saved weight / IQR settings for this chapter
+  badframes.tsv                 ARCHIVE-LEVEL canonical file — read by step_6_make_videos
+                                 = single source of truth for archive bad frames
+
+step_6_make_videos.py reads  metadata/<archive>/badframes.tsv
+                              which is kept up-to-date by "Apply & Regenerate"
 """
+
+from __future__ import annotations
 
 import base64
+import ast
 import io
 import json
-import math
 import re
 import subprocess
 import sys
-import textwrap
-from datetime import datetime, timezone
 from pathlib import Path
 
 import cv2
+import gradio as gr
 import numpy as np
-import pandas as pd
-import streamlit as st
 from PIL import Image
 
 # ── Project paths ─────────────────────────────────────────────────────────────
-# Works whether the tuner lives at project root or in scripts/
 _HERE        = Path(__file__).resolve().parent
 PROJECT_ROOT = _HERE.parent if _HERE.name == "scripts" else _HERE
+sys.path.insert(0, str(PROJECT_ROOT))
+
 ARCHIVE_DIR  = PROJECT_ROOT / "../Archive"
 METADATA_DIR = PROJECT_ROOT / "metadata"
-SCRIPTS_DIR  = PROJECT_ROOT / "scripts"
 STEP6        = PROJECT_ROOT / "step_6_make_videos.py"
+FPS          = 30000 / 1001
+BORDER       = 3
 
-FPS    = 30000 / 1001   # archive cadence
-BORDER = 4
-
-# ── Page config ───────────────────────────────────────────────────────────────
-st.set_page_config(page_title="VHS Tuner", layout="wide", initial_sidebar_state="expanded")
-st.markdown("""
-<style>
-  .stApp { background: #111; color: #ddd; }
-  section[data-testid="stSidebar"] { background: #181818; }
-  h1, h2, h3 { font-family: monospace; }
-  .stSlider label, .stRadio label, .stCheckbox label, .stSelectbox label {
-    font-family: monospace; font-size: 0.8rem; color: #aaa;
-  }
-</style>
-""", unsafe_allow_html=True)
-st.title("📼  VHS Frame Tuner")
-
-# Discrete render button at top
-_top_col, _ = st.columns([2, 8])
-_render_top = _top_col.button(
-    "▶️ Render chapter",
-    key="render_top",
-    use_container_width=True,
-    help="Run step_6_make_videos.py for the selected chapter",
-)
+try:
+    from tracking_loss import TrackingLossConfig, run_tracking_loss_classification
+    _HAS_TRACKING = True
+except ImportError:
+    TrackingLossConfig = None            # type: ignore
+    run_tracking_loss_classification = None  # type: ignore
+    _HAS_TRACKING = False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Chapter parsing
+# Chapter / metadata helpers
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def parse_ffmetadata_chapters(path):
-    """Parse chapters.ffmetadata → list of dicts with title, start/end sec+frame."""
+def parse_ffmetadata_chapters(path: Path) -> list[dict]:
     chapters, current = [], {}
     default_tb = 1.0 / 1_000_000_000
-
-    for raw in Path(path).read_text(encoding="utf-8", errors="ignore").splitlines():
+    for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
         line = raw.strip()
         if line == "[CHAPTER]":
             if "start_raw" in current:
@@ -85,155 +72,186 @@ def parse_ffmetadata_chapters(path):
         if "=" not in line or line.startswith(";"):
             continue
         key, _, val = line.partition("=")
-        key = key.strip().upper()
-        val = val.strip()
+        key, val = key.strip().upper(), val.strip()
         if key == "TIMEBASE":
             try:
-                n, d = val.split("/")
-                current["_tb"] = float(n) / float(d)
+                n, d = val.split("/"); current["_tb"] = float(n) / float(d)
             except Exception:
                 pass
         elif key == "START":
-            try:
-                current["start_raw"] = int(val)
-            except Exception:
-                pass
+            try: current["start_raw"] = int(val)
+            except Exception: pass
         elif key == "END":
-            try:
-                current["end_raw"] = int(val)
-            except Exception:
-                pass
+            try: current["end_raw"] = int(val)
+            except Exception: pass
         elif key == "TITLE":
             current["title"] = val
-
     if "start_raw" in current:
         chapters.append(current)
-
     result = []
     for ch in chapters:
-        tb      = ch.get("_tb", default_tb)
-        s_sec   = ch.get("start_raw", 0) * tb
-        e_sec   = ch.get("end_raw",   0) * tb
+        tb    = ch.get("_tb", default_tb)
+        s_sec = ch.get("start_raw", 0) * tb
+        e_sec = ch.get("end_raw",   0) * tb
         result.append({
             "title":       ch.get("title", "Untitled"),
-            "start_sec":   s_sec,
-            "end_sec":     e_sec,
+            "start_sec":   s_sec,  "end_sec":   e_sec,
             "start_frame": int(round(s_sec * FPS)),
             "end_frame":   int(round(e_sec * FPS)),
-            "duration":    e_sec - s_sec,
         })
     return result
 
 
-def slugify(title):
+def slugify(title: str) -> str:
     return re.sub(r"[^\w]+", "_", str(title).strip()).strip("_").lower()
 
 
-def _sparkline_svg(values, marker=None, vmin=None, vmax=None, width=120, height=24):
-    vals = np.asarray(values, dtype=np.float64)
-    vals = vals[np.isfinite(vals)]
-    if vals.size == 0:
-        return ""
-    lo = float(np.min(vals) if vmin is None else vmin)
-    hi = float(np.max(vals) if vmax is None else vmax)
-    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
-        hi = lo + 1.0
-
-    sorted_vals = np.sort(vals)
-    n_points = max(8, int(width))
-    points = []
-    for i in range(n_points):
-        q = i / max(1, n_points - 1)
-        idx = int(round(q * (sorted_vals.size - 1)))
-        val = float(sorted_vals[idx])
-        x = q * (width - 1)
-        y = (1.0 - ((val - lo) / max(1e-12, (hi - lo)))) * (height - 1)
-        points.append(f"{x:.2f},{y:.2f}")
-    poly = " ".join(points)
-
-    marker_svg = ""
-    if marker is not None and np.isfinite(float(marker)):
-        my = (float(marker) - lo) / max(1e-12, (hi - lo))
-        my = min(1.0, max(0.0, my))
-        marker_y = (1.0 - my) * (height - 1)
-        marker_svg = (
-            f"<line x1='0' y1='{marker_y:.2f}' x2='{width - 1}' y2='{marker_y:.2f}' "
-            "stroke='#e03030' stroke-width='2'/>"
-        )
-
-    return (
-        f"<svg width='{width}' height='{height}' viewBox='0 0 {width} {height}' "
-        "style='display:block;background:#141414;border:1px solid #2b2b2b;border-radius:2px'>"
-        f"<polyline fill='none' stroke='#7f9dbd' stroke-width='1.6' points='{poly}'/>"
-        f"{marker_svg}"
-        "</svg>"
-    )
-
-
-def _normalize_to_unit(values):
-    vals = np.asarray(values, dtype=np.float64)
-    if vals.size == 0:
-        return vals
-    finite = vals[np.isfinite(vals)]
-    if finite.size == 0:
-        return np.zeros_like(vals, dtype=np.float64)
-    lo = float(np.min(finite))
-    hi = float(np.max(finite))
-    if hi <= lo:
-        return np.zeros_like(vals, dtype=np.float64)
-    out = (vals - lo) / (hi - lo)
-    out[~np.isfinite(out)] = 0.0
-    return out
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Per-chapter score / override paths
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def chapter_tracking_dir(archive_name, ch_title):
-    d = METADATA_DIR / archive_name / "tracking_badframe"
+def _tracking_dir(archive: str) -> Path:
+    d = METADATA_DIR / archive / "tracking_badframe"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
-def scores_path(archive_name, ch_title):
-    return chapter_tracking_dir(archive_name, ch_title) / f"{slugify(ch_title)}_frame_scores.tsv"
+def _signals_cache_path(archive: str, ch_title: str) -> Path:
+    return _tracking_dir(archive) / f"{slugify(ch_title)}_signals.tsv"
 
-def overrides_path(archive_name, ch_title):
-    return chapter_tracking_dir(archive_name, ch_title) / f"{slugify(ch_title)}_overrides.tsv"
+def _overrides_path(archive: str, ch_title: str) -> Path:
+    return _tracking_dir(archive) / f"{slugify(ch_title)}_overrides.tsv"
+
+def _tuner_config_path(archive: str, ch_title: str) -> Path:
+    return _tracking_dir(archive) / f"{slugify(ch_title)}_tuner_config.json"
+
+def _archive_badframes_path(archive: str) -> Path:
+    p = METADATA_DIR / archive / "badframes.tsv"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
 
 
-def chapter_badframes_path(archive_name, ch_title):
-    return chapter_tracking_dir(archive_name, ch_title) / f"{slugify(ch_title)}_badframes.tsv"
+# ═══════════════════════════════════════════════════════════════════════════════
+# Bad-frame range I/O
+# ═══════════════════════════════════════════════════════════════════════════════
 
-def chapter_settings_path(archive_name, ch_title):
-    return chapter_tracking_dir(archive_name, ch_title) / f"{slugify(ch_title)}_settings.json"
+def _parse_badframes_tsv(path: Path) -> list[tuple[int, int, str]]:
+    rows: list[tuple[int, int, str]] = []
+    if not path.exists():
+        return rows
+    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line.lower().startswith("start_frame"):
+            continue
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        try:
+            s, e   = int(parts[0]), int(parts[1])
+            note   = parts[2].strip() if len(parts) > 2 else ""
+            rows.append((s, e, note))
+        except ValueError:
+            continue
+    return rows
 
 
-def load_cached_scores(archive_name, ch_title):
-    """Return (fids, signals_dict) from cached TSV or None if not found/stale."""
-    p = scores_path(archive_name, ch_title)
+def _ranges_from_sorted_frames(frame_ids: list[int]) -> list[tuple[int, int]]:
+    if not frame_ids:
+        return []
+    result: list[tuple[int, int]] = []
+    start = prev = frame_ids[0]
+    for v in frame_ids[1:]:
+        if v == prev + 1:
+            prev = v
+        else:
+            result.append((start, prev))
+            start = prev = v
+    result.append((start, prev))
+    return result
+
+
+def merge_chapter_into_archive_badframes(
+    archive: str,
+    ch_start: int,
+    ch_end: int,
+    chapter_ranges: list[tuple[int, int]],
+    overrides: dict[int, str],
+) -> Path:
+    """
+    Merge a chapter's auto-detected bad ranges + manual overrides into the
+    archive-level badframes.tsv without disturbing other chapters.
+
+    Algorithm
+    ─────────
+    1. Read existing archive badframes.tsv.
+    2. Drop rows that overlap [ch_start, ch_end] (stale from previous run).
+    3. Build new chapter bad-frame set from chapter_ranges.
+    4. Apply manual overrides: "bad" forces a frame in; "good" forces it out.
+    5. Rebuild ranges and merge back with surviving rows from other chapters.
+    6. Write and return the archive path.
+    """
+    archive_path = _archive_badframes_path(archive)
+
+    existing = _parse_badframes_tsv(archive_path)
+    other_rows: list[tuple[int, int, str]] = [
+        (s, e, note) for s, e, note in existing
+        if e < ch_start or s > ch_end
+    ]
+
+    chapter_bad: set[int] = set()
+    for s, e in chapter_ranges:
+        chapter_bad.update(range(s, e + 1))
+
+    manual_bad_fids:  list[int] = []
+    manual_good_fids: list[int] = []
+    for fid, label in overrides.items():
+        if label == "bad":
+            chapter_bad.add(fid)
+            manual_bad_fids.append(fid)
+        elif label == "good":
+            chapter_bad.discard(fid)
+            manual_good_fids.append(fid)
+
+    ch_note     = "tracking_loss+manual" if (manual_bad_fids or manual_good_fids) else "tracking_loss_chapter_iqr"
+    new_ch_rows = [(s, e, ch_note) for s, e in _ranges_from_sorted_frames(sorted(chapter_bad))]
+
+    all_rows = sorted(other_rows + new_ch_rows, key=lambda r: r[0])
+
+    with archive_path.open("w", encoding="utf-8") as f:
+        f.write("start_frame\tend_frame\tnote\n")
+        for s, e, note in all_rows:
+            f.write(f"{s}\t{e}\t{note}\n")
+        if manual_good_fids:
+            f.write(f"# Manual good overrides (forced good): {sorted(manual_good_fids)}\n")
+        if manual_bad_fids:
+            f.write(f"# Manual bad overrides  (forced bad):  {sorted(manual_bad_fids)}\n")
+
+    return archive_path
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Signal cache
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def load_cached_signals(archive: str, ch_title: str) -> tuple[list[int] | None, dict | None]:
+    p = _signals_cache_path(archive, ch_title)
     if not p.exists():
         return None, None
     try:
+        import pandas as pd
         df = pd.read_csv(p, sep="\t", comment="#")
         df.columns = [c.strip().lower() for c in df.columns]
-        required = {"frame", "chroma_loss", "noise_energy", "row_tear", "wave_energy"}
-        if not required.issubset(set(df.columns)):
+        if not {"frame","chroma_loss","noise_energy","row_tear","wave_energy"}.issubset(df.columns):
             return None, None
         fids = df["frame"].astype(int).tolist()
-        sigs = {
+        return fids, {
             "chroma": df["chroma_loss"].values.astype(np.float64),
             "noise":  df["noise_energy"].values.astype(np.float64),
             "tear":   df["row_tear"].values.astype(np.float64),
             "wave":   df["wave_energy"].values.astype(np.float64),
         }
-        return fids, sigs
     except Exception:
         return None, None
 
 
-def save_scores(archive_name, ch_title, fids, sigs):
-    p = scores_path(archive_name, ch_title)
+def save_cached_signals(archive: str, ch_title: str,
+                        fids: list[int], sigs: dict) -> None:
+    p = _signals_cache_path(archive, ch_title)
     with p.open("w", encoding="utf-8") as f:
         f.write("frame\tchroma_loss\tnoise_energy\trow_tear\twave_energy\n")
         for i, fid in enumerate(fids):
@@ -241,12 +259,11 @@ def save_scores(archive_name, ch_title, fids, sigs):
                     f"\t{sigs['tear'][i]:.8f}\t{sigs['wave'][i]:.8f}\n")
 
 
-def load_overrides(archive_name, ch_title):
-    """Return dict {frame_id: 'good'|'bad'}."""
-    p = overrides_path(archive_name, ch_title)
+def load_overrides(archive: str, ch_title: str) -> dict[int, str]:
+    p = _overrides_path(archive, ch_title)
     if not p.exists():
         return {}
-    out = {}
+    out: dict[int, str] = {}
     for line in p.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or line.lower().startswith("frame"):
@@ -264,1074 +281,1062 @@ def load_overrides(archive_name, ch_title):
     return out
 
 
-def save_overrides(archive_name, ch_title, overrides_dict):
-    p = overrides_path(archive_name, ch_title)
-    lines = ["frame\toverride"]
-    for fid in sorted(overrides_dict.keys()):
-        lines.append(f"{fid}\t{overrides_dict[fid]}")
-    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-def ranges_from_sorted_frames(frame_ids):
-    if not frame_ids:
-        return []
-    frames = sorted({int(x) for x in frame_ids})
-    ranges = []
-    start = prev = frames[0]
-    for fid in frames[1:]:
-        if fid == prev + 1:
-            prev = fid
-            continue
-        ranges.append((start, prev))
-        start = prev = fid
-    ranges.append((start, prev))
-    return ranges
-
-
-def save_chapter_badframes_tsv(archive_name, ch_title, frame_ids, is_bad_flags):
-    p = chapter_badframes_path(archive_name, ch_title)
-    bad_frames = [int(fid) for fid, bad in zip(frame_ids, is_bad_flags) if bool(bad)]
-    ranges = ranges_from_sorted_frames(bad_frames)
-    with p.open("w", encoding="utf-8") as f:
-        f.write("start_frame\tend_frame\tnote\n")
-        for start, end in ranges:
-            f.write(f"{int(start)}\t{int(end)}\tvhs_tuner_chapter\n")
-    return p, len(bad_frames), len(ranges)
-
-
-def load_badframe_ranges_tsv(tsv_path):
-    if not tsv_path:
-        return []
-    p = Path(tsv_path)
+def load_overrides_from_archive_badframes(
+    archive: str,
+    ch_start: int,
+    ch_end: int,
+) -> dict[int, str]:
+    out: dict[int, str] = {}
+    p = _archive_badframes_path(archive)
     if not p.exists():
-        return []
-    out = []
-    for line in p.read_text(encoding="utf-8", errors="ignore").splitlines():
-        s = line.strip()
-        if not s or s.startswith("#"):
-            continue
-        parts = [x.strip() for x in s.split("\t")]
-        if len(parts) < 2:
-            continue
-        if parts[0].lower().startswith("start"):
-            continue
+        return out
+
+    def _parse_list_tail(line: str) -> list[int]:
+        if ":" not in line:
+            return []
+        tail = line.split(":", 1)[1].strip()
+        if not tail:
+            return []
         try:
-            a = int(parts[0])
-            b = int(parts[1])
+            vals = ast.literal_eval(tail)
         except Exception:
-            continue
-        if b < a:
-            a, b = b, a
-        out.append((a, b))
+            return []
+        if not isinstance(vals, list):
+            return []
+        clean = []
+        for v in vals:
+            try:
+                clean.append(int(v))
+            except Exception:
+                pass
+        return clean
+
+    for raw in p.read_text(encoding="utf-8", errors="ignore").splitlines():
+        s = raw.strip()
+        if s.startswith("# Manual good overrides"):
+            for fid in _parse_list_tail(s):
+                if ch_start <= fid <= ch_end:
+                    out[fid] = "good"
+        elif s.startswith("# Manual bad overrides"):
+            for fid in _parse_list_tail(s):
+                if ch_start <= fid <= ch_end:
+                    out[fid] = "bad"
     return out
 
 
-def save_chapter_settings_json(archive_name, ch_title, payload):
-    p = chapter_settings_path(archive_name, ch_title)
-    p.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return p
+def save_overrides(archive: str, ch_title: str, overrides: dict[int, str]) -> None:
+    p = _overrides_path(archive, ch_title)
+    lines = ["frame\toverride"]
+    for fid in sorted(overrides):
+        lines.append(f"{fid}\t{overrides[fid]}")
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Sidebar
+# Signal computation + frame extraction
 # ═══════════════════════════════════════════════════════════════════════════════
 
-with st.sidebar:
-    # Compact CSS — tighter labels, less padding between controls
-    st.markdown("""
-    <style>
-      section[data-testid="stSidebar"] { font-size: 0.78rem; }
-      section[data-testid="stSidebar"] .stSlider       { margin-bottom: -10px; }
-      section[data-testid="stSidebar"] .stSlider label { font-size: 0.72rem; color: #999; }
-      section[data-testid="stSidebar"] .stSelectbox    { margin-bottom: -6px; }
-      section[data-testid="stSidebar"] .stTextInput    { margin-bottom: -6px; }
-      section[data-testid="stSidebar"] .stRadio        { margin-bottom: -4px; }
-      section[data-testid="stSidebar"] .stCheckbox     { margin-bottom: -8px; }
-      section[data-testid="stSidebar"] .stNumberInput  { margin-bottom: -6px; }
-      section[data-testid="stSidebar"] hr              { margin: 6px 0; }
-      section[data-testid="stSidebar"] h3              { font-size: 0.78rem; color: #888;
-                                                         text-transform: uppercase;
-                                                         letter-spacing: 1px; margin: 4px 0 0 0; }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # ── Archive + Chapter ──────────────────────────────────────────────────────
-    archives = sorted(p.stem for p in ARCHIVE_DIR.glob("*.mkv"))
-    if not archives:
-        st.error(f"No .mkv files in {ARCHIVE_DIR}")
-        st.stop()
-    archive_name = st.selectbox("Archive", archives, label_visibility="collapsed")
-
-    chapters_file = METADATA_DIR / archive_name / "chapters.ffmetadata"
-    all_chapters  = []
-    if chapters_file.exists():
-        all_chapters = parse_ffmetadata_chapters(chapters_file)
-
-    selected_chapter = None
-    if all_chapters:
-        ch_titles      = [ch["title"] for ch in all_chapters]
-        selected_title = st.selectbox("Chapter", ch_titles)
-        selected_chapter = next(ch for ch in all_chapters if ch["title"] == selected_title)
-    else:
-        st.caption("⚠️ No chapters.ffmetadata — set range manually.")
-
-    # ── Frame Range ────────────────────────────────────────────────────────────
-    st.divider()
-    st.markdown("### 🎞 Range")
-
-    if selected_chapter:
-        def_start = selected_chapter["start_frame"]
-        def_end   = selected_chapter["end_frame"]
-    else:
-        def_start, def_end = 6000, 6500
-
-    c1, c2      = st.columns(2)
-    start_frame = c1.number_input("Start", value=def_start, step=100)
-    end_frame   = c2.number_input("End",   value=def_end,   step=100)
-    n_frames    = st.slider("Sample n", 20, 200, 100, 10)
-
-    proxy_candidates = [
-        ARCHIVE_DIR / f"{archive_name}_proxy.mp4",
-        ARCHIVE_DIR / f"{archive_name}.mkv",
-    ]
-    default_video = next((str(p) for p in proxy_candidates if p.exists()), "")
-    video_path = st.text_input("Video", default_video, label_visibility="collapsed",
-                                placeholder="Video path…")
-    reload_btn = st.button("🔄 Reload", use_container_width=True)
-
-    # ── Weights (2×2 grid) ─────────────────────────────────────────────────────
-    st.divider()
-    st.markdown("### ⚖️ Weights")
-    wc1, wc2 = st.columns(2)
-    w_chroma = wc1.slider("chroma",  0.0, 1.0, 0.25, 0.01)
-    w_noise  = wc2.slider("noise",   0.0, 1.0, 0.25, 0.01)
-    spark_chroma_ph = wc1.empty()
-    spark_noise_ph = wc2.empty()
-    wc3, wc4 = st.columns(2)
-    w_tear   = wc3.slider("tear",    0.0, 1.0, 0.25, 0.01)
-    w_wave   = wc4.slider("wave",    0.0, 1.0, 0.25, 0.01)
-    spark_tear_ph = wc3.empty()
-    spark_wave_ph = wc4.empty()
-
-    # ── Threshold ──────────────────────────────────────────────────────────────
-    st.divider()
-    st.markdown("### 🎚️ Threshold")
-    mode = st.radio("", ["iqr", "value", "quantile"], horizontal=True,
-                    label_visibility="collapsed")
-    thresh_val, bad_pct, iqr_mult = 1.0, 10, 3.5
-    if mode == "iqr":
-        iqr_mult   = st.slider("k  (Q3 + k×IQR)", 1.0, 6.0, 3.5, 0.1)
-        spark_thresh_ph = st.empty()
-    elif mode == "value":
-        thresh_val = st.slider("threshold", -5.0, 10.0, 1.0, 0.05)
-        spark_thresh_ph = st.empty()
-    elif mode == "quantile":
-        bad_pct    = st.slider("bad %", 1, 60, 10)
-        spark_thresh_ph = st.empty()
-
-    # ── Display ────────────────────────────────────────────────────────────────
-    st.divider()
-    st.markdown("### 🖼️ Display")
-    dc1, dc2 = st.columns(2)
-    cols     = dc1.slider("cols",    4,  20, 10)
-    thumb_w  = dc2.slider("px wide", 80, 300, 160, 20)
-    ck1, ck2 = st.columns(2)
-    show_score = ck1.checkbox("score", True)
-    show_fnum  = ck2.checkbox("frame#", True)
-
-    # ── Export ─────────────────────────────────────────────────────────────────
-    st.divider()
-    st.markdown("### 💾 Export")
-    ec1, ec2 = st.columns([3, 2])
-    script_name = ec1.text_input("", "run_tracking_loss.py", label_visibility="collapsed",
-                                  placeholder="filename.py")
-    export_btn  = ec2.button("📝 Save", use_container_width=True)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Signal computation
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def compute_signals_for_frame(bgr, crop=50):
+def _compute_signals(bgr: np.ndarray, crop: int = 50) -> tuple[float, float, float, float]:
     h, w = bgr.shape[:2]
-    y0 = min(crop, max(0, h - 1));  y1 = max(y0 + 1, h - crop)
-    x0 = min(crop, max(0, w - 1));  x1 = max(x0 + 1, w - crop)
+    y0 = min(crop, max(0, h-1)); y1 = max(y0+1, h-crop)
+    x0 = min(crop, max(0, w-1)); x1 = max(x0+1, w-crop)
     roi = bgr[y0:y1, x0:x1]
     if roi.size == 0:
         roi = bgr
-
-    # 1. Chroma loss
     s           = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)[:, :, 1].astype(np.float32)
     chroma_loss = 1.0 - float(np.mean(s) / 255.0)
-
-    # 2. Noise energy
-    gray     = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY).astype(np.float32)
-    row_vars = np.var(gray, axis=1)
-    mean_var = float(np.mean(row_vars))
-    noise    = float(np.std(row_vars) / mean_var) if mean_var > 1e-6 else 0.0
-
-    # 3. Row tear
-    if gray.shape[0] > 1:
-        tear = float(np.percentile(np.abs(gray[1:] - gray[:-1]).mean(axis=1), 95))
-    else:
-        tear = 0.0
-
-    # 4. Wave energy — high-passed per-row horizontal centre-of-mass
-    row_sums = gray.sum(axis=1)
-    cols_idx = np.arange(gray.shape[1], dtype=np.float32)
-    row_com  = (gray @ cols_idx) / np.maximum(row_sums, 1e-6)
-    if row_com.shape[0] >= 5:
-        trend = np.convolve(row_com, np.ones(5) / 5, mode="same")
-        wave  = float(np.std(row_com - trend))
-    else:
-        wave = float(np.std(row_com))
-
+    gray        = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    row_vars    = np.var(gray, axis=1)
+    mean_var    = float(np.mean(row_vars))
+    noise       = float(np.std(row_vars) / mean_var) if mean_var > 1e-6 else 0.0
+    tear        = (float(np.percentile(np.abs(gray[1:] - gray[:-1]).mean(axis=1), 95))
+                   if gray.shape[0] > 1 else 0.0)
+    row_sums    = gray.sum(axis=1)
+    cols_idx    = np.arange(gray.shape[1], dtype=np.float32)
+    row_com     = (gray @ cols_idx) / np.maximum(row_sums, 1e-6)
+    wave        = (float(np.std(row_com - np.convolve(row_com, np.ones(5)/5, mode="same")))
+                   if row_com.shape[0] >= 5 else float(np.std(row_com)))
     return chroma_loss, noise, tear, wave
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# Frame extraction — cached in session_state
-# ═══════════════════════════════════════════════════════════════════════════════
+def _bgr_to_jpeg_b64(bgr: np.ndarray, width: int = 160) -> str:
+    h, w = bgr.shape[:2]
+    thumb = cv2.resize(bgr, (width, int(width * h / max(w, 1))), interpolation=cv2.INTER_AREA)
+    buf = io.BytesIO()
+    Image.fromarray(cv2.cvtColor(thumb, cv2.COLOR_BGR2RGB)).save(buf, format="JPEG", quality=72)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
-def extract_frames_and_signals(video_path, start, end, n, archive_name, ch_title):
-    """
-    Extract n evenly-spaced frames from [start, end].
-    Loads raw signal values from per-chapter cache if available;
-    otherwise computes and saves them.
-    """
-    frame_ids = np.linspace(int(start), int(end), int(n), dtype=int).tolist()
 
-    # Try loading cached scores for the exact same frame IDs
-    cached_fids, cached_sigs = load_cached_scores(archive_name, ch_title)
-    cached_set = set(cached_fids) if cached_fids else set()
-    need_video = not cached_fids or not all(f in cached_set for f in frame_ids)
+def extract_frames(
+    video_path: str,
+    start: int, end: int, n: int,
+    archive: str, ch_title: str,
+    progress=None,
+) -> tuple[list[int] | None, list[str] | None, dict | None, str]:
+    frame_ids: list[int] = np.linspace(int(start), int(end), int(n), dtype=int).tolist()
+    frame_set             = set(frame_ids)
+
+    cached_fids, cached_sigs = load_cached_signals(archive, ch_title)
+    cached_lookup: dict[int, dict[str, float]] = {}
+    if cached_fids and cached_sigs:
+        for i, fid in enumerate(cached_fids):
+            cached_lookup[fid] = {k: float(v[i]) for k, v in cached_sigs.items()}
 
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
-        return None, None, None
+        return None, None, None, f"Cannot open video: {video_path}"
 
-    frames_bgr = []
+    frames_b64: list[str] = []
     chroma_s, noise_s, tear_s, wave_s = [], [], [], []
 
-    bar = st.progress(0, text="Loading frames…")
-    for i, fid in enumerate(frame_ids):
+    for idx, fid in enumerate(frame_ids):
+        if progress is not None:
+            progress(idx / len(frame_ids), desc=f"Frame {fid}…")
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(fid))
         ok, bgr = cap.read()
         if not ok or bgr is None:
             bgr = np.zeros((240, 320, 3), dtype=np.uint8)
-        frames_bgr.append(bgr)
+        frames_b64.append(_bgr_to_jpeg_b64(bgr))
 
-        if cached_fids and fid in cached_set:
-            idx = cached_fids.index(fid)
-            chroma_s.append(float(cached_sigs["chroma"][idx]))
-            noise_s.append(float(cached_sigs["noise"][idx]))
-            tear_s.append(float(cached_sigs["tear"][idx]))
-            wave_s.append(float(cached_sigs["wave"][idx]))
+        if fid in cached_lookup:
+            c = cached_lookup[fid]
+            chroma_s.append(c["chroma"]); noise_s.append(c["noise"])
+            tear_s.append(c["tear"]);     wave_s.append(c["wave"])
         else:
-            ch, no, te, wa = compute_signals_for_frame(bgr)
+            ch, no, te, wa = _compute_signals(bgr)
             chroma_s.append(ch); noise_s.append(no)
             tear_s.append(te);   wave_s.append(wa)
 
-        bar.progress((i + 1) / len(frame_ids), text=f"Frame {fid}…")
-
     cap.release()
-    bar.empty()
 
-    sigs = {
+    sigs: dict[str, np.ndarray] = {
         "chroma": np.array(chroma_s, dtype=np.float64),
         "noise":  np.array(noise_s,  dtype=np.float64),
         "tear":   np.array(tear_s,   dtype=np.float64),
         "wave":   np.array(wave_s,   dtype=np.float64),
     }
 
-    # Save signals to per-chapter cache (always, so partial runs accumulate)
-    if ch_title:
-        save_scores(archive_name, ch_title, frame_ids, sigs)
+    # Merge into persistent cache
+    all_fids_l: list[int] = list(frame_ids)
+    all_sigs_l: dict[str, list[float]] = {k: list(v) for k, v in sigs.items()}
+    if cached_fids and cached_sigs:
+        for i, fid in enumerate(cached_fids):
+            if fid not in frame_set:
+                all_fids_l.append(fid)
+                for k, arr in cached_sigs.items():
+                    all_sigs_l[k].append(float(arr[i]))
+    order       = list(np.argsort(all_fids_l))
+    sorted_fids = [all_fids_l[i] for i in order]
+    sorted_sigs = {k: np.array([v[i] for i in order]) for k, v in all_sigs_l.items()}
+    save_cached_signals(archive, ch_title, sorted_fids, sorted_sigs)
 
-    return frame_ids, frames_bgr, sigs
-
-
-cache_key  = f"{video_path}|{archive_name}|{start_frame}|{end_frame}|{n_frames}"
-needs_load = (
-    "cache_key" not in st.session_state
-    or st.session_state.cache_key != cache_key
-    or reload_btn
-)
-
-if needs_load:
-    p = Path(video_path)
-    if not p.exists():
-        st.error(f"Video not found: {video_path}")
-        st.stop()
-    ch_title_for_cache = selected_chapter["title"] if selected_chapter else ""
-    fids, frames, signals = extract_frames_and_signals(
-        video_path, start_frame, end_frame, n_frames,
-        archive_name, ch_title_for_cache
-    )
-    if fids is None:
-        st.error("Could not open video.")
-        st.stop()
-    st.session_state.cache_key = cache_key
-    st.session_state.fids      = fids
-    st.session_state.frames    = frames
-    st.session_state.signals   = signals
-
-fids    = st.session_state.fids
-frames  = st.session_state.frames
-signals = st.session_state.signals
+    return frame_ids, frames_b64, sigs, ""
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Scoring
+# Scoring / thresholding
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def robust_z(v):
-    med   = np.median(v)
-    mad   = np.median(np.abs(v - med))
-    scale = 1.4826 * mad
-    if scale < 1e-12:
-        scale = float(np.std(v)) or 1.0
-    return (v - med) / scale
+def _robust_z(v: np.ndarray) -> np.ndarray:
+    v   = np.asarray(v, dtype=np.float64)
+    med = np.median(v)
+    mad = np.median(np.abs(v - med))
+    sc  = 1.4826 * mad
+    if sc < 1e-12:
+        sc = float(np.std(v)) or 1.0
+    return (v - med) / sc
 
 
-def combined_score(sigs, wc, wn, wt, ww):
+def combined_score(sigs: dict, wc: float, wn: float, wt: float, ww: float) -> np.ndarray:
     wsum = wc + wn + wt + ww or 1.0
-    n = len(sigs["chroma"])
-    cz = robust_z(sigs["chroma"]) if wc > 0 else np.zeros(n)
-    nz = robust_z(sigs["noise"])  if wn > 0 else np.zeros(n)
-    tz = robust_z(sigs["tear"])   if wt > 0 else np.zeros(n)
-    wz = robust_z(sigs["wave"])   if ww > 0 else np.zeros(n)
-    return (wc * cz + wn * nz + wt * tz + ww * wz) / wsum
+    return (
+        _robust_z(sigs["chroma"]) * wc +
+        _robust_z(sigs["noise"])  * wn +
+        _robust_z(sigs["tear"])   * wt +
+        _robust_z(sigs["wave"])   * ww
+    ) / wsum
 
 
-def iqr_thresh(scores, k):
+def compute_threshold(
+    scores: np.ndarray,
+    mode: str,
+    iqr_mult: float,
+    thresh_val: float,
+    bad_pct: float,
+) -> float:
     v = scores[np.isfinite(scores)]
-    return float(np.percentile(v, 75)) + k * (float(np.percentile(v, 75)) - float(np.percentile(v, 25)))
+    if v.size == 0:
+        return 0.0
+    if mode == "iqr":
+        q1, q3 = float(np.percentile(v, 25)), float(np.percentile(v, 75))
+        return q3 + iqr_mult * (q3 - q1)
+    if mode == "value":
+        return float(thresh_val)
+    return float(np.quantile(v, 1.0 - bad_pct / 100.0))
 
 
-scores_np = combined_score(signals, w_chroma, w_noise, w_tear, w_wave)
+# ═══════════════════════════════════════════════════════════════════════════════
+# SVG Sparklines  — timeline charts with horizontal red cut line
+# ═══════════════════════════════════════════════════════════════════════════════
 
-if mode == "iqr":
-    threshold = iqr_thresh(scores_np, iqr_mult)
-elif mode == "value":
-    threshold = thresh_val
-else:
-    threshold = float(np.quantile(scores_np, 1.0 - bad_pct / 100))
+def _sparkline_svg(
+    values: np.ndarray,
+    threshold: float | None = None,
+    label: str = "",
+    height: int = 38,
+    line_color: str = "#27a85a",
+) -> str:
+    """
+    Timeline sparkline: X axis = frame index, Y axis = signal value.
+    An optional horizontal red line marks the threshold cut.
+    Uses width:100% so it fills whatever column it sits in.
+    """
+    v = np.asarray(values, dtype=np.float64)
+    v = v[np.isfinite(v)]
+    SVG_W = 200  # viewBox width — browser scales to container
 
-# Apply manual overrides
-overrides = {}
-if selected_chapter:
-    overrides = load_overrides(archive_name, selected_chapter["title"])
+    if v.size == 0:
+        return (
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {SVG_W} {height}" '
+            f'style="background:#0a0a0a;display:block;width:100%;border-radius:2px;margin-bottom:3px">'
+            f'<text x="4" y="14" font-family="Courier New" font-size="9" fill="#444">{label}</text>'
+            f'</svg>'
+        )
 
-is_bad = []
-for fid, sc in zip(fids, scores_np):
-    if fid in overrides:
-        is_bad.append(overrides[fid] == "bad")
+    vmin   = float(v.min())
+    vmax   = float(v.max())
+    vrange = (vmax - vmin) or 1.0
+    n      = len(v)
+    PAD    = 3  # top padding so high points aren't clipped
+
+    def _x(i: int) -> float:
+        return i / max(n - 1, 1) * SVG_W
+
+    def _y(val: float) -> float:
+        return PAD + (height - PAD) * (1.0 - (val - vmin) / vrange)
+
+    pts = " ".join(f"{_x(i):.1f},{_y(val):.1f}" for i, val in enumerate(v))
+
+    # Filled area under the line
+    area_pts = f"0,{height} {pts} {SVG_W},{height}"
+
+    # Threshold line + right-edge triangle marker
+    tline = ""
+    if threshold is not None:
+        ty = _y(threshold)
+        ty = max(0.0, min(float(height), ty))
+        tline = (
+            f'<line x1="0" y1="{ty:.1f}" x2="{SVG_W}" y2="{ty:.1f}" '
+            f'stroke="#e03030" stroke-width="1.8" opacity="0.95"/>'
+            f'<polygon points="{SVG_W},{ty:.1f} {SVG_W-6},{ty-4:.1f} {SVG_W-6},{ty+4:.1f}" '
+            f'fill="#e03030" opacity="0.9"/>'
+        )
+
+    lbl = (
+        f'<text x="3" y="{height - 3}" font-family="Courier New" '
+        f'font-size="8" fill="#555">{label}</text>'
+    )
+
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {SVG_W} {height}" '
+        f'style="background:#0a0a0a;display:block;width:100%;border-radius:2px;margin-bottom:3px">'
+        f'<polygon points="{area_pts}" fill="{line_color}" opacity="0.12"/>'
+        f'<polyline points="{pts}" fill="none" stroke="{line_color}" stroke-width="1.3" opacity="0.85"/>'
+        f'{tline}{lbl}'
+        f'</svg>'
+    )
+
+
+def _normalize_unit(values: np.ndarray) -> np.ndarray:
+    v = np.asarray(values, dtype=np.float64)
+    finite = v[np.isfinite(v)]
+    if finite.size == 0:
+        return np.array([], dtype=np.float64)
+    lo = float(np.min(finite))
+    hi = float(np.max(finite))
+    if hi <= lo:
+        out = np.zeros_like(v, dtype=np.float64)
     else:
-        is_bad.append(bool(sc >= threshold))
-is_bad = np.array(is_bad)
+        out = (v - lo) / (hi - lo)
+    out[~np.isfinite(out)] = 0.0
+    return out
 
-n_bad  = int(is_bad.sum())
-n_good = len(fids) - n_bad
-n_overridden = sum(1 for f in fids if f in overrides)
 
-# Sidebar sparklines: compact distributions + current-value marker.
-spark_chroma = _sparkline_svg(_normalize_to_unit(signals["chroma"]), marker=w_chroma, vmin=0.0, vmax=1.0)
-spark_noise = _sparkline_svg(_normalize_to_unit(signals["noise"]), marker=w_noise, vmin=0.0, vmax=1.0)
-spark_tear = _sparkline_svg(_normalize_to_unit(signals["tear"]), marker=w_tear, vmin=0.0, vmax=1.0)
-spark_wave = _sparkline_svg(_normalize_to_unit(signals["wave"]), marker=w_wave, vmin=0.0, vmax=1.0)
-if spark_chroma:
-    spark_chroma_ph.markdown(spark_chroma, unsafe_allow_html=True)
-if spark_noise:
-    spark_noise_ph.markdown(spark_noise, unsafe_allow_html=True)
-if spark_tear:
-    spark_tear_ph.markdown(spark_tear, unsafe_allow_html=True)
-if spark_wave:
-    spark_wave_ph.markdown(spark_wave, unsafe_allow_html=True)
+def build_sparklines_html(
+    sigs: dict,
+    scores: np.ndarray,
+    threshold: float,
+    wc: float, wn: float, wt: float, ww: float,
+) -> tuple[str, str, str, str, str]:
+    """
+    Returns (spark_chroma, spark_noise, spark_tear, spark_wave, spark_score).
 
-score_min = float(np.min(scores_np)) if len(scores_np) else 0.0
-score_max = float(np.max(scores_np)) if len(scores_np) else 1.0
-spark_threshold = _sparkline_svg(scores_np, marker=threshold, vmin=score_min, vmax=score_max)
-if spark_threshold:
-    spark_thresh_ph.markdown(spark_threshold, unsafe_allow_html=True)
+    Signal sparklines show raw values over the sampled frames.
+    The line opacity tracks the current weight (dim when weight is low).
+    The composite score sparkline carries the red threshold line.
+    """
+    def _col(w: float) -> str:
+        alpha = 0.25 + 0.75 * min(1.0, w / 0.5)
+        return f"rgba(39,168,90,{alpha:.2f})"
 
-if selected_chapter:
-    chapter_badframes_file, chapter_bad_count, chapter_bad_ranges = save_chapter_badframes_tsv(
-        archive_name=archive_name,
-        ch_title=selected_chapter["title"],
-        frame_ids=fids,
-        is_bad_flags=is_bad,
+    chroma_n = _normalize_unit(sigs.get("chroma", np.array([])))
+    noise_n  = _normalize_unit(sigs.get("noise",  np.array([])))
+    tear_n   = _normalize_unit(sigs.get("tear",   np.array([])))
+    wave_n   = _normalize_unit(sigs.get("wave",   np.array([])))
+
+    sc_chroma = _sparkline_svg(
+        chroma_n, wc, f"chroma  w={wc:.2f}", line_color=_col(wc)
     )
-else:
-    chapter_badframes_file, chapter_bad_count, chapter_bad_ranges = (None, 0, 0)
-
-chapter_settings_file = None
-if selected_chapter:
-    mode_payload = {
-        "mode": mode,
-        "iqr_mult": float(iqr_mult) if mode == "iqr" else None,
-        "threshold_value": float(thresh_val) if mode == "value" else None,
-        "bad_percent": int(bad_pct) if mode == "quantile" else None,
-    }
-    settings_payload = {
-        "archive": archive_name,
-        "chapter_title": selected_chapter["title"],
-        "video_path": str(video_path),
-        "frame_range": {"start": int(start_frame), "end": int(end_frame)},
-        "sample_count": int(n_frames),
-        "weights": {
-            "chroma": float(w_chroma),
-            "noise": float(w_noise),
-            "tear": float(w_tear),
-            "wave": float(w_wave),
-        },
-        "threshold": mode_payload,
-        "display": {
-            "cols": int(cols),
-            "thumb_width": int(thumb_w),
-            "show_score": bool(show_score),
-            "show_frame_number": bool(show_fnum),
-        },
-        "outputs": {
-            "frame_scores_tsv": str(scores_path(archive_name, selected_chapter["title"])),
-            "overrides_tsv": str(overrides_path(archive_name, selected_chapter["title"])),
-            "chapter_badframes_tsv": str(chapter_badframes_file) if chapter_badframes_file else "",
-        },
-        "sample_results": {
-            "sample_frames": int(len(fids)),
-            "sample_bad_frames": int(n_bad),
-            "sample_good_frames": int(n_good),
-            "threshold_value_effective": float(threshold),
-        },
-    }
-    chapter_settings_file = save_chapter_settings_json(
-        archive_name=archive_name,
-        ch_title=selected_chapter["title"],
-        payload=settings_payload,
+    sc_noise = _sparkline_svg(
+        noise_n, wn, f"noise   w={wn:.2f}", line_color=_col(wn)
     )
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Stats bar
-# ═══════════════════════════════════════════════════════════════════════════════
-
-s1, s2, s3, s4, s5 = st.columns(5)
-s1.metric("Frames shown",  len(fids))
-s2.metric("🔴 Bad",        f"{n_bad}  ({100*n_bad/max(1,len(fids)):.0f}%)")
-s3.metric("🟢 Good",       f"{n_good}  ({100*n_good/max(1,len(fids)):.0f}%)")
-s4.metric("Threshold",     f"{threshold:.3f}")
-s5.metric("✏️ Overridden", n_overridden)
-if chapter_badframes_file:
-    st.caption(
-        f"Saved chapter badframes: `{chapter_badframes_file.name}` "
-        f"({chapter_bad_count} bad frame(s), {chapter_bad_ranges} range(s))"
+    sc_tear = _sparkline_svg(
+        tear_n, wt, f"tear    w={wt:.2f}", line_color=_col(wt)
     )
-if chapter_settings_file:
-    st.caption(f"Saved chapter settings: `{chapter_settings_file.name}`")
+    sc_wave = _sparkline_svg(
+        wave_n, ww, f"wave    w={ww:.2f}", line_color=_col(ww)
+    )
+    sc_score  = _sparkline_svg(scores, threshold, "composite score",
+                                height=52, line_color="#5599dd")
 
-
-def classify_full_chapter_badframes(
-    video_path,
-    chapter_start_frame,
-    chapter_end_frame,
-    weight_chroma,
-    weight_noise,
-    weight_tear,
-    weight_wave,
-    threshold_mode,
-    threshold_value,
-    threshold_bad_pct,
-    threshold_iqr_mult,
-    manual_overrides,
-):
-    start_f = int(chapter_start_frame)
-    end_f = int(chapter_end_frame)
-    if end_f <= start_f:
-        return [], np.array([], dtype=np.float64), np.array([], dtype=bool), float("nan")
-
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        raise RuntimeError(f"Could not open video for full chapter pass: {video_path}")
-
-    frame_ids = list(range(start_f, end_f))
-    total = len(frame_ids)
-    chroma_s, noise_s, tear_s, wave_s = [], [], [], []
-
-    cap.set(cv2.CAP_PROP_POS_FRAMES, start_f)
-    bar = st.progress(0, text=f"Full chapter scan: 0/{total} frames")
-    for i, fid in enumerate(frame_ids):
-        ok, bgr = cap.read()
-        if not ok or bgr is None:
-            break
-        ch, no, te, wa = compute_signals_for_frame(bgr)
-        chroma_s.append(ch)
-        noise_s.append(no)
-        tear_s.append(te)
-        wave_s.append(wa)
-        if i == total - 1 or (i + 1) % 250 == 0:
-            bar.progress((i + 1) / total, text=f"Full chapter scan: {i + 1}/{total} frames")
-    cap.release()
-    bar.empty()
-
-    used = len(chroma_s)
-    frame_ids = frame_ids[:used]
-    sigs = {
-        "chroma": np.array(chroma_s, dtype=np.float64),
-        "noise": np.array(noise_s, dtype=np.float64),
-        "tear": np.array(tear_s, dtype=np.float64),
-        "wave": np.array(wave_s, dtype=np.float64),
-    }
-    if used == 0:
-        return [], np.array([], dtype=np.float64), np.array([], dtype=bool), float("nan")
-
-    scores = combined_score(sigs, weight_chroma, weight_noise, weight_tear, weight_wave)
-    if threshold_mode == "iqr":
-        threshold = iqr_thresh(scores, threshold_iqr_mult)
-    elif threshold_mode == "value":
-        threshold = float(threshold_value)
-    else:
-        threshold = float(np.quantile(scores, 1.0 - threshold_bad_pct / 100))
-
-    is_bad_full = []
-    for fid, sc in zip(frame_ids, scores):
-        if fid in manual_overrides:
-            is_bad_full.append(manual_overrides[fid] == "bad")
-        else:
-            is_bad_full.append(bool(sc >= threshold))
-    is_bad_full = np.array(is_bad_full, dtype=bool)
-    return frame_ids, scores, is_bad_full, float(threshold)
+    return sc_chroma, sc_noise, sc_tear, sc_wave, sc_score
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# HTML frame grid
+# Frame grid HTML
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def bgr_to_b64(bgr, width=None):
-    if width is not None:
-        h, w = bgr.shape[:2]
-        bgr = cv2.resize(bgr, (width, int(h * width / max(w, 1))), interpolation=cv2.INTER_AREA)
-    buf = io.BytesIO()
-    Image.fromarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)).save(buf, format="PNG", optimize=True)
-    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+_GRID_JS = """
+<script>
+(function() {
+  function setGradioValue(elemId, value) {
+    const c = document.getElementById(elemId);
+    if (!c) return;
+    const inp = c.querySelector('textarea') || c.querySelector('input[type="text"]');
+    if (!inp) return;
+    const proto = inp.tagName === 'TEXTAREA'
+      ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value');
+    if (setter && setter.set) setter.set.call(inp, value);
+    else inp.value = value;
+    inp.dispatchEvent(new Event('input', {bubbles:true}));
+  }
+  window.toggleVHSFrame = function(fid) {
+    setGradioValue('vhs-click-recv', String(fid));
+  };
+})();
+</script>
+"""
 
 
-def build_html_grid(frames, fids, scores_np, is_bad, overrides,
-                    cols, thumb_w, show_score, show_fnum):
+def build_grid_html(
+    frames_b64: list[str],
+    fids: list[int],
+    scores: np.ndarray,
+    overrides: dict[int, str],
+    threshold: float,
+    cols: int,
+    thumb_w: int,
+) -> str:
+    if not fids:
+        return "<p style='color:#666;font-family:monospace;padding:20px'>No frames loaded.</p>"
+
     cells = []
-    for bgr, fid, sc, bad in zip(frames, fids, scores_np, is_bad):
-        override_label = overrides.get(int(fid))
-        if override_label:
-            color    = "#e03030" if bad else "#30c870"
-            badge    = " ✏️"
+    for b64, fid, sc in zip(frames_b64, fids, scores):
+        ov    = overrides.get(int(fid))
+        auto  = sc >= threshold
+        bad   = (ov == "bad") if ov else auto
+        if ov == "bad":
+            color = "#8b1f1f"
+            badge = " M:BAD"
+        elif ov == "good":
+            color = "#1f6b3a"
+            badge = " M:GOOD"
         else:
-            color    = "#e03030" if bad else "#30c870"
-            badge    = ""
-
-        thumb_b64 = bgr_to_b64(bgr, width=thumb_w)
-        full_b64  = bgr_to_b64(bgr, width=640)
-        parts = []
-        if show_fnum:  parts.append(f"#{fid}")
-        if show_score: parts.append(f"{sc:.2f}")
-        label = "  ".join(parts) + badge
-
-        override_note = f" [override: {override_label}]" if override_label else ""
-        popup_label = f"frame {fid} · score {sc:.4f} · <b>{'BAD' if bad else 'GOOD'}</b>{override_note}"
-
-        cells.append(f"""
-        <div class="cell">
-          <div class="thumb-wrap" style="border-color:{color}"
-               onmouseenter="showPopup(this)" onmouseleave="hidePopup(this)">
-            <img class="thumb" src="{thumb_b64}" />
-            <div class="popup">
-              <img src="{full_b64}" style="max-width:640px;display:block;" />
-              <div style="font-family:monospace;font-size:12px;color:{color};
-                          padding:4px 8px;background:#0e0e0e;">{popup_label}</div>
-            </div>
-          </div>
-          <div class="label" style="color:{color}">{label}</div>
-        </div>""")
-
-    html = f"""
-    <style>
-      .grid {{ display:grid; grid-template-columns:repeat({cols},{thumb_w}px); gap:6px;
-               background:#111; padding:8px; }}
-      .cell {{ display:flex; flex-direction:column; align-items:center; }}
-      .thumb-wrap {{ position:relative; border:{BORDER}px solid; cursor:crosshair; line-height:0; }}
-      .thumb {{ display:block; width:{thumb_w}px; }}
-      .popup {{ display:none; position:fixed; z-index:9999; background:#0e0e0e;
-                border:2px solid #444; box-shadow:0 0 60px rgba(0,0,0,.95); pointer-events:none; }}
-      .label {{ font-family:monospace; font-size:10px; margin-top:2px; white-space:nowrap; }}
-    </style>
-    <div class="grid">{''.join(cells)}</div>
-    <script>
-      let mx=0, my=0;
-      document.addEventListener("mousemove", e => {{
-        mx=e.clientX; my=e.clientY;
-        const v = document.querySelector(".popup[data-vis='1']");
-        if (v) pos(v);
-      }});
-      function pos(p) {{
-        const vw=window.innerWidth, vh=window.innerHeight;
-        const pw=p.offsetWidth||640, ph=p.offsetHeight||400, off=16;
-        let x=mx+off, y=my+off;
-        if (x+pw>vw-8) x=mx-pw-off;
-        if (y+ph>vh-8) y=my-ph-off;
-        x=Math.max(8,Math.min(x,vw-pw-8));
-        y=Math.max(8,Math.min(y,vh-ph-8));
-        p.style.left=x+"px"; p.style.top=y+"px";
-      }}
-      function showPopup(w) {{
-        const p=w.querySelector(".popup");
-        p.style.display="block"; p.dataset.vis="1"; pos(p);
-      }}
-      function hidePopup(w) {{
-        const p=w.querySelector(".popup");
-        p.style.display="none"; p.dataset.vis="0";
-      }}
-    </script>"""
-    return html
-
-
-grid_html = build_html_grid(
-    frames, fids, scores_np, is_bad, overrides,
-    cols, thumb_w, show_score, show_fnum
-)
-h0, w0  = frames[0].shape[:2]
-thumb_h = int(thumb_w * h0 / max(w0, 1))
-n_rows  = math.ceil(len(frames) / cols)
-grid_h  = n_rows * (thumb_h + BORDER * 2 + 20) + 40
-
-st.components.v1.html(grid_html, height=grid_h, scrolling=True)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Manual override table
-# ═══════════════════════════════════════════════════════════════════════════════
-
-st.divider()
-st.subheader("✏️ Manual Frame Overrides")
-
-if not selected_chapter:
-    st.info("Select a chapter to enable per-chapter overrides.")
-else:
-    # Build display dataframe from current frame sample
-    override_rows = []
-    for fid, sc, bad in zip(fids, scores_np, is_bad):
-        ov = overrides.get(int(fid), "")
-        override_rows.append({
-            "frame":     int(fid),
-            "score":     round(float(sc), 4),
-            "computed":  "bad" if bool(sc >= threshold) else "good",
-            "override":  ov,
-            "effective": overrides.get(int(fid), "bad" if bad else "good"),
-        })
-
-    ov_df = pd.DataFrame(override_rows)
-
-    st.caption(
-        "Set **override** to `bad` or `good` to force a frame's label regardless of score. "
-        "Leave blank to use the computed score. Hit **Save Overrides** to persist."
-    )
-
-    edited = st.data_editor(
-        ov_df,
-        column_config={
-            "frame":     st.column_config.NumberColumn("Frame", disabled=True),
-            "score":     st.column_config.NumberColumn("Score", format="%.4f", disabled=True),
-            "computed":  st.column_config.TextColumn("Computed", disabled=True),
-            "override":  st.column_config.SelectboxColumn(
-                "Override",
-                options=["", "good", "bad"],
-                help="Force this frame's label. Leave blank for auto.",
-            ),
-            "effective": st.column_config.TextColumn("Effective", disabled=True),
-        },
-        use_container_width=True,
-        hide_index=True,
-        key="override_editor",
-    )
-
-    if st.button("💾  Save Overrides", type="primary"):
-        new_overrides = {}
-        edited_frame_ids = []
-        edited_is_bad = []
-        for _, row in edited.iterrows():
-            fid = int(row["frame"])
-            ov = str(row["override"]).strip().lower()
-            if ov in ("good", "bad"):
-                new_overrides[fid] = ov
-            computed = str(row.get("computed", "")).strip().lower()
-            effective = ov if ov in ("good", "bad") else computed
-            edited_frame_ids.append(fid)
-            edited_is_bad.append(effective == "bad")
-        save_overrides(archive_name, selected_chapter["title"], new_overrides)
-        chapter_badframes_file, chapter_bad_count, chapter_bad_ranges = save_chapter_badframes_tsv(
-            archive_name=archive_name,
-            ch_title=selected_chapter["title"],
-            frame_ids=edited_frame_ids,
-            is_bad_flags=edited_is_bad,
+            color = "#e03030" if bad else "#30c870"
+            badge = ""
+        label = f"#{fid} {sc:.2f}{badge}"
+        cells.append(
+            f'<div class="vhs-cell" onclick="toggleVHSFrame({fid})"'
+            f' title="frame {fid} · score {sc:.4f} · click to toggle">'
+            f'<div class="vhs-wrap" style="border-color:{color}">'
+            f'<img src="{b64}" class="vhs-thumb"/></div>'
+            f'<div class="vhs-lbl" style="color:{color}">{label}</div>'
+            f'</div>'
         )
-        st.success(f"Saved {len(new_overrides)} override(s) → "
-                   f"`{overrides_path(archive_name, selected_chapter['title']).name}`")
-        st.caption(
-            f"Saved chapter badframes: `{chapter_badframes_file.name}` "
-            f"({chapter_bad_count} bad frame(s), {chapter_bad_ranges} range(s))"
-        )
-        st.rerun()
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Render chapter with step_6_make_videos.py
-# ═══════════════════════════════════════════════════════════════════════════════
-
-st.divider()
-st.subheader("🎬 Render Chapter")
-
-# ── Custom HTML5 video player with frame + score HUD ─────────────────────────
-
-def make_preview_video(video_path, scale=0.5):
-    """
-    Transcode to a half-size (or any scale) MP4 in a temp file.
-    Returns the temp path — caller is responsible for cleanup.
-    Much smaller base64 payload for the browser (~4x fewer pixels → ~3-5x smaller file).
-    """
-    import tempfile, shutil
-    try:
-        from common import FFMPEG_BIN
-    except Exception:
-        FFMPEG_BIN = "ffmpeg"
-
-    tmp = tempfile.NamedTemporaryFile(suffix="_preview.mp4", delete=False)
-    tmp.close()
-    cmd = [
-        FFMPEG_BIN, "-nostdin", "-v", "error",
-        "-i", str(video_path),
-        "-vf", f"scale=iw*{scale}:ih*{scale}",
-        "-c:v", "libx264", "-crf", "26", "-preset", "fast",
-        "-c:a", "copy",
-        "-y", tmp.name,
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0 or not Path(tmp.name).exists():
-        # Transcode failed — fall back to original
-        shutil.copy(str(video_path), tmp.name)
-    return tmp.name
-
-
-def build_video_player(
-    video_path,
-    fids,
-    scores_np,
-    is_bad,
-    chapter_start_frame=0,
-    fps=FPS,
-    bad_ranges_global=None,
-):
-    """
-    fids         : global frame numbers from the tuner sample
-    scores_np    : combined scores matching fids
-    is_bad       : boolean array matching fids — the ACTUAL classification
-                   from the tuner (weights + threshold mode + manual overrides)
-    chapter_start_frame : global frame number where the chapter starts;
-                   used to convert chapter-local video time → global frame for lookup
-    """
-    import os
-    preview_path = make_preview_video(video_path, scale=0.5)
-    try:
-        with open(preview_path, "rb") as vf:
-            video_b64 = base64.b64encode(vf.read()).decode()
-    finally:
-        try:
-            os.unlink(preview_path)
-        except Exception:
-            pass
-    video_uri = "data:video/mp4;base64," + video_b64
-
-    # Build parallel JS arrays: global frame → (score, is_bad)
-    # JS will convert local video frame to global via chapter_start_frame offset
-    fids_js   = "[" + ",".join(str(int(f))          for f in fids)    + "]"
-    scores_js = "[" + ",".join(f"{float(s):.4f}"    for s in scores_np) + "]"
-    bad_js    = "[" + ",".join("true" if b else "false" for b in is_bad) + "]"
-    bad_ranges_global = bad_ranges_global or []
-    bad_ranges_js = (
-        "[" + ",".join(f"[{int(a)},{int(b)}]" for (a, b) in bad_ranges_global) + "]"
-        if bad_ranges_global
-        else "[]"
-    )
 
     return f"""
-    <style>
-      .vhs-player {{background:#0e0e0e;padding:10px;border-radius:6px;
-                    border:1px solid #2a2a2a;display:inline-block;width:100%;}}
-      .vhs-video-wrap {{position:relative; width:100%;}}
-      .vhs-video  {{width:100%;display:block;}}
-      .vhs-overlay {{
-        position:absolute; top:8px; left:8px; z-index:5;
-        font-family:monospace; font-size:12px; color:#fff;
-        background:rgba(0,0,0,0.65); border:1px solid #444;
-        padding:4px 8px; border-radius:4px;
-      }}
-      .vhs-hud    {{font-family:monospace;font-size:13px;color:#aaa;
-                    padding:5px 8px;background:#161616;border-top:1px solid #222;
-                    display:flex;gap:24px;align-items:center;}}
-      .vhs-hud .val  {{color:#eee;font-weight:bold;}}
-      .vhs-hud .bad  {{color:#e03030;font-weight:bold;}}
-      .vhs-hud .good {{color:#30c870;font-weight:bold;}}
-    </style>
-    <div class="vhs-player">
-      <div class="vhs-video-wrap">
-        <video id="vhsvid" class="vhs-video" controls preload="metadata">
-          <source src="{video_uri}" type="video/mp4"/>
-        </video>
-        <div id="hud-overlay" class="vhs-overlay">Frame -</div>
-      </div>
-      <div class="vhs-hud">
-        <span>Frame: <span class="val" id="hud-frame">—</span></span>
-        <span>Score: <span id="hud-score">—</span></span>
-        <span id="hud-label">—</span>
-      </div>
-    </div>
-    <script>
-    (function(){{
-      const fps={fps:.6f};
-      const chapterStartFrame={int(chapter_start_frame)};
-      const fids={fids_js}, scores={scores_js}, bads={bad_js};
-      const badRanges={bad_ranges_js};
+{_GRID_JS}
+<style>
+  .vhs-grid {{
+    display:grid;
+    grid-template-columns:repeat({cols},{thumb_w}px);
+    gap:5px; background:#0d0d0d; padding:8px;
+  }}
+  .vhs-cell {{ display:flex; flex-direction:column; align-items:center;
+               cursor:pointer; user-select:none; }}
+  .vhs-cell:hover .vhs-wrap {{ opacity:0.75; transform:scale(1.03); }}
+  .vhs-wrap {{ border:{BORDER}px solid; line-height:0;
+               transition:opacity .1s, transform .1s; }}
+  .vhs-thumb {{ display:block; width:{thumb_w}px; }}
+  .vhs-lbl {{ font-family:'Courier New',monospace; font-size:9px;
+              margin-top:2px; white-space:nowrap; }}
+</style>
+<div class="vhs-grid">{''.join(cells)}</div>
+"""
 
-      // Map global frame → {{score, bad}} for nearest-sample lookup
-      const frameMap=new Map();
-      for(let i=0;i<fids.length;i++) frameMap.set(fids[i], {{score:scores[i], bad:bads[i]}});
-
-      function nearestEntry(globalFrame){{
-        if(frameMap.has(globalFrame)) return frameMap.get(globalFrame);
-        let best=null, bestDist=Infinity;
-        for(const [f,e] of frameMap){{
-          const d=Math.abs(f-globalFrame);
-          if(d<bestDist){{bestDist=d; best=e;}}
-        }}
-        return best;
-      }}
-
-      function inBadRanges(globalFrame){{
-        for(let i=0;i<badRanges.length;i++){{
-          const r=badRanges[i];
-          if(globalFrame>=r[0] && globalFrame<=r[1]) return true;
-        }}
-        return false;
-      }}
-
-      const vid=document.getElementById("vhsvid");
-      const hudFrame=document.getElementById("hud-frame");
-      const hudScore=document.getElementById("hud-score");
-      const hudLabel=document.getElementById("hud-label");
-      const hudOverlay=document.getElementById("hud-overlay");
-
-      function refreshHud(){{
-        // Video time is chapter-local; convert to global frame for lookup
-        const localFrame=Math.round(vid.currentTime*fps);
-        const globalFrame=localFrame+chapterStartFrame;
-        const entry=nearestEntry(globalFrame);
-        const inBad=inBadRanges(globalFrame);
-        hudFrame.textContent=globalFrame.toLocaleString()+" (local "+localFrame+")";
-        hudOverlay.textContent="Frame "+globalFrame.toLocaleString()+" (local "+localFrame+")";
-        if(entry!==null){{
-          hudScore.textContent=entry.score.toFixed(4);
-          hudScore.className=inBad?"bad":"good";
-          hudLabel.textContent=inBad?"🔴 BAD":"🟢 GOOD";
-          hudLabel.className=inBad?"bad":"good";
-        }}
-      }}
-      vid.addEventListener("timeupdate", refreshHud);
-      vid.addEventListener("seeked", refreshHud);
-      vid.addEventListener("loadedmetadata", refreshHud);
-    }})();
-    </script>"""
-
-
-def do_render(ch_title):
-    chapter_badframes_for_render = None
-    if selected_chapter:
-        full_fids, full_scores, full_is_bad, full_threshold = classify_full_chapter_badframes(
-            video_path=video_path,
-            chapter_start_frame=selected_chapter["start_frame"],
-            chapter_end_frame=selected_chapter["end_frame"],
-            weight_chroma=w_chroma,
-            weight_noise=w_noise,
-            weight_tear=w_tear,
-            weight_wave=w_wave,
-            threshold_mode=mode,
-            threshold_value=thresh_val,
-            threshold_bad_pct=bad_pct,
-            threshold_iqr_mult=iqr_mult,
-            manual_overrides=overrides,
-        )
-        chapter_badframes_for_render, full_bad_count, full_bad_ranges = save_chapter_badframes_tsv(
-            archive_name=archive_name,
-            ch_title=selected_chapter["title"],
-            frame_ids=full_fids,
-            is_bad_flags=full_is_bad,
-        )
-        existing_settings = {}
-        settings_file = chapter_settings_path(archive_name, selected_chapter["title"])
-        if settings_file.exists():
-            try:
-                existing_settings = json.loads(settings_file.read_text(encoding="utf-8"))
-            except Exception:
-                existing_settings = {}
-        existing_settings["render_full_chapter"] = {
-            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-            "chapter_frame_range": {
-                "start": int(selected_chapter["start_frame"]),
-                "end": int(selected_chapter["end_frame"]),
-            },
-            "frames_processed": int(len(full_fids)),
-            "threshold_mode": str(mode),
-            "threshold_value_effective": float(full_threshold) if np.isfinite(full_threshold) else None,
-            "bad_frames": int(full_bad_count),
-            "bad_ranges": int(full_bad_ranges),
-            "badframes_tsv": str(chapter_badframes_for_render),
-        }
-        save_chapter_settings_json(
-            archive_name=archive_name,
-            ch_title=selected_chapter["title"],
-            payload=existing_settings,
-        )
-        st.caption(
-            f"Full chapter pass complete: {len(full_fids)} frame(s), "
-            f"{full_bad_count} bad frame(s), {full_bad_ranges} range(s)"
-        )
-    cmd = [
-        sys.executable,
-        str(STEP6),
-        "--archive",
-        archive_name,
-        "--title",
-        ch_title,
-        "--title-exact",
-    ]
-    if chapter_badframes_for_render:
-        cmd += [
-            "--badframes-tsv",
-            str(chapter_badframes_for_render),
-            "--badframes-archive",
-            archive_name,
-        ]
-    with st.spinner(f"Rendering '{ch_title}'… this may take several minutes."):
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(PROJECT_ROOT))
-    full_log = (result.stdout or "") + (result.stderr or "")
-    if result.returncode == 0:
-        st.success("Render completed.")
-    else:
-        st.error(f"step_6 exited with code {result.returncode}")
-    with st.expander("📋 Log output", expanded=(result.returncode != 0)):
-        st.code(full_log or "(no output)", language="text")
-    try:
-        if str(PROJECT_ROOT) not in sys.path:
-            sys.path.insert(0, str(PROJECT_ROOT))
-        from common import VIDEOS_DIR, CLIPS_DIR, safe
-        rendered = None
-        if result.returncode == 0:
-            for search_dir in [VIDEOS_DIR, CLIPS_DIR]:
-                candidate = search_dir / f"{safe(ch_title)}.mp4"
-                if candidate.exists() and candidate.stat().st_size > 100_000:
-                    rendered = candidate
-                    break
-        if rendered and result.returncode == 0:
-            st.markdown(f"**Output:** `{rendered}`")
-            ch_start = selected_chapter["start_frame"] if selected_chapter else 0
-            bad_ranges_global = []
-            if chapter_badframes_file:
-                bad_ranges_global = load_badframe_ranges_tsv(chapter_badframes_file)
-            player_html = build_video_player(
-                str(rendered), fids, scores_np, is_bad,
-                chapter_start_frame=ch_start,
-                bad_ranges_global=bad_ranges_global,
-            )
-            st.components.v1.html(player_html, height=540)
-        elif result.returncode == 0:
-            st.warning("Render completed but output file not found — check the log above.")
-        else:
-            st.warning("Render failed; preview not shown to avoid using stale output.")
-    except Exception as e:
-        st.warning(f"Could not locate rendered file (common.py import failed: {e}). "
-                   "Check the log above for the output path.")
-
-
-if not selected_chapter:
-    st.info("Select a chapter to enable rendering.")
-elif not STEP6.exists():
-    st.warning(f"step_6_make_videos.py not found at {STEP6}")
-else:
-    ch_title = selected_chapter["title"]
-    st.markdown(f"**Chapter:** {ch_title}")
-    _, run_col, _ = st.columns([3, 1, 3])
-    run_btn_section = run_col.button("▶️ Render", key="render_section",
-                                     type="primary", use_container_width=True)
-    if run_btn_section or _render_top:
-        do_render(ch_title)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Export script
+# Preview video: ffmpeg burn-in  G/L/S  (global frame, local frame, score)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def generate_script(video_path, w_chroma, w_noise, w_tear, w_wave,
-                    mode, thresh_val, bad_pct, iqr_mult):
-    if mode == "iqr":
-        thresh_comment = f"# Threshold: Q3 + {iqr_mult} × IQR per chapter-aligned window"
-    elif mode == "value":
-        thresh_comment = f"# Threshold: hard value {thresh_val:.4f}"
-    else:
-        thresh_comment = f"# Threshold: top {bad_pct}% flagged"
+def _write_score_ass(path: Path, fids: list[int], scores: np.ndarray,
+                     chapter_start_frame: int, fps: float,
+                     total_local_frames: int) -> None:
+    score_map   = {int(f): float(s) for f, s in zip(fids, scores)}
+    sorted_fids = sorted(score_map)
+    if not sorted_fids:
+        path.write_text("", encoding="utf-8"); return
 
-    return textwrap.dedent(f"""\
-        #!/usr/bin/env python3.11
-        \"\"\"
-        Auto-generated by vhs_tuner.py
-        {thresh_comment}
-        \"\"\"
+    def _t(lf: int) -> str:
+        secs = max(0.0, lf / fps)
+        h = int(secs//3600); m = int((secs%3600)//60); s = secs%60
+        return f"{h}:{m:02d}:{int(s):02d}.{int((s%1)*100):02d}"
 
-        from pathlib import Path
-        import sys
+    events = []
+    for i, fid in enumerate(sorted_fids):
+        lo = max(0, fid - chapter_start_frame)
+        hi = (sorted_fids[i+1] - chapter_start_frame
+              if i+1 < len(sorted_fids) else total_local_frames + 60)
+        events.append(f"Dialogue: 0,{_t(lo)},{_t(hi)},Sc,,0,0,0,,S:{score_map[fid]:.2f}")
 
-        PROJECT_ROOT = Path(__file__).parent.parent.resolve()
-        if str(PROJECT_ROOT) not in sys.path:
-            sys.path.insert(0, str(PROJECT_ROOT))
-
-        from tracking_loss import TrackingLossConfig, run_tracking_loss_classification
-
-        config = TrackingLossConfig(
-            archive               = "{archive_name}",
-            video                 = r"{video_path}",
-            weight_chroma         = {w_chroma},
-            weight_noise          = {w_noise},
-            weight_tear           = {w_tear},
-            weight_wave           = {w_wave},
-            iqr_mult              = {iqr_mult},
-            threshold_window_size = 1000,
-            crop_top              = 50,
-            crop_bottom           = 50,
-            crop_left             = 50,
-            crop_right            = 50,
-            export_review_png_count = 500,
-        )
-
-        if __name__ == "__main__":
-            result = run_tracking_loss_classification(config=config)
-            print("\\nDone.")
-            print(f"  Bad frame ranges : {{result['badframes_path']}}")
-            print(f"  Frame scores     : {{result['frame_scores_path']}}")
-            print(f"  Summary          : {{result['summary_path']}}")
-    """)
-
-
-if export_btn:
-    text = generate_script(
-        video_path, w_chroma, w_noise, w_tear, w_wave,
-        mode, thresh_val, bad_pct, iqr_mult
+    path.write_text(
+        "[Script Info]\nScriptType: v4.00+\nPlayResX: 1280\nPlayResY: 720\n\n"
+        "[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,"
+        "OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,"
+        "Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n"
+        "Style: Sc,Courier New,18,&H00FFFFFF,&H000000FF,&H00000000,&H99000000,"
+        "1,0,0,0,100,100,0,0,1,2,0,7,6,6,36,1\n\n"
+        "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
+        + "\n".join(events),
+        encoding="utf-8",
     )
-    SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
-    out = SCRIPTS_DIR / script_name
-    out.write_text(text, encoding="utf-8")
-    st.success(f"Saved → {out}")
-    with st.expander("Preview"):
-        st.code(text, language="python")
+
+
+def make_preview_video(input_path: str | Path, output_path: str | Path,
+                       chapter_start_frame: int, fids: list[int],
+                       scores: np.ndarray, fps: float = FPS) -> Path:
+    input_path  = Path(input_path)
+    output_path = Path(output_path)
+    ass_path    = output_path.with_suffix(".score_overlay.ass")
+
+    cap   = cv2.VideoCapture(str(input_path))
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) if cap.isOpened() else 0
+    cap.release()
+
+    if fids and len(scores) == len(fids):
+        _write_score_ass(ass_path, fids, scores, chapter_start_frame, fps, total)
+    else:
+        ass_path.write_text("", encoding="utf-8")
+
+    offset = int(chapter_start_frame)
+    font_candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+        "/System/Library/Fonts/Menlo.ttc",
+        "C\\:/Windows/Fonts/cour.ttf",
+    ]
+    font_path = next((f for f in font_candidates if Path(f).exists()), "")
+    font_arg  = f"fontfile={font_path}:" if font_path else ""
+
+    vf_parts = [
+        "scale=iw/2:ih/2",
+        f"subtitles='{ass_path}'",
+        (f"drawtext={font_arg}fontsize=16:fontcolor=white:x=6:y=6:"
+         f"box=1:boxcolor=black@0.75:boxborderw=3:"
+         f"text='G\\:%{{eif\\:n+{offset}\\:d\\:7}} L\\:%{{n}}'"),
+    ]
+
+    def _run(vf: str) -> bool:
+        return subprocess.run(
+            ["ffmpeg", "-nostdin", "-y", "-i", str(input_path),
+             "-vf", vf, "-c:v", "libx264", "-crf", "22", "-preset", "fast",
+             "-c:a", "aac", "-b:a", "128k", str(output_path)],
+            capture_output=True,
+        ).returncode == 0
+
+    if not _run(",".join(vf_parts)):
+        if not _run(",".join([vf_parts[0], vf_parts[2]])):
+            _run(vf_parts[0])
+
+    try: ass_path.unlink()
+    except Exception: pass
+    return output_path
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Apply: save config + run tracking_loss + merge overrides into archive badframes
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def apply_and_regenerate(
+    archive: str, ch_title: str,
+    ch_start: int, ch_end: int,
+    w_chroma: float, w_noise: float, w_tear: float, w_wave: float,
+    iqr_mult: float, frame_step: int,
+) -> str:
+    if not archive or not ch_title or ch_title.startswith("—"):
+        return "❌  No chapter selected."
+
+    logs: list[str] = []
+
+    # 1 ── Save tuner config ────────────────────────────────────────────────
+    cfg = {
+        "archive": archive, "chapter": ch_title,
+        "chapter_start_frame": ch_start, "chapter_end_frame": ch_end,
+        "weight_chroma": w_chroma, "weight_noise": w_noise,
+        "weight_tear":   w_tear,   "weight_wave":  w_wave,
+        "iqr_mult": iqr_mult, "frame_step": frame_step,
+    }
+    cfg_p = _tuner_config_path(archive, ch_title)
+    cfg_p.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    logs.append(f"✅  Config → {cfg_p.name}")
+
+    if not _HAS_TRACKING:
+        return "\n".join(logs) + "\n❌  tracking_loss module not found."
+
+    # 2 ── Locate video ─────────────────────────────────────────────────────
+    proxy = ARCHIVE_DIR / f"{archive}_proxy.mp4"
+    mkv   = ARCHIVE_DIR / f"{archive}.mkv"
+    video = str(proxy if proxy.exists() else mkv if mkv.exists() else "")
+    if not video:
+        return "\n".join(logs) + f"\n❌  No video found for '{archive}'."
+
+    # 3 ── Run tracking_loss for this chapter ───────────────────────────────
+    logs.append(f"▶️   tracking_loss  frames {ch_start}–{ch_end}  step={frame_step}…")
+    ch_output_dir = _tracking_dir(archive) / f"{slugify(ch_title)}_tl_output"
+    config = TrackingLossConfig(  # type: ignore[call-arg]
+        archive              = archive,
+        video                = video,
+        output_dir           = str(ch_output_dir),
+        start_frame          = ch_start,
+        max_frame            = ch_end,
+        frame_step           = max(1, frame_step),
+        weight_chroma        = w_chroma,
+        weight_noise         = w_noise,
+        weight_tear          = w_tear,
+        weight_wave          = w_wave,
+        iqr_mult             = iqr_mult,
+        threshold_window_size= 1000,
+        export_review_png_count = 0,
+        # Write directly to the archive-level canonical badframes.tsv
+        metadata_badframes_tsv = str(_archive_badframes_path(archive)),
+    )
+    try:
+        result = run_tracking_loss_classification(config=config)  # type: ignore
+        logs.append(f"✅  tracking_loss done  →  {result['frame_scores_path'].name}")
+    except Exception as exc:
+        logs.append(f"❌  tracking_loss failed: {exc}")
+        return "\n".join(logs)
+
+    # 4 ── Load auto bad ranges ─────────────────────────────────────────────
+    archive_bf_path = _archive_badframes_path(archive)
+    auto_ranges = []
+    for s, e, _ in _parse_badframes_tsv(archive_bf_path):
+        lo = max(int(s), int(ch_start))
+        hi = min(int(e), int(ch_end))
+        if hi >= lo:
+            auto_ranges.append((lo, hi))
+    logs.append(f"   Auto bad ranges: {len(auto_ranges)}")
+
+    # 5 ── Merge overrides into archive-level badframes.tsv ─────────────────
+    overrides      = load_overrides(archive, ch_title)
+    manual_bad     = [f for f, l in overrides.items() if l == "bad"]
+    manual_good    = [f for f, l in overrides.items() if l == "good"]
+    if overrides:
+        logs.append(f"   Overrides: {len(manual_bad)} forced-bad, {len(manual_good)} forced-good")
+
+    archive_bf = merge_chapter_into_archive_badframes(
+        archive        = archive,
+        ch_start       = ch_start,
+        ch_end         = ch_end,
+        chapter_ranges = auto_ranges,
+        overrides      = overrides,
+    )
+    logs.append(f"✅  Archive badframes → {archive_bf}")
+    logs.append(f"   (step_6_make_videos reads this file)")
+    return "\n".join(logs)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Gradio layout
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_DARK_CSS = """
+body, .gradio-container { background:#0d0d0d !important; color:#ccc; }
+.gradio-container {
+  max-width: 100% !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 6px 8px !important;
+}
+.app, .contain {
+  max-width: 100% !important;
+}
+.gradio-container .main {
+  padding: 0 !important;
+}
+.gr-row, .gr-form, .gr-group { gap: 6px !important; }
+.gr-block, .block, .gr-box, .gr-padded {
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+}
+.gr-box, .gr-padded { background:#141414 !important; }
+.gr-button-primary { background:#1a6b3a !important; border-color:#27a85a !important; }
+.gr-button { background:#222 !important; color:#bbb !important; border-color:#333 !important; }
+label { color:#999 !important; font-family:'Courier New',monospace !important; font-size:0.77rem !important; }
+input[type=range] { accent-color:#27a85a; }
+#vhs-stats { font-family:'Courier New',monospace; font-size:13px;
+             background:#111; padding:8px 12px; border-left:3px solid #27a85a; }
+#vhs-apply-log textarea  { font-family:'Courier New',monospace; font-size:11px;
+                           background:#0a0a0a !important; color:#9fdfb8 !important; }
+#vhs-render-log textarea { font-family:'Courier New',monospace; font-size:11px;
+                           background:#0a0a0a !important; color:#9fdfb8 !important; }
+#vhs-click-recv input, #vhs-click-recv textarea {
+  height:26px !important; font-family:monospace; font-size:10px;
+  background:#111 !important; color:#555 !important; }
+"""
+
+_STEP_BTN_HTML = """
+<div style="display:flex;gap:8px;align-items:center;padding:6px 0;
+            font-family:'Courier New',monospace;">
+  <button onclick="vhsStep(-1)"
+    style="background:#1a1a1a;color:#ccc;border:1px solid #333;
+           padding:5px 14px;cursor:pointer;border-radius:3px;font-family:inherit;">
+    ◀ −1 frame
+  </button>
+  <button onclick="vhsStep(1)"
+    style="background:#1a1a1a;color:#ccc;border:1px solid #333;
+           padding:5px 14px;cursor:pointer;border-radius:3px;font-family:inherit;">
+    +1 frame ▶
+  </button>
+  <span id="vhs-step-info" style="color:#666;font-size:11px;"></span>
+</div>
+<script>
+function vhsStep(dir) {
+  const fps = 30000/1001;
+  const wrap = document.getElementById('vhs-preview-video');
+  const vid  = wrap ? wrap.querySelector('video') : document.querySelector('video');
+  if (!vid) { document.getElementById('vhs-step-info').textContent='(no video)'; return; }
+  vid.pause();
+  vid.currentTime = Math.max(0, Math.min(vid.duration||Infinity, vid.currentTime + dir/fps));
+  document.getElementById('vhs-step-info').textContent =
+    'local ≈ ' + Math.round(vid.currentTime * fps);
+}
+</script>
+"""
+
+
+def _get_archives() -> list[str]:
+    if not ARCHIVE_DIR.exists():
+        return []
+    return sorted(p.stem for p in ARCHIVE_DIR.glob("*.mkv"))
+
+
+def _get_chapter_titles(archive: str) -> list[str]:
+    if not archive:
+        return ["— select chapter —"]
+    cf = METADATA_DIR / archive / "chapters.ffmetadata"
+    if not cf.exists():
+        return ["— no chapters file found —"]
+    chapters = parse_ffmetadata_chapters(cf)
+    return ["— select chapter —"] + [ch["title"] for ch in chapters]
+
+
+def _find_chapter(chapters: list[dict], title: str) -> dict | None:
+    return next((c for c in chapters if c["title"] == title), None)
+
+
+_E_SIG   = _sparkline_svg(np.array([]), None,  "", height=38)
+_E_SCORE = _sparkline_svg(np.array([]), None,  "", height=52)
+
+
+with gr.Blocks(
+    title="📼  VHS Frame Tuner",
+) as demo:
+
+    # ── Persistent state ──────────────────────────────────────────────────────
+    st_fids      = gr.State([])
+    st_b64       = gr.State([])
+    st_sigs      = gr.State({})
+    st_overrides = gr.State({})
+    st_chapters  = gr.State([])
+
+    gr.Markdown("# 📼  VHS Frame Tuner")
+
+    # ── Archive + Chapter ─────────────────────────────────────────────────────
+    with gr.Row():
+        _archives  = _get_archives()
+        archive_dd = gr.Dropdown(
+            choices=_archives, value=_archives[0] if _archives else None,
+            label="Archive", scale=1, interactive=True,
+        )
+        chapter_dd = gr.Dropdown(
+            choices=["— select chapter —"], value="— select chapter —",
+            label="Chapter", scale=3, interactive=True,
+        )
+        load_btn = gr.Button("🔄  Load Chapter", variant="primary", scale=1)
+
+    status_md = gr.Markdown("*Pick an archive and chapter, then click **Load Chapter**.*")
+
+    # ── Main panel ────────────────────────────────────────────────────────────
+    with gr.Row(visible=False) as main_panel:
+
+        # ── LEFT column ───────────────────────────────────────────────────────
+        with gr.Column(scale=1, min_width=230):
+
+            gr.Markdown("### 🎞  Range & Sample")
+            with gr.Row():
+                start_n = gr.Number(label="Start frame", value=0,   precision=0)
+                end_n   = gr.Number(label="End frame",   value=1000, precision=0)
+            n_sl = gr.Slider(20, 400, value=100, step=10, label="Sample n frames")
+            apply_range_btn = gr.Button("Apply Range", variant="secondary")
+
+            gr.Markdown("### ⚖️  Signal Weights")
+            wc_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="chroma_loss")
+            spark_chroma = gr.HTML(_E_SIG)
+            wn_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="noise_energy")
+            spark_noise  = gr.HTML(_E_SIG)
+            wt_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="row_tear")
+            spark_tear   = gr.HTML(_E_SIG)
+            ww_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="wave_energy")
+            spark_wave   = gr.HTML(_E_SIG)
+
+            gr.Markdown("### 🎚️  Threshold")
+            t_mode  = gr.Radio(["iqr", "value", "quantile"], value="iqr",
+                                label="Mode", interactive=True)
+            iqr_sl  = gr.Slider(1.0, 8.0,   value=3.5,  step=0.05,
+                                 label="k  (Q3 + k × IQR)")
+            tval_sl = gr.Slider(-5.0, 15.0, value=1.0,  step=0.05,
+                                 label="Hard threshold value", visible=False)
+            bpct_sl = gr.Slider(1, 60,      value=10,   step=1,
+                                 label="Bad %", visible=False)
+            spark_score = gr.HTML(_E_SCORE)
+
+            gr.Markdown("### 🖼️  Grid Display")
+            with gr.Row():
+                cols_sl   = gr.Slider(4,  24,  value=10,  step=1,  label="Cols")
+                twidth_sl = gr.Slider(80, 320, value=160, step=20, label="px wide")
+
+            gr.Markdown("### ✅  Apply")
+            fstep_sl  = gr.Slider(1, 10, value=3, step=1,
+                                   label="Full-scan frame step  (1=accurate, 10=fast)")
+            apply_btn = gr.Button("✅  Apply & Regenerate", variant="primary")
+            apply_log = gr.Textbox(label="Apply log", lines=8,
+                                    interactive=False, elem_id="vhs-apply-log")
+            reload_btn = gr.Button("🔄  Reload Frames", variant="secondary")
+
+        # ── RIGHT column ──────────────────────────────────────────────────────
+        with gr.Column(scale=4):
+
+            stats_md  = gr.Markdown("", elem_id="vhs-stats")
+            grid_html = gr.HTML("")
+
+            with gr.Row():
+                click_recv = gr.Textbox(
+                    value="", label="Last clicked frame",
+                    interactive=True, scale=1, max_lines=1,
+                    elem_id="vhs-click-recv",
+                )
+                gr.HTML("<div style='flex:4'></div>")
+
+            gr.Markdown("---")
+            gr.Markdown("### 🎬  Render Chapter")
+
+            preview_vid    = gr.Video(
+                label="Preview  (½ size · G/L frame + S score burn-in)",
+                visible=False, elem_id="vhs-preview-video",
+            )
+            step_ctrl_html = gr.HTML(_STEP_BTN_HTML, visible=False)
+
+            with gr.Row():
+                render_btn = gr.Button("▶️  Render", variant="primary", scale=1)
+                render_log = gr.Textbox(
+                    label="", lines=3, interactive=False,
+                    scale=4, elem_id="vhs-render-log",
+                )
+
+    # =========================================================================
+    # Rebuild helper — grid + stats + 5 sparklines
+    # =========================================================================
+
+    def _rebuild(fids, b64, sigs, overrides, wc, wn, wt, ww,
+                 t_mode, iqr_k, tval, bpct, cols, twidth):
+        if not fids or not b64:
+            return ("", "*(no frames loaded)*",
+                    _E_SIG, _E_SIG, _E_SIG, _E_SIG, _E_SCORE)
+        sc   = combined_score(sigs, wc, wn, wt, ww)
+        thr  = compute_threshold(sc, t_mode, iqr_k, tval, bpct)
+        html = build_grid_html(b64, fids, sc, overrides, thr, cols, twidth)
+        n_bad  = sum(
+            (overrides.get(int(f), "bad" if s >= thr else "good") == "bad")
+            for f, s in zip(fids, sc)
+        )
+        n_ov   = sum(1 for f in fids if int(f) in overrides)
+        stats  = (
+            f"🔴 **Bad:** {n_bad} ({100*n_bad/max(1,len(fids)):.0f}%)  ·  "
+            f"🟢 **Good:** {len(fids)-n_bad}  ·  "
+            f"**Threshold:** {thr:.3f}  ·  "
+            f"✏ **Overrides:** {n_ov}  ·  n={len(fids)}"
+        )
+        sc_ch, sc_no, sc_te, sc_wa, sc_sc = build_sparklines_html(
+            sigs, sc, thr, wc, wn, wt, ww
+        )
+        return html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc
+
+    _RB_OUTS = [grid_html, stats_md,
+                spark_chroma, spark_noise, spark_tear, spark_wave, spark_score]
+
+    # ── Archive change ─────────────────────────────────────────────────────
+    def on_archive(archive):
+        titles   = _get_chapter_titles(archive)
+        cf       = METADATA_DIR / archive / "chapters.ffmetadata" if archive else None
+        chapters = parse_ffmetadata_chapters(cf) if cf and cf.exists() else []
+        return gr.update(choices=titles, value=titles[0]), chapters
+
+    archive_dd.change(on_archive, [archive_dd], [chapter_dd, st_chapters])
+    demo.load(on_archive, [archive_dd], [chapter_dd, st_chapters])
+
+    # ── Chapter change → frame range ───────────────────────────────────────
+    def on_chapter(title, chapters):
+        ch = _find_chapter(chapters, title)
+        if not ch:
+            return gr.update(), gr.update()
+        return gr.update(value=ch["start_frame"]), gr.update(value=ch["end_frame"])
+
+    chapter_dd.change(on_chapter, [chapter_dd, st_chapters], [start_n, end_n])
+
+    # ── Threshold mode ─────────────────────────────────────────────────────
+    def on_tmode(mode):
+        return (gr.update(visible=(mode=="iqr")),
+                gr.update(visible=(mode=="value")),
+                gr.update(visible=(mode=="quantile")))
+
+    t_mode.change(on_tmode, [t_mode], [iqr_sl, tval_sl, bpct_sl])
+
+    # ── Load chapter ───────────────────────────────────────────────────────
+    def on_load(archive, ch_title, chapters, start, end, n_samp,
+                wc, wn, wt, ww, tmode, iqrk, tv, bp, cols, tw,
+                progress=gr.Progress()):
+        FAIL = (gr.update(visible=False), "❌  No chapter/video found.",
+                [], [], {}, {}, "", "",
+                _E_SIG, _E_SIG, _E_SIG, _E_SIG, _E_SCORE)
+        if not archive or not ch_title or ch_title.startswith("—"):
+            return FAIL
+        proxy = ARCHIVE_DIR / f"{archive}_proxy.mp4"
+        mkv   = ARCHIVE_DIR / f"{archive}.mkv"
+        video = proxy if proxy.exists() else mkv if mkv.exists() else None
+        if not video:
+            return FAIL
+        fids, b64, sigs, err = extract_frames(
+            str(video), int(start), int(end), int(n_samp),
+            archive, ch_title, progress=progress,
+        )
+        if err or fids is None:
+            F2 = list(FAIL); F2[1] = f"❌  {err or 'Extraction failed'}"; return tuple(F2)
+        overrides = load_overrides(archive, ch_title)
+        archive_overrides = load_overrides_from_archive_badframes(
+            archive=archive,
+            ch_start=int(start),
+            ch_end=int(end),
+        )
+        if archive_overrides:
+            merged = dict(archive_overrides)
+            merged.update(overrides)
+            overrides = merged
+        html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc = _rebuild(
+            fids, b64, sigs, overrides, wc, wn, wt, ww, tmode, iqrk, tv, bp, cols, tw
+        )
+        return (gr.update(visible=True),
+                f"✅  Loaded **{len(fids)}** frames for **{ch_title}**",
+                fids, b64, sigs, overrides,
+                html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc)
+
+    _LOAD_OUTS = [main_panel, status_md,
+                  st_fids, st_b64, st_sigs, st_overrides] + _RB_OUTS
+    _LOAD_INS  = [archive_dd, chapter_dd, st_chapters,
+                  start_n, end_n, n_sl,
+                  wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
+                  cols_sl, twidth_sl]
+    load_btn.click(on_load,   _LOAD_INS, _LOAD_OUTS)
+    reload_btn.click(on_load, _LOAD_INS, _LOAD_OUTS)
+    apply_range_btn.click(on_load, _LOAD_INS, _LOAD_OUTS)
+
+    # ── Live slider updates ────────────────────────────────────────────────
+    def on_sliders(fids, b64, sigs, ovr, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw):
+        return _rebuild(fids, b64, sigs, ovr, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw)
+
+    _SL_INS = [st_fids, st_b64, st_sigs, st_overrides,
+               wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
+               cols_sl, twidth_sl]
+    for _s in [wc_sl, wn_sl, wt_sl, ww_sl, iqr_sl, tval_sl, bpct_sl, cols_sl, twidth_sl]:
+        _s.change(on_sliders, _SL_INS, _RB_OUTS)
+    t_mode.change(on_sliders, _SL_INS, _RB_OUTS)
+
+    # ── Frame click toggle ─────────────────────────────────────────────────
+    def on_click(raw_click, fids, b64, sigs, overrides, archive, ch_title, ch_start, ch_end,
+                 wc, wn, wt, ww, tm, ik, tv, bp, cols, tw):
+        if not raw_click or not raw_click.strip() or not fids:
+            return (*[gr.update()] * 7, overrides, "")
+        try:
+            fid = int(raw_click.strip())
+        except ValueError:
+            return (*[gr.update()] * 7, overrides, "")
+
+        new_ov = dict(overrides)
+        sc = combined_score(sigs, wc, wn, wt, ww)
+        thr = compute_threshold(sc, tm, ik, tv, bp)
+        idx = fids.index(fid) if fid in fids else -1
+        auto_bad = (idx >= 0 and sc[idx] >= thr)
+        # Toggle behavior:
+        # 1st click: force opposite of auto state (manual dark color).
+        # 2nd click: remove manual override (back to auto/light color).
+        if fid in new_ov:
+            del new_ov[fid]
+        else:
+            new_ov[fid] = "good" if auto_bad else "bad"
+
+        ch_title_text = str(ch_title or "").strip().lower()
+        if archive and ch_title and ("select chapter" not in ch_title_text):
+            save_overrides(archive, ch_title, new_ov)
+            # Persist click immediately to archive-level badframes.tsv.
+            archive_bf = _archive_badframes_path(archive)
+            auto_ranges = []
+            for s, e, _ in _parse_badframes_tsv(archive_bf):
+                lo = max(int(s), int(ch_start))
+                hi = min(int(e), int(ch_end))
+                if hi >= lo:
+                    auto_ranges.append((lo, hi))
+            merge_chapter_into_archive_badframes(
+                archive=archive,
+                ch_start=int(ch_start),
+                ch_end=int(ch_end),
+                chapter_ranges=auto_ranges,
+                overrides=new_ov,
+            )
+
+        html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc = _rebuild(
+            fids, b64, sigs, new_ov, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw
+        )
+        return html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, new_ov, ""
+
+    click_recv.change(
+        on_click,
+        [click_recv, st_fids, st_b64, st_sigs, st_overrides,
+         archive_dd, chapter_dd, start_n, end_n,
+         wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
+         cols_sl, twidth_sl],
+        [*_RB_OUTS, st_overrides, click_recv],
+    )
+
+    # ── Apply & Regenerate ─────────────────────────────────────────────────
+    def on_apply(archive, ch_title, start, end, wc, wn, wt, ww, iqrk, fstep):
+        return apply_and_regenerate(
+            archive, ch_title, int(start), int(end),
+            wc, wn, wt, ww, iqrk, int(fstep),
+        )
+
+    apply_btn.click(
+        on_apply,
+        [archive_dd, chapter_dd, start_n, end_n,
+         wc_sl, wn_sl, wt_sl, ww_sl, iqr_sl, fstep_sl],
+        [apply_log],
+    )
+
+    # ── Render + preview ───────────────────────────────────────────────────
+    def on_render(archive, ch_title, chapters, fids, sigs, overrides,
+                  wc, wn, wt, ww, tm, ik, tv, bp, start, end, fstep,
+                  progress=gr.Progress()):
+        NA = ("No chapter selected.", gr.update(visible=False), gr.update(visible=False))
+        ch_title_text = str(ch_title or "").strip().lower()
+        if (
+            not archive
+            or not ch_title
+            or "select chapter" in ch_title_text
+            or "no chapters" in ch_title_text
+        ):
+            return NA
+        if not STEP6.exists():
+            return (f"{STEP6} not found.", gr.update(visible=False), gr.update(visible=False))
+
+        progress(0.05, desc="Regenerating badframes.tsv...")
+        apply_log = apply_and_regenerate(
+            archive, ch_title, int(start), int(end),
+            float(wc), float(wn), float(wt), float(ww), float(ik), int(fstep),
+        )
+        failure_tokens = ["No chapter selected", "tracking_loss failed", "No video found", "module not found"]
+        if any(t in apply_log for t in failure_tokens):
+            return (f"Failed to regenerate badframes:\n{apply_log[-3000:]}",
+                    gr.update(visible=False), gr.update(visible=False))
+
+        progress(0.2, desc="Running step_6_make_videos...")
+        archive_bf = _archive_badframes_path(archive)
+        result = subprocess.run(
+            [
+                sys.executable, str(STEP6),
+                "--archive", archive,
+                "--title", ch_title,
+                "--title-exact",
+                "--badframes-tsv", str(archive_bf),
+                "--badframes-archive", archive,
+            ],
+            capture_output=True, text=True, cwd=str(PROJECT_ROOT),
+        )
+        log = (apply_log + "\n\n" + (result.stdout or "") + (result.stderr or ""))[-5000:]
+        if result.returncode != 0:
+            return (f"step_6 failed (exit {result.returncode}):\n{log}",
+                    gr.update(visible=False), gr.update(visible=False))
+
+        rendered = None
+        try:
+            from common import VIDEOS_DIR, CLIPS_DIR, safe  # type: ignore
+            for d in [VIDEOS_DIR, CLIPS_DIR]:
+                c = d / f"{safe(ch_title)}.mp4"
+                if c.exists() and c.stat().st_size > 100_000:
+                    rendered = c
+                    break
+        except Exception:
+            pass
+
+        if not rendered:
+            return (f"Render done; output file not found.\n{log}",
+                    gr.update(visible=False), gr.update(visible=False))
+
+        progress(0.65, desc="Preparing preview...")
+        vid_path = str(rendered)
+
+        progress(1.0)
+        return (f"{rendered.name}",
+                gr.update(visible=True, value=vid_path),
+                gr.update(visible=True))
+
+    render_btn.click(
+        on_render,
+        [archive_dd, chapter_dd, st_chapters,
+         st_fids, st_sigs, st_overrides,
+         wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
+         start_n, end_n, fstep_sl],
+        [render_log, preview_vid, step_ctrl_html],
+    )
+
+
+# ── Launch ────────────────────────────────────────────────────────────────────
+if __name__ == "__main__":
+    demo.launch(
+        theme=gr.themes.Base(primary_hue="emerald", neutral_hue="slate"),
+        css=_DARK_CSS,
+        allowed_paths=["C:/Users/covec/Videos/Clips"],
+        server_name="0.0.0.0",
+        server_port=7860,
+        share=False,
+        show_error=True,
+    )

@@ -298,25 +298,9 @@ def find_people_tsv(archive_name):
     path = METADATA_DIR / archive_name / "people.tsv"
     return path if path.exists() else None
 
-def chapter_badframes_tsv_path(archive_name, chapter_title):
-    slug = re.sub(r"[^\w]+", "_", str(chapter_title or "").strip()).strip("_").lower()
-    if not slug:
-        return None
-    path = METADATA_DIR / archive_name / "tracking_badframe" / f"{slug}_badframes.tsv"
-    return path
-
 def find_badframes_tsv(archive_name):
-    candidates = [
-        METADATA_DIR / archive_name / "badframes.clip_finetune.tsv",
-        METADATA_DIR / archive_name / "badframes.ai.tsv",
-        METADATA_DIR / archive_name / "badframes.tsv",
-        ARCHIVE_DIR / f"{archive_name}_tracking_badframe" / "badframes.tsv",
-        ARCHIVE_DIR / f"{archive_name}.badframes.tsv",
-    ]
-    for path in candidates:
-        if path.exists():
-            return path
-    return None
+    path = METADATA_DIR / archive_name / "badframes.tsv"
+    return path if path.exists() else None
 
 def resolve_badframes_tsv(archive_name, override_path=None, override_archive=""):
     if override_path and (not override_archive or archive_name == override_archive):
@@ -546,15 +530,6 @@ def map_bad_repairs_to_chapter_local_ranges(global_repairs, chapter):
                 )
         out.append((lo - start, hi - start, local_source))
     return _merge_badframe_repairs(out)
-
-def chapter_local_frames_from_repairs(local_repairs):
-    if not local_repairs:
-        return []
-    out = set()
-    for a, b, _src in local_repairs:
-        for f in range(int(a), int(b) + 1):
-            out.add(f)
-    return sorted(out)
 
 def tsv_people_to_ass(tsv_path, ass_path, font="Calibri", fontsize=36, clip_start=None, clip_end=None):
     tsv_path = Path(tsv_path)
@@ -1005,54 +980,11 @@ def _run_with_args(args):
                 print(f"Applying video filters...")
                 if sys.platform == "win32":
                     if filter_script.exists():
-                        chapter_badframes_tsv = chapter_badframes_tsv_path(archive_name, title)
-                        chapter_badframe_repairs = []
-                        chapter_badframe_ranges = []
-                        if chapter_badframes_tsv and chapter_badframes_tsv.exists():
-                            chapter_badframe_repairs = load_badframe_repairs(chapter_badframes_tsv)
-                            chapter_badframe_ranges = [(a, b) for (a, b, _src) in chapter_badframe_repairs]
-                            print(
-                                f"Loaded chapter bad frame sidecar: {chapter_badframes_tsv} "
-                                f"({len(chapter_badframe_repairs)} range(s))"
-                            )
-                        else:
-                            if chapter_badframes_tsv:
-                                print(
-                                    f"WARNING: chapter bad frame sidecar missing for '{title}': "
-                                    f"{chapter_badframes_tsv} (using archive-level badframes)"
-                                )
-                            else:
-                                print(
-                                    f"WARNING: chapter bad frame sidecar path could not be resolved for '{title}'; "
-                                    "using archive-level badframes"
-                                )
-
-                        source_repairs = (
-                            chapter_badframe_repairs
-                            if chapter_badframe_repairs
-                            else archive_badframe_repairs
-                        )
-                        source_ranges = (
-                            chapter_badframe_ranges
-                            if chapter_badframe_repairs
-                            else archive_badframe_ranges
-                        )
-
+                        # Archive-level badframes.tsv is the single source of truth.
+                        source_repairs = archive_badframe_repairs
+                        source_ranges = archive_badframe_ranges
                         manual_repairs = map_bad_repairs_to_chapter_local_ranges(source_repairs, ch)
                         manual_source_frames = map_bad_ranges_to_chapter_local_frames(source_ranges, ch)
-                        if chapter_badframe_repairs and not manual_repairs:
-                            # Be tolerant of chapter sidecars written in chapter-local coordinates.
-                            chapter_len_frames = max(0, int(chapter_end_frame) - int(chapter_start_frame))
-                            local_candidate = _resolve_badframe_repair_ranges(
-                                bad_repair_ranges=chapter_badframe_repairs,
-                                max_source_frame=(chapter_len_frames - 1) if chapter_len_frames > 0 else 0,
-                            )
-                            if local_candidate:
-                                manual_repairs = local_candidate
-                                manual_source_frames = chapter_local_frames_from_repairs(local_candidate)
-                                print(
-                                    f"Interpreting chapter bad frame sidecar as chapter-local ranges for '{title}'."
-                                )
                         if manual_source_frames:
                             print(
                                 f"Sidecar source bad frame(s): {len(manual_source_frames)} -> "
