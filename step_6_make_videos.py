@@ -47,23 +47,42 @@ def transcript_mode(chapter):
         return "on"
     return "on"
 
-def title_selected(title, filters):
+def title_selected(title, filters, exact=False):
     if not filters:
         return True
     text = str(title or "").strip().lower()
     for f in filters:
         needle = str(f or "").strip().lower()
-        if needle and needle in text:
+        if not needle:
+            continue
+        if exact:
+            if text == needle:
+                return True
+        elif needle in text:
             return True
     return False
 
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description="Render delivery videos/clips from archive chapters.")
     p.add_argument(
+        "--archive",
+        action="append",
+        default=[],
+        help=(
+            "Only process archive MKV stem(s) that contain this substring "
+            "(case-insensitive). Repeatable."
+        ),
+    )
+    p.add_argument(
         "--title",
         action="append",
         default=[],
         help="Only process chapter titles that contain this substring (case-insensitive). Repeatable.",
+    )
+    p.add_argument(
+        "--title-exact",
+        action="store_true",
+        help="Match --title filters as exact chapter titles (case-insensitive) instead of substring match.",
     )
     p.add_argument(
         "--no-bob",
@@ -279,22 +298,24 @@ def find_people_tsv(archive_name):
     path = METADATA_DIR / archive_name / "people.tsv"
     return path if path.exists() else None
 
+def chapter_badframes_tsv_path(archive_name, chapter_title):
+    slug = re.sub(r"[^\w]+", "_", str(chapter_title or "").strip()).strip("_").lower()
+    if not slug:
+        return None
+    path = METADATA_DIR / archive_name / "tracking_badframe" / f"{slug}_badframes.tsv"
+    return path
+
 def find_badframes_tsv(archive_name):
-    metadata_path = METADATA_DIR / archive_name / "badframes.clip_finetune.tsv"
-    if metadata_path.exists():
-        return metadata_path
-
-    # archive_tracking_path = ARCHIVE_DIR / f"{archive_name}_tracking_badframe" / "badframes.tsv"
-    # if archive_tracking_path.exists():
-    #     return archive_tracking_path
-
-    # archive_sidecar_path = ARCHIVE_DIR / f"{archive_name}.badframes.tsv"
-    # if archive_sidecar_path.exists():
-    #     return archive_sidecar_path
-
-    # metadata_path = METADATA_DIR / archive_name / "badframes.tsv"
-    # if metadata_path.exists():
-    #     return metadata_path
+    candidates = [
+        METADATA_DIR / archive_name / "badframes.clip_finetune.tsv",
+        METADATA_DIR / archive_name / "badframes.ai.tsv",
+        METADATA_DIR / archive_name / "badframes.tsv",
+        ARCHIVE_DIR / f"{archive_name}_tracking_badframe" / "badframes.tsv",
+        ARCHIVE_DIR / f"{archive_name}.badframes.tsv",
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
     return None
 
 def resolve_badframes_tsv(archive_name, override_path=None, override_archive=""):
@@ -525,6 +546,15 @@ def map_bad_repairs_to_chapter_local_ranges(global_repairs, chapter):
                 )
         out.append((lo - start, hi - start, local_source))
     return _merge_badframe_repairs(out)
+
+def chapter_local_frames_from_repairs(local_repairs):
+    if not local_repairs:
+        return []
+    out = set()
+    for a, b, _src in local_repairs:
+        for f in range(int(a), int(b) + 1):
+            out.add(f)
+    return sorted(out)
 
 def tsv_people_to_ass(tsv_path, ass_path, font="Calibri", fontsize=36, clip_start=None, clip_end=None):
     tsv_path = Path(tsv_path)
@@ -868,7 +898,12 @@ def _run_with_args(args):
         else:
             print(f"Using alternate badframes TSV for all archives: {badframes_override}")
 
+    archive_filters = [str(x or "").strip().lower() for x in (args.archive or []) if str(x or "").strip()]
     for src in ARCHIVE_DIR.glob("*.mkv"):
+        if archive_filters:
+            stem_text = src.stem.strip().lower()
+            if not any(f in stem_text for f in archive_filters):
+                continue
         archive_name = src.stem
         chapters_file = METADATA_DIR / archive_name / "chapters.ffmetadata"
         if not chapters_file.exists():
@@ -898,11 +933,13 @@ def _run_with_args(args):
                 )
             else:
                 print(f"Bad frame sidecar is present but empty: {badframes_tsv}")
+        else:
+            print(f"WARNING: no archive-level badframes TSV found for {archive_name}; proceeding without it.")
 
         for ch in chapters:
             ch["duration"] = float(ch.get("end", 0)) - float(ch.get("start", 0))
         chapters.sort(key=lambda x: x["duration"])
-        chapters = [ch for ch in chapters if title_selected(ch.get("title"), args.title)]
+        chapters = [ch for ch in chapters if title_selected(ch.get("title"), args.title, exact=bool(args.title_exact))]
         if args.title and not chapters:
             print(f"Skipping {src.name}: no chapters matched --title filter(s).")
             continue
@@ -955,6 +992,11 @@ def _run_with_args(args):
             date = time.strftime("%Y/%m/%d %H:%M:%S", time.localtime())
             progress = f"({cur_count} of {total_chapters} chapters) [{date}]"
             print(f"Processing: {src.name} {progress}")
+            print(
+                f"Chapter bounds (full): {title} | "
+                f"{extract_start_sec:.3f}s-{extract_end_sec:.3f}s "
+                f"(frames {chapter_start_frame}-{max(chapter_start_frame, chapter_end_frame - 1)})"
+            )
 
             try:
                 print(f"Extracting chapter...")
@@ -963,8 +1005,54 @@ def _run_with_args(args):
                 print(f"Applying video filters...")
                 if sys.platform == "win32":
                     if filter_script.exists():
-                        manual_repairs = map_bad_repairs_to_chapter_local_ranges(archive_badframe_repairs, ch)
-                        manual_source_frames = map_bad_ranges_to_chapter_local_frames(archive_badframe_ranges, ch)
+                        chapter_badframes_tsv = chapter_badframes_tsv_path(archive_name, title)
+                        chapter_badframe_repairs = []
+                        chapter_badframe_ranges = []
+                        if chapter_badframes_tsv and chapter_badframes_tsv.exists():
+                            chapter_badframe_repairs = load_badframe_repairs(chapter_badframes_tsv)
+                            chapter_badframe_ranges = [(a, b) for (a, b, _src) in chapter_badframe_repairs]
+                            print(
+                                f"Loaded chapter bad frame sidecar: {chapter_badframes_tsv} "
+                                f"({len(chapter_badframe_repairs)} range(s))"
+                            )
+                        else:
+                            if chapter_badframes_tsv:
+                                print(
+                                    f"WARNING: chapter bad frame sidecar missing for '{title}': "
+                                    f"{chapter_badframes_tsv} (using archive-level badframes)"
+                                )
+                            else:
+                                print(
+                                    f"WARNING: chapter bad frame sidecar path could not be resolved for '{title}'; "
+                                    "using archive-level badframes"
+                                )
+
+                        source_repairs = (
+                            chapter_badframe_repairs
+                            if chapter_badframe_repairs
+                            else archive_badframe_repairs
+                        )
+                        source_ranges = (
+                            chapter_badframe_ranges
+                            if chapter_badframe_repairs
+                            else archive_badframe_ranges
+                        )
+
+                        manual_repairs = map_bad_repairs_to_chapter_local_ranges(source_repairs, ch)
+                        manual_source_frames = map_bad_ranges_to_chapter_local_frames(source_ranges, ch)
+                        if chapter_badframe_repairs and not manual_repairs:
+                            # Be tolerant of chapter sidecars written in chapter-local coordinates.
+                            chapter_len_frames = max(0, int(chapter_end_frame) - int(chapter_start_frame))
+                            local_candidate = _resolve_badframe_repair_ranges(
+                                bad_repair_ranges=chapter_badframe_repairs,
+                                max_source_frame=(chapter_len_frames - 1) if chapter_len_frames > 0 else 0,
+                            )
+                            if local_candidate:
+                                manual_repairs = local_candidate
+                                manual_source_frames = chapter_local_frames_from_repairs(local_candidate)
+                                print(
+                                    f"Interpreting chapter bad frame sidecar as chapter-local ranges for '{title}'."
+                                )
                         if manual_source_frames:
                             print(
                                 f"Sidecar source bad frame(s): {len(manual_source_frames)} -> "

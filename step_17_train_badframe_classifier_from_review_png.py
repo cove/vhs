@@ -18,7 +18,9 @@
 #                     95th-pct rather than mean so a few torn rows dominate
 #                     without normal scene content washing them out.
 #
-# Thresholding: Tukey-style fence (Q3 + 3.5*IQR) on chapter-aligned windows.
+# Thresholding: Tukey-style fence (Q3 + iqr_mult*IQR) on chapter-aligned
+# windows.  iqr_mult defaults to 3.5 but is now a proper config parameter so
+# the interactive tuner can pass the value it found through directly.
 # Larger overlapping chapters are excluded so umbrella chapters do not
 # dominate labelling windows.
 #
@@ -55,9 +57,11 @@ class TrackingLossConfig:
     crop_bottom: int = 50
     crop_left: int = 50
     crop_right: int = 50
-    weight_chroma: float = 0.34    # chroma_loss signal weight
-    weight_noise: float = 0.33     # noise_energy signal weight
-    weight_tear: float = 0.33      # row_tear signal weight
+    weight_chroma: float = 0.25    # chroma_loss signal weight
+    weight_noise: float = 0.25     # noise_energy signal weight
+    weight_tear: float = 0.25      # row_tear signal weight
+    weight_wave: float = 0.25      # wave_energy signal weight
+    iqr_mult: float = 3.5          # Tukey fence multiplier: threshold = Q3 + iqr_mult * IQR
     threshold_window_size: int = 1000
     export_bad_png_count: int = -1
     export_good_png_count: int = -1
@@ -116,7 +120,24 @@ def compute_tracking_signals(frame_bgr, crop_top, crop_bottom, crop_left, crop_r
     else:
         row_tear = 0.0
 
-    return chroma_loss, noise_energy, row_tear
+    # 4. Wave energy — std of per-row horizontal centre-of-mass.
+    #    VHS horizontal sync instability displaces rows left/right in a wave
+    #    pattern.  The CoM of each row's luminance oscillates; stable frames
+    #    have near-constant CoM across rows.  High-pass the CoM series first
+    #    (subtract a 5-row rolling mean) so slow scene content gradients don't
+    #    inflate the score — only the rapid row-to-row oscillation counts.
+    gray_f   = gray.astype(np.float32)
+    row_sums = gray_f.sum(axis=1)
+    cols_idx = np.arange(gray_f.shape[1], dtype=np.float32)
+    row_com  = (gray_f @ cols_idx) / np.maximum(row_sums, 1e-6)
+    if row_com.shape[0] >= 5:
+        kernel   = np.ones(5, dtype=np.float32) / 5
+        trend    = np.convolve(row_com, kernel, mode="same")
+        wave_energy = float(np.std(row_com - trend))
+    else:
+        wave_energy = float(np.std(row_com))
+
+    return chroma_loss, noise_energy, row_tear, wave_energy
 
 
 # ---------------------------------------------------------------------------
@@ -194,18 +215,18 @@ def assign_frames_to_chapters(indices, chapters):
 # Windowed IQR thresholding
 # ---------------------------------------------------------------------------
 
-def iqr_threshold_for_window(window_scores):
-    """Tukey outer fence: Q3 + 3.5 x IQR."""
+def iqr_threshold_for_window(window_scores, iqr_mult=3.5):
+    """Tukey fence: Q3 + iqr_mult x IQR."""
     w = np.asarray(window_scores, dtype=np.float64)
     w = w[np.isfinite(w)]
     if w.size == 0:
         return np.inf
     q1 = float(np.percentile(w, 25))
     q3 = float(np.percentile(w, 75))
-    return q3 + 3.5 * (q3 - q1)
+    return q3 + float(iqr_mult) * (q3 - q1)
 
 
-def compute_per_frame_thresholds(scores, indices, chapters, window_size):
+def compute_per_frame_thresholds(scores, indices, chapters, window_size, iqr_mult=3.5):
     scores_np = np.asarray(scores, dtype=np.float64)
     n         = len(scores_np)
     thresholds = np.full(n, np.nan)
@@ -232,7 +253,7 @@ def compute_per_frame_thresholds(scores, indices, chapters, window_size):
             if not positions:
                 continue
             wscores = scores_np[positions]
-            thresh  = iqr_threshold_for_window(wscores)
+            thresh  = iqr_threshold_for_window(wscores, iqr_mult=iqr_mult)
             for p in positions:
                 thresholds[p] = thresh
             finite = wscores[np.isfinite(wscores)]
@@ -242,7 +263,9 @@ def compute_per_frame_thresholds(scores, indices, chapters, window_size):
                 "chapter_id": int(cid), "title": title, "window_type": "chapter",
                 "window_start_frame": int(win_s), "window_end_frame": int(win_e),
                 "frame_count_in_window": len(positions),
-                "q1": q1, "q3": q3, "iqr": q3 - q1, "threshold": float(thresh),
+                "q1": q1, "q3": q3, "iqr": q3 - q1,
+                "iqr_mult": float(iqr_mult),
+                "threshold": float(thresh),
             })
 
     # Fallback for frames outside chapters
@@ -254,7 +277,7 @@ def compute_per_frame_thresholds(scores, indices, chapters, window_size):
         fallback_groups.setdefault(key, []).append(pos)
     for win_s, positions in sorted(fallback_groups.items()):
         wscores = scores_np[positions]
-        thresh  = iqr_threshold_for_window(wscores)
+        thresh  = iqr_threshold_for_window(wscores, iqr_mult=iqr_mult)
         for p in positions:
             thresholds[p] = thresh
         finite = wscores[np.isfinite(wscores)]
@@ -264,10 +287,12 @@ def compute_per_frame_thresholds(scores, indices, chapters, window_size):
             "chapter_id": -1, "title": "no_chapter_fallback", "window_type": "fallback",
             "window_start_frame": int(win_s), "window_end_frame": int(win_s + win_size - 1),
             "frame_count_in_window": len(positions),
-            "q1": q1, "q3": q3, "iqr": q3 - q1, "threshold": float(thresh),
+            "q1": q1, "q3": q3, "iqr": q3 - q1,
+            "iqr_mult": float(iqr_mult),
+            "threshold": float(thresh),
         })
 
-    global_fallback = iqr_threshold_for_window(scores_np)
+    global_fallback = iqr_threshold_for_window(scores_np, iqr_mult=iqr_mult)
     thresholds = np.where(np.isfinite(thresholds), thresholds, global_fallback)
     return thresholds, chapter_ids, window_info
 
@@ -295,7 +320,7 @@ def score_video_frames(video_path, start_frame, max_frame, frame_step,
     if start > 0:
         cap.set(cv2.CAP_PROP_POS_FRAMES, start)
 
-    indices, chroma_scores, noise_scores, tear_scores = [], [], [], []
+    indices, chroma_scores, noise_scores, tear_scores, wave_scores = [], [], [], [], []
     pbar = tqdm(total=((end - start) // step) + 1, desc="Scoring frames", unit="frame")
     frame_idx = start
     while frame_idx <= end:
@@ -303,20 +328,21 @@ def score_video_frames(video_path, start_frame, max_frame, frame_step,
         if not ok:
             break
         if ((frame_idx - start) % step) == 0:
-            ch, no, te = compute_tracking_signals(
+            ch, no, te, wa = compute_tracking_signals(
                 frame_bgr, crop_top, crop_bottom, crop_left, crop_right
             )
             indices.append(int(frame_idx))
             chroma_scores.append(ch)
             noise_scores.append(no)
             tear_scores.append(te)
+            wave_scores.append(wa)
             pbar.update(1)
         frame_idx += 1
     pbar.close()
     cap.release()
     if not indices:
         raise RuntimeError("No frame scores produced.")
-    return total_frames, start, end, indices, chroma_scores, noise_scores, tear_scores
+    return total_frames, start, end, indices, chroma_scores, noise_scores, tear_scores, wave_scores
 
 
 def robust_zscore(values):
@@ -330,21 +356,24 @@ def robust_zscore(values):
     return (vals - center) / scale, center, scale
 
 
-def combine_signals(chroma_scores, noise_scores, tear_scores,
-                    weight_chroma, weight_noise, weight_tear):
-    w_sum = float(weight_chroma) + float(weight_noise) + float(weight_tear)
+def combine_signals(chroma_scores, noise_scores, tear_scores, wave_scores,
+                    weight_chroma, weight_noise, weight_tear, weight_wave):
+    w_sum = float(weight_chroma) + float(weight_noise) + float(weight_tear) + float(weight_wave)
     if w_sum <= 0:
         raise ValueError("At least one signal weight must be > 0.")
     chroma_z, cc, cs = robust_zscore(chroma_scores)
     noise_z,  nc, ns = robust_zscore(noise_scores)
     tear_z,   tc, ts = robust_zscore(tear_scores)
+    wave_z,   wc, ws = robust_zscore(wave_scores)
     score = (float(weight_chroma) * chroma_z +
              float(weight_noise)  * noise_z  +
-             float(weight_tear)   * tear_z) / w_sum
+             float(weight_tear)   * tear_z   +
+             float(weight_wave)   * wave_z) / w_sum
     norm  = {
         "chroma": {"center": float(cc), "scale": float(cs)},
         "noise":  {"center": float(nc), "scale": float(ns)},
         "tear":   {"center": float(tc), "scale": float(ts)},
+        "wave":   {"center": float(wc), "scale": float(ws)},
     }
     return score.astype(np.float64), norm
 
@@ -424,6 +453,7 @@ def load_scores_tsv(path):
         c_col  = header_map.get("chroma_loss",   header_map.get("edge_energy",    -1))
         n_col  = header_map.get("noise_energy",  header_map.get("row_instability", -1))
         t_col  = header_map.get("row_tear",      header_map.get("field_mismatch",  -1))
+        w_col  = header_map.get("wave_energy", -1)
         if len(parts) <= max(fi_col, sc_col):
             continue
         try:
@@ -434,12 +464,14 @@ def load_scores_tsv(path):
         c = _try_parse_float(parts[c_col]) if 0 <= c_col < len(parts) else np.nan
         n = _try_parse_float(parts[n_col]) if 0 <= n_col < len(parts) else np.nan
         t = _try_parse_float(parts[t_col]) if 0 <= t_col < len(parts) else np.nan
-        rows.append((fi, sc, c, n, t))
+        w = _try_parse_float(parts[w_col]) if 0 <= w_col < len(parts) else 0.0
+        rows.append((fi, sc, c, n, t, w))
     if not rows:
         raise ValueError(f"No frame/score rows found in {path}")
     rows.sort(key=lambda x: x[0])
     return ([r[0] for r in rows], [r[1] for r in rows],
-            [r[2] for r in rows], [r[3] for r in rows], [r[4] for r in rows])
+            [r[2] for r in rows], [r[3] for r in rows],
+            [r[4] for r in rows], [r[5] for r in rows])
 
 
 def pick_evenly_spaced_samples(frame_ids, count):
@@ -519,14 +551,15 @@ def finite_stats(values):
 
 
 def write_outputs(output_dir, indices, scores, chroma_scores, noise_scores, tear_scores,
-                  thresholds, labels, bad_ranges, summary):
+                  wave_scores, thresholds, labels, bad_ranges, summary):
     output_dir.mkdir(parents=True, exist_ok=True)
     frame_scores_path = output_dir / "frame_scores.tsv"
     with frame_scores_path.open("w", encoding="utf-8") as f:
-        f.write("frame\tscore\tthreshold\tchroma_loss\tnoise_energy\trow_tear\tlabel\n")
-        for fi, sc, thr, ch, no, te, lbl in zip(
-                indices, scores, thresholds, chroma_scores, noise_scores, tear_scores, labels):
-            f.write(f"{fi}\t{sc:.8f}\t{thr:.8f}\t{ch:.8f}\t{no:.8f}\t{te:.8f}\t{lbl}\n")
+        f.write("frame\tscore\tthreshold\tchroma_loss\tnoise_energy\trow_tear\twave_energy\tlabel\n")
+        for fi, sc, thr, ch, no, te, wa, lbl in zip(
+                indices, scores, thresholds, chroma_scores, noise_scores,
+                tear_scores, wave_scores, labels):
+            f.write(f"{fi}\t{sc:.8f}\t{thr:.8f}\t{ch:.8f}\t{no:.8f}\t{te:.8f}\t{wa:.8f}\t{lbl}\n")
     badframes_path = output_dir / "badframes.tsv"
     with badframes_path.open("w", encoding="utf-8") as f:
         f.write("start_frame\tend_frame\tnote\n")
@@ -553,6 +586,8 @@ def _run_with_config(config: TrackingLossConfig):
     chapters_file = Path(config.chapters_file)        if config.chapters_file        else (METADATA_DIR / archive_name / "chapters.ffmetadata")
     scores_tsv    = Path(config.scores_tsv)           if config.scores_tsv           else None
 
+    iqr_mult = float(config.iqr_mult)
+
     # Load or compute raw scores
     signal_norm  = None
     total_frames = None
@@ -560,7 +595,7 @@ def _run_with_config(config: TrackingLossConfig):
     if scores_tsv:
         if not scores_tsv.exists():
             raise FileNotFoundError(f"Scores TSV not found: {scores_tsv}")
-        indices, scores, chroma_scores, noise_scores, tear_scores = load_scores_tsv(scores_tsv)
+        indices, scores, chroma_scores, noise_scores, tear_scores, wave_scores = load_scores_tsv(scores_tsv)
         start_frame, end_frame = min(indices), max(indices)
         if video_path.exists():
             cap = cv2.VideoCapture(str(video_path))
@@ -572,7 +607,7 @@ def _run_with_config(config: TrackingLossConfig):
         if not video_path.exists():
             raise FileNotFoundError(f"Video file not found: {video_path}")
         (total_frames, start_frame, end_frame,
-         indices, chroma_scores, noise_scores, tear_scores) = score_video_frames(
+         indices, chroma_scores, noise_scores, tear_scores, wave_scores) = score_video_frames(
             video_path=video_path,
             start_frame=config.start_frame,
             max_frame=config.max_frame,
@@ -583,8 +618,8 @@ def _run_with_config(config: TrackingLossConfig):
             crop_right=config.crop_right,
         )
         scores_np, signal_norm = combine_signals(
-            chroma_scores, noise_scores, tear_scores,
-            config.weight_chroma, config.weight_noise, config.weight_tear,
+            chroma_scores, noise_scores, tear_scores, wave_scores,
+            config.weight_chroma, config.weight_noise, config.weight_tear, config.weight_wave,
         )
         scores = scores_np.astype(np.float64).tolist()
 
@@ -607,13 +642,14 @@ def _run_with_config(config: TrackingLossConfig):
         print(f"WARNING: chapters file not found ({chapters_file}); "
               "using single window over all frames.")
 
-    # Per-chapter IQR thresholds
+    # Per-chapter IQR thresholds — now uses config.iqr_mult
     thresholds, chapter_ids, window_info = compute_per_frame_thresholds(
         scores_np, indices, chapters,
         window_size=config.threshold_window_size,
+        iqr_mult=iqr_mult,
     )
 
-    print(f"\nThreshold windows (Q3 + 3.5xIQR, window={config.threshold_window_size} frames):")
+    print(f"\nThreshold windows (Q3 + {iqr_mult}xIQR, window={config.threshold_window_size} frames):")
     for wi in window_info:
         print(f"  {wi['title'][:55]:<55}  "
               f"frames={wi['frame_count_in_window']:>6}  "
@@ -683,20 +719,24 @@ def _run_with_config(config: TrackingLossConfig):
                 "chroma_loss":  "1 - mean(HSV saturation)/255; high = desaturated/grey",
                 "noise_energy": "std(row_variance)/mean(row_variance); high = noisy rows present",
                 "row_tear":     "95th-pct row-to-neighbour abs diff; high = rows horizontally torn",
+                "wave_energy":  "std of high-passed per-row horizontal CoM; high = wavy/wobbly rows",
             },
             "weights": {
                 "chroma": float(config.weight_chroma),
                 "noise":  float(config.weight_noise),
                 "tear":   float(config.weight_tear),
+                "wave":   float(config.weight_wave),
             },
             "normalization": signal_norm,
             "chroma_loss":  finite_stats(chroma_scores),
             "noise_energy": finite_stats(noise_scores),
             "row_tear":     finite_stats(tear_scores),
+            "wave_energy":  finite_stats(wave_scores),
         },
         "thresholding": {
-            "method":   "chapter_aligned_window_iqr",
-            "formula":  "Q3 + 3.5 x IQR (per chapter-aligned window)",
+            "method":      "chapter_aligned_window_iqr",
+            "formula":     f"Q3 + {iqr_mult} x IQR (per chapter-aligned window)",
+            "iqr_mult":    iqr_mult,
             "threshold_window_size": int(config.threshold_window_size),
             "chapters_file":         chapters_source,
             "chapter_count":         len(chapters),
@@ -746,6 +786,7 @@ def _run_with_config(config: TrackingLossConfig):
         chroma_scores=chroma_scores,
         noise_scores=noise_scores,
         tear_scores=tear_scores,
+        wave_scores=wave_scores,
         thresholds=thresholds.tolist(),
         labels=labels,
         bad_ranges=bad_ranges,
@@ -766,17 +807,17 @@ def _run_with_config(config: TrackingLossConfig):
             print(f"Review manifest:        {manifest_path}")
 
     return {
-        "frame_scores_path":     frame_scores_path,
-        "badframes_path":        badframes_path,
-        "summary_path":          summary_path,
-        "output_dir":            output_dir,
-        "png_output_dir":        png_dir,
-        "written_bad_pngs":      int(len(w_bad)),
-        "written_good_pngs":     int(len(w_good)),
-        "review_manifest_path":  manifest_path,
-        "metadata_copy_dir":     meta_copy,
+        "frame_scores_path":      frame_scores_path,
+        "badframes_path":         badframes_path,
+        "summary_path":           summary_path,
+        "output_dir":             output_dir,
+        "png_output_dir":         png_dir,
+        "written_bad_pngs":       int(len(w_bad)),
+        "written_good_pngs":      int(len(w_good)),
+        "review_manifest_path":   manifest_path,
+        "metadata_copy_dir":      meta_copy,
         "metadata_badframes_tsv": meta_bf_tsv,
-        "mirrored_file_count":   int(len(mirrored)),
+        "mirrored_file_count":    int(len(mirrored)),
     }
 
 
@@ -790,13 +831,10 @@ def parse_args(argv=None):
     )
     p.add_argument("--archive",       default=DEFAULT_ARCHIVE)
     p.add_argument("--video",         default="")
-    p.add_argument("--chapters-file", default="",
-                   help="Default: METADATA_DIR/<archive>/chapters.ffmetadata")
+    p.add_argument("--chapters-file", default="")
     p.add_argument("--output-dir",    default="")
-    p.add_argument("--scores-tsv",    default="",
-                   help="Pre-computed frame_scores.tsv -- skips re-scoring video.")
-    p.add_argument("--existing-badframes", default="",
-                   help="Ground-truth badframes.tsv for F1 comparison.")
+    p.add_argument("--scores-tsv",    default="")
+    p.add_argument("--existing-badframes", default="")
     p.add_argument("--start-frame",  type=int,   default=0)
     p.add_argument("--max-frame",    type=int,   default=-1)
     p.add_argument("--frame-step",   type=int,   default=1)
@@ -804,12 +842,13 @@ def parse_args(argv=None):
     p.add_argument("--crop-bottom",  type=int,   default=50)
     p.add_argument("--crop-left",    type=int,   default=50)
     p.add_argument("--crop-right",   type=int,   default=50)
-    p.add_argument("--weight-chroma", type=float, default=0.34,
-                   help="Weight for chroma-loss signal (default: 0.34)")
-    p.add_argument("--weight-noise",  type=float, default=0.33,
-                   help="Weight for noise-energy signal (default: 0.33)")
-    p.add_argument("--weight-tear",   type=float, default=0.33,
-                   help="Weight for row-tear signal (default: 0.33)")
+    p.add_argument("--weight-chroma", type=float, default=0.25)
+    p.add_argument("--weight-noise",  type=float, default=0.25)
+    p.add_argument("--weight-tear",   type=float, default=0.25)
+    p.add_argument("--weight-wave",   type=float, default=0.25,
+                   help="Weight for wave-energy signal (horizontal sync instability, default: 0.25)")
+    p.add_argument("--iqr-mult",      type=float, default=3.5,
+                   help="Tukey fence multiplier: threshold = Q3 + k*IQR (default: 3.5)")
     p.add_argument("--threshold-window-size", type=int, default=1000)
     p.add_argument("--export-review-png-count", type=int, default=1000)
     p.add_argument("--export-bad-png-count",    type=int, default=-1)
@@ -838,6 +877,8 @@ def args_to_config(args):
         weight_chroma=float(args.weight_chroma),
         weight_noise=float(args.weight_noise),
         weight_tear=float(args.weight_tear),
+        weight_wave=float(args.weight_wave),
+        iqr_mult=float(args.iqr_mult),
         threshold_window_size=max(1, int(args.threshold_window_size)),
         export_bad_png_count=int(args.export_bad_png_count),
         export_good_png_count=int(args.export_good_png_count),
