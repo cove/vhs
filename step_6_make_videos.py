@@ -90,18 +90,18 @@ def parse_args(argv=None):
         help="Disable bob output by selecting even frames after the QTGMC filter chain.",
     )
     p.add_argument(
-        "--badframes-tsv",
+        "--frame-quality-tsv",
         default="",
         help=(
-            "Optional alternate badframes TSV sidecar path. "
-            "Useful for testing step_16-generated badframes.tsv files."
+            "Optional alternate frame_quality TSV sidecar path "
+            "(columns: frame, score, bad_frame, manual_override)."
         ),
     )
     p.add_argument(
-        "--badframes-archive",
+        "--frame-quality-archive",
         default="",
         help=(
-            "Archive stem to apply --badframes-tsv to (example: callahan_01_archive). "
+            "Archive stem to apply --frame-quality-tsv to (example: callahan_01_archive). "
             "Default: apply override to every processed archive."
         ),
     )
@@ -298,14 +298,14 @@ def find_people_tsv(archive_name):
     path = METADATA_DIR / archive_name / "people.tsv"
     return path if path.exists() else None
 
-def find_badframes_tsv(archive_name):
-    path = METADATA_DIR / archive_name / "badframes.tsv"
+def find_frame_quality_tsv(archive_name):
+    path = METADATA_DIR / archive_name / "frame_quality.tsv"
     return path if path.exists() else None
 
-def resolve_badframes_tsv(archive_name, override_path=None, override_archive=""):
+def resolve_quality_sidecar_tsv(archive_name, override_path=None, override_archive=""):
     if override_path and (not override_archive or archive_name == override_archive):
         return Path(override_path)
-    return find_badframes_tsv(archive_name)
+    return find_frame_quality_tsv(archive_name)
 
 def _merge_badframe_repairs(repairs):
     if not repairs:
@@ -323,155 +323,54 @@ def _merge_badframe_repairs(repairs):
 def load_badframe_repairs(tsv_path):
     if not tsv_path:
         return []
-
-    def parse_bool_token(text):
-        t = str(text or "").strip().lower()
-        if t in {"1", "true", "yes", "y", "on"}:
-            return True
-        if t in {"", "0", "false", "no", "n", "off"}:
-            return False
-        return None
-
-    out = []
-    header = None
-    raw = Path(tsv_path).read_text(encoding="utf-8-sig").splitlines()
-    for line in raw:
+    rows = Path(tsv_path).read_text(encoding="utf-8-sig").splitlines()
+    first_data = None
+    for line in rows:
+        s = line.strip()
+        if s and not s.startswith("#"):
+            first_data = s
+            break
+    if not first_data:
+        return []
+    cols = [c.strip().lower() for c in first_data.split("\t")]
+    if "frame" not in cols or "bad_frame" not in cols:
+        raise ValueError(
+            f"Expected frame_quality.tsv format in {tsv_path} "
+            "(required columns: frame, bad_frame)."
+        )
+    idx_frame = cols.index("frame")
+    idx_bad = cols.index("bad_frame")
+    bad_frames = []
+    for line in rows:
         s = line.strip()
         if not s or s.startswith("#"):
             continue
-        if "\t" in s:
-            parts = [p.strip() for p in s.split("\t")]
-        else:
-            parts = [p.strip() for p in s.split(",")]
-        if len(parts) < 2:
+        parts = [p.strip() for p in s.split("\t")]
+        low = [p.lower() for p in parts]
+        if low and low[0] == "frame":
             continue
-
-        low_parts = [p.strip().lower() for p in parts]
-        if header is None and low_parts and low_parts[0].startswith("start"):
-            start_idx = next((i for i, p in enumerate(low_parts) if p in {"start", "start_frame", "startframe"}), 0)
-            end_idx = next((i for i, p in enumerate(low_parts) if p in {"end", "end_frame", "endframe"}), 1)
-            note_idx = next((i for i, p in enumerate(low_parts) if p in {"note", "notes", "comment"}), None)
-            no_pad_idx = next((i for i, p in enumerate(low_parts) if p in {"no_pad", "nopad", "no-pad"}), None)
-            source_idx = next(
-                (
-                    i
-                    for i, p in enumerate(low_parts)
-                    if p in {
-                        "source_frame",
-                        "source",
-                        "src_frame",
-                        "repair_frame",
-                        "replace_frame",
-                        "replace_with",
-                        "use_frame",
-                    }
-                ),
-                None,
-            )
-            header = {
-                "start_idx": start_idx,
-                "end_idx": end_idx,
-                "note_idx": note_idx,
-                "no_pad_idx": no_pad_idx,
-                "source_idx": source_idx,
-            }
-            continue
-
-        start_idx = 0 if header is None else header["start_idx"]
-        end_idx = 1 if header is None else header["end_idx"]
-        if max(start_idx, end_idx) >= len(parts):
+        if max(idx_frame, idx_bad) >= len(parts):
             continue
         try:
-            a = int(parts[start_idx])
-            b = int(parts[end_idx])
+            frame = int(parts[idx_frame])
+            is_bad = int(parts[idx_bad]) == 1
         except Exception:
             continue
-
-        source = None
-        source_text_as_note = ""
-        source_idx = None if header is None else header["source_idx"]
-        if source_idx is not None and source_idx < len(parts):
-            source_raw = parts[source_idx].strip()
-            if source_raw and source_raw.lower() not in {"auto", "none", "null"}:
-                try:
-                    source = int(source_raw)
-                except Exception:
-                    # Be forgiving if rows omit an empty source column and place note text
-                    # in the source_frame position.
-                    source_text_as_note = source_raw
-                    print(f"Ignoring invalid source_frame value '{source_raw}' in {Path(tsv_path).name}")
-
-        no_pad_explicit = None
-        no_pad_idx = None if header is None else header["no_pad_idx"]
-        if no_pad_idx is not None and no_pad_idx < len(parts):
-            no_pad_raw = parts[no_pad_idx].strip()
-            parsed_no_pad = parse_bool_token(no_pad_raw)
-            if parsed_no_pad is None:
-                print(f"Ignoring invalid no_pad value '{no_pad_raw}' in {Path(tsv_path).name}")
-            else:
-                no_pad_explicit = parsed_no_pad
-
-        note = ""
-        if header is None:
-            if len(parts) >= 3:
-                note = ",".join(parts[2:]).strip().lower()
+        if is_bad:
+            bad_frames.append(frame)
+    bad_frames = sorted(set(bad_frames))
+    if not bad_frames:
+        return []
+    out_exact = []
+    start = prev = bad_frames[0]
+    for f in bad_frames[1:]:
+        if f == prev + 1:
+            prev = f
         else:
-            note_fields = []
-            note_idx = header["note_idx"]
-            if note_idx is not None and note_idx < len(parts):
-                note_fields.append(parts[note_idx].strip())
-            if source_text_as_note:
-                note_fields.append(source_text_as_note)
-            used = {start_idx, end_idx}
-            if note_idx is not None:
-                used.add(note_idx)
-            if no_pad_idx is not None:
-                used.add(no_pad_idx)
-            if source_idx is not None:
-                used.add(source_idx)
-            for idx, part in enumerate(parts):
-                if idx in used:
-                    continue
-                txt = part.strip()
-                if txt:
-                    note_fields.append(txt)
-            note = ",".join(note_fields).strip().lower()
-
-        if b < a:
-            a, b = b, a
-        if b < 0:
-            continue
-        a = max(0, a)
-        span = b - a + 1
-        allow_long = ("allow_long" in note) or ("allow-long" in note)
-        if span > BADFRAME_MAX_SPAN_DEFAULT and not allow_long:
-            print(
-                f"Skipping suspicious badframe range {a}-{b} (span {span}); "
-                "add note allow_long to keep it."
-            )
-            continue
-        pad_before, pad_after = auto_badframe_pad(span)
-        no_pad_from_note = ("no_pad" in note) or ("nopad" in note)
-        use_no_pad = no_pad_from_note if no_pad_explicit is None else no_pad_explicit
-        if use_no_pad:
-            pad_before = 0
-            pad_after = 0
-        m = re.search(r"pad\s*=\s*(\d+)", note)
-        if m:
-            pad_before = int(m.group(1))
-            pad_after = int(m.group(1))
-        m = re.search(r"pad_before\s*=\s*(\d+)", note)
-        if m:
-            pad_before = int(m.group(1))
-        m = re.search(r"pad_after\s*=\s*(\d+)", note)
-        if m:
-            pad_after = int(m.group(1))
-
-        a = max(0, a - max(0, int(pad_before)))
-        b = b + max(0, int(pad_after))
-        out.append((a, b, source))
-
-    return _merge_badframe_repairs(out)
+            out_exact.append((start, prev, None))
+            start = prev = f
+    out_exact.append((start, prev, None))
+    return _merge_badframe_repairs(out_exact)
 
 def load_badframe_ranges(tsv_path):
     return [(a, b) for (a, b, _src) in load_badframe_repairs(tsv_path)]
@@ -856,22 +755,23 @@ def transcribe_audio(model, temp_transcript, final_srt, final_vtt, final_dir):
 def _run_with_args(args):
     model = None
     rebuild_selected = bool(args.title)
-    badframes_override = None
-    badframes_override_archive = str(args.badframes_archive or "").strip()
-    badframes_override_applied = False
-    if args.badframes_tsv:
-        badframes_override = Path(args.badframes_tsv).expanduser()
-        if not badframes_override.is_absolute():
-            badframes_override = (Path.cwd() / badframes_override).resolve()
-        if not badframes_override.exists():
-            raise FileNotFoundError(f"Alternate badframes TSV not found: {badframes_override}")
-        if badframes_override_archive:
+    quality_override = None
+    quality_override_archive = str(getattr(args, "frame_quality_archive", "") or "").strip()
+    quality_override_applied = False
+    quality_arg = str(getattr(args, "frame_quality_tsv", "") or "").strip()
+    if quality_arg:
+        quality_override = Path(quality_arg).expanduser()
+        if not quality_override.is_absolute():
+            quality_override = (Path.cwd() / quality_override).resolve()
+        if not quality_override.exists():
+            raise FileNotFoundError(f"Alternate sidecar TSV not found: {quality_override}")
+        if quality_override_archive:
             print(
-                f"Using alternate badframes TSV for archive '{badframes_override_archive}': "
-                f"{badframes_override}"
+                f"Using alternate frame-quality sidecar for archive '{quality_override_archive}': "
+                f"{quality_override}"
             )
         else:
-            print(f"Using alternate badframes TSV for all archives: {badframes_override}")
+            print(f"Using alternate frame-quality sidecar for all archives: {quality_override}")
 
     archive_filters = [str(x or "").strip().lower() for x in (args.archive or []) if str(x or "").strip()]
     for src in ARCHIVE_DIR.glob("*.mkv"):
@@ -890,26 +790,26 @@ def _run_with_args(args):
             print(f"No chapters for {src.name}")
             continue
 
-        badframes_tsv = resolve_badframes_tsv(
+        quality_tsv = resolve_quality_sidecar_tsv(
             archive_name,
-            override_path=badframes_override,
-            override_archive=badframes_override_archive,
+            override_path=quality_override,
+            override_archive=quality_override_archive,
         )
-        if badframes_override and badframes_tsv == badframes_override:
-            badframes_override_applied = True
-        archive_badframe_repairs = load_badframe_repairs(badframes_tsv) if badframes_tsv else []
+        if quality_override and quality_tsv == quality_override:
+            quality_override_applied = True
+        archive_badframe_repairs = load_badframe_repairs(quality_tsv) if quality_tsv else []
         archive_badframe_ranges = [(a, b) for (a, b, _src) in archive_badframe_repairs]
-        if badframes_tsv:
+        if quality_tsv:
             if archive_badframe_repairs:
                 explicit_count = sum(1 for (_a, _b, src) in archive_badframe_repairs if src is not None)
                 print(
-                    f"Loaded bad frame sidecar: {badframes_tsv} ({len(archive_badframe_repairs)} range(s), "
+                    f"Loaded frame quality sidecar: {quality_tsv} ({len(archive_badframe_repairs)} range(s), "
                     f"{explicit_count} with source override)"
                 )
             else:
-                print(f"Bad frame sidecar is present but empty: {badframes_tsv}")
+                print(f"Frame quality sidecar is present but empty: {quality_tsv}")
         else:
-            print(f"WARNING: no archive-level badframes TSV found for {archive_name}; proceeding without it.")
+            print(f"WARNING: no archive-level frame_quality.tsv found for {archive_name}; proceeding without it.")
 
         for ch in chapters:
             ch["duration"] = float(ch.get("end", 0)) - float(ch.get("start", 0))
@@ -980,7 +880,7 @@ def _run_with_args(args):
                 print(f"Applying video filters...")
                 if sys.platform == "win32":
                     if filter_script.exists():
-                        # Archive-level badframes.tsv is the single source of truth.
+                        # Archive-level frame_quality.tsv is the canonical source.
                         source_repairs = archive_badframe_repairs
                         source_ranges = archive_badframe_ranges
                         manual_repairs = map_bad_repairs_to_chapter_local_ranges(source_repairs, ch)
@@ -1083,9 +983,9 @@ def _run_with_args(args):
             cur_count += 1
 
         print(f"All done")
-    if badframes_override and badframes_override_archive and not badframes_override_applied:
+    if quality_override and quality_override_archive and not quality_override_applied:
         print(
-            f"WARNING: --badframes-archive '{badframes_override_archive}' did not match any processed archive."
+            f"WARNING: --frame-quality-archive '{quality_override_archive}' did not match any processed archive."
         )
 
 
@@ -1093,14 +993,16 @@ def run_make_videos(
     *,
     title_filters=None,
     no_bob=False,
-    badframes_tsv="",
-    badframes_archive="",
+    frame_quality_tsv="",
+    frame_quality_archive="",
 ):
     args = argparse.Namespace(
+        archive=[],
         title=list(title_filters or []),
+        title_exact=False,
         no_bob=bool(no_bob),
-        badframes_tsv=str(badframes_tsv) if badframes_tsv else "",
-        badframes_archive=str(badframes_archive or ""),
+        frame_quality_tsv=str(frame_quality_tsv) if frame_quality_tsv else "",
+        frame_quality_archive=str(frame_quality_archive or ""),
     )
     _run_with_args(args)
 

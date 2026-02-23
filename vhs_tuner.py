@@ -8,27 +8,23 @@ Requires:  pip install gradio opencv-python-headless numpy pillow pandas
 
 Metadata layout (all under metadata/<archive>/)
 ────────────────────────────────────────────────
-  tracking_badframe/
-    <slug>_signals.tsv          raw per-frame signals cache (accumulates across sessions)
-    <slug>_overrides.tsv        manual good/bad overrides from the tuner UI
-    <slug>_tuner_config.json    last-saved weight / IQR settings for this chapter
-    <slug>_badframes.tsv        chapter-specific bad ranges (auto + overrides merged)
-  badframes.tsv                 ARCHIVE-LEVEL canonical file — read by step_6_make_videos
-                                 = union of all chapters' results with overrides applied
+  frame_quality.tsv              archive-level canonical frame labels/scores
+                                 columns: frame, score, bad_frame, manual_override
+  frame_quality_settings.tsv     chapter ranges + tracking-loss parameters used
 
-step_6_make_videos.py reads  metadata/<archive>/badframes.tsv
+step_6_make_videos.py reads  metadata/<archive>/frame_quality.tsv
                               which is kept up-to-date by "Apply & Regenerate"
 """
 
 from __future__ import annotations
 
-import ast
 import base64
 import io
 import json
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import cv2
@@ -54,7 +50,6 @@ except ImportError:
     TrackingLossConfig = None            # type: ignore
     run_tracking_loss_classification = None  # type: ignore
     _HAS_TRACKING = False
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Chapter / metadata helpers
@@ -102,249 +97,262 @@ def parse_ffmetadata_chapters(path: Path) -> list[dict]:
         })
     return result
 
-
 def slugify(title: str) -> str:
     return re.sub(r"[^\w]+", "_", str(title).strip()).strip("_").lower()
 
-
-def _tracking_dir(archive: str) -> Path:
-    d = METADATA_DIR / archive / "tracking_badframe"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-def _signals_cache_path(archive: str, ch_title: str) -> Path:
-    return _tracking_dir(archive) / f"{slugify(ch_title)}_signals.tsv"
-
-def _overrides_path(archive: str, ch_title: str) -> Path:
-    return _tracking_dir(archive) / f"{slugify(ch_title)}_overrides.tsv"
-
-def _tuner_config_path(archive: str, ch_title: str) -> Path:
-    return _tracking_dir(archive) / f"{slugify(ch_title)}_tuner_config.json"
-
-def _chapter_badframes_path(archive: str, ch_title: str) -> Path:
-    return _tracking_dir(archive) / f"{slugify(ch_title)}_badframes.tsv"
-
-def _archive_badframes_path(archive: str) -> Path:
-    p = METADATA_DIR / archive / "badframes.tsv"
+def _archive_frame_quality_path(archive: str) -> Path:
+    p = METADATA_DIR / archive / "frame_quality.tsv"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
+def _archive_frame_quality_settings_path(archive: str) -> Path:
+    p = METADATA_DIR / archive / "frame_quality_settings.tsv"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+def upsert_frame_quality_settings(
+    *,
+    archive: str,
+    chapter: str,
+    start_frame: int,
+    end_frame: int,
+    weight_chroma: float,
+    weight_noise: float,
+    weight_tear: float,
+    weight_wave: float,
+    iqr_mult: float,
+    frame_step: int,
+    threshold_window_size: int = 1000,
+) -> Path:
+    def _chapter_key(text: str) -> str:
+        # Canonical chapter key so Apply replaces the same chapter row reliably.
+        return " ".join(str(text or "").strip().lower().split())
+
+    path = _archive_frame_quality_settings_path(archive)
+    rows: list[dict[str, str]] = []
+    if path.exists():
+        for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            s = raw.strip()
+            if not s or s.startswith("#"):
+                continue
+            parts = [p.strip() for p in s.split("\t")]
+            if parts and parts[0].lower() == "chapter":
+                continue
+            if len(parts) < 10:
+                continue
+            rows.append({
+                "chapter": parts[0],
+                "start_frame": parts[1],
+                "end_frame": parts[2],
+                "weight_chroma": parts[3],
+                "weight_noise": parts[4],
+                "weight_tear": parts[5],
+                "weight_wave": parts[6],
+                "iqr_mult": parts[7],
+                "frame_step": parts[8],
+                "threshold_window_size": parts[9],
+            })
+
+    key = _chapter_key(chapter)
+    new_row = {
+        "chapter": str(chapter),
+        "start_frame": str(int(start_frame)),
+        "end_frame": str(int(end_frame)),
+        "weight_chroma": f"{float(weight_chroma):.6f}",
+        "weight_noise": f"{float(weight_noise):.6f}",
+        "weight_tear": f"{float(weight_tear):.6f}",
+        "weight_wave": f"{float(weight_wave):.6f}",
+        "iqr_mult": f"{float(iqr_mult):.6f}",
+        "frame_step": str(int(frame_step)),
+        "threshold_window_size": str(int(threshold_window_size)),
+    }
+
+    # Drop all prior rows for this chapter and keep only the latest settings.
+    deduped = [r for r in rows if _chapter_key(r.get("chapter", "")) != key]
+    deduped.append(new_row)
+
+    deduped.sort(key=lambda r: (int(r["start_frame"]), int(r["end_frame"]), r["chapter"]))
+    with path.open("w", encoding="utf-8") as f:
+        f.write(
+            "chapter\tstart_frame\tend_frame\tweight_chroma\tweight_noise\t"
+            "weight_tear\tweight_wave\tiqr_mult\tframe_step\tthreshold_window_size\n"
+        )
+        for r in deduped:
+            f.write(
+                f"{r['chapter']}\t{r['start_frame']}\t{r['end_frame']}\t"
+                f"{r['weight_chroma']}\t{r['weight_noise']}\t{r['weight_tear']}\t"
+                f"{r['weight_wave']}\t{r['iqr_mult']}\t{r['frame_step']}\t"
+                f"{r['threshold_window_size']}\n"
+            )
+    return path
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Bad-frame range I/O
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def _parse_badframes_tsv(path: Path) -> list[tuple[int, int, str]]:
-    rows: list[tuple[int, int, str]] = []
+def _read_frame_quality_rows(path: Path) -> dict[int, dict[str, float | int]]:
+    rows: dict[int, dict[str, float | int]] = {}
     if not path.exists():
         return rows
-    for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or line.lower().startswith("start_frame"):
+    for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        s = raw.strip()
+        if not s or s.startswith("#"):
             continue
-        parts = line.split("\t")
-        if len(parts) < 2:
+        parts = [p.strip() for p in s.split("\t")]
+        low = [p.lower() for p in parts]
+        if low and low[0] in {"frame", "start_frame"}:
+            continue
+        if len(parts) < 3:
             continue
         try:
-            s, e   = int(parts[0]), int(parts[1])
-            note   = parts[2].strip() if len(parts) > 2 else ""
-            rows.append((s, e, note))
-        except ValueError:
+            fid = int(parts[0])
+        except Exception:
             continue
+        score = np.nan
+        try:
+            if len(parts) > 1 and parts[1] != "":
+                score = float(parts[1])
+        except Exception:
+            score = np.nan
+        try:
+            bad_frame = int(parts[2])
+        except Exception:
+            bad_frame = 0
+        manual_override = 0
+        if len(parts) > 3:
+            try:
+                manual_override = int(parts[3])
+            except Exception:
+                manual_override = 0
+        rows[fid] = {
+            "score": score,
+            "bad_frame": 1 if int(bad_frame) else 0,
+            "manual_override": 1 if int(manual_override) else 0,
+        }
     return rows
 
+def _write_frame_quality_rows(path: Path, rows: dict[int, dict[str, float | int]]) -> None:
+    with path.open("w", encoding="utf-8") as f:
+        f.write("frame\tscore\tbad_frame\tmanual_override\n")
+        for fid in sorted(rows):
+            row = rows[fid]
+            sc = float(row.get("score", np.nan))
+            sc_txt = "" if not np.isfinite(sc) else f"{sc:.8f}"
+            bad = 1 if int(row.get("bad_frame", 0)) else 0
+            man = 1 if int(row.get("manual_override", 0)) else 0
+            f.write(f"{int(fid)}\t{sc_txt}\t{bad}\t{man}\n")
 
-def _ranges_from_sorted_frames(frame_ids: list[int]) -> list[tuple[int, int]]:
-    if not frame_ids:
-        return []
-    result: list[tuple[int, int]] = []
-    start = prev = frame_ids[0]
-    for v in frame_ids[1:]:
-        if v == prev + 1:
-            prev = v
-        else:
-            result.append((start, prev))
-            start = prev = v
-    result.append((start, prev))
-    return result
-
-
-def merge_chapter_into_archive_badframes(
+def load_manual_overrides_from_archive_frame_quality(
     archive: str,
     ch_start: int,
     ch_end: int,
-    chapter_ranges: list[tuple[int, int]],
+) -> dict[int, str]:
+    out: dict[int, str] = {}
+    rows = _read_frame_quality_rows(_archive_frame_quality_path(archive))
+    for fid, row in rows.items():
+        if fid < int(ch_start) or fid > int(ch_end):
+            continue
+        if int(row.get("manual_override", 0)) != 1:
+            continue
+        out[int(fid)] = "bad" if int(row.get("bad_frame", 0)) == 1 else "good"
+    return out
+
+def _load_tracking_frame_scores(path: Path) -> dict[int, tuple[float, int]]:
+    out: dict[int, tuple[float, int]] = {}
+    if not path.exists():
+        return out
+    header: dict[str, int] | None = None
+    for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        s = raw.strip()
+        if not s or s.startswith("#"):
+            continue
+        parts = [p.strip() for p in s.split("\t")]
+        low = [p.lower() for p in parts]
+        if header is None and "frame" in low and "score" in low:
+            header = {name: idx for idx, name in enumerate(low)}
+            continue
+        if header is None:
+            continue
+        try:
+            fid = int(parts[header["frame"]])
+            score = float(parts[header["score"]])
+        except Exception:
+            continue
+        bad = 0
+        if "bad_frame" in header and header["bad_frame"] < len(parts):
+            try:
+                bad = 1 if int(parts[header["bad_frame"]]) == 1 else 0
+            except Exception:
+                bad = 0
+        elif "label" in header and header["label"] < len(parts):
+            label = parts[header["label"]].strip().lower()
+            bad = 1 if label == "bad" else 0
+        out[fid] = (score, bad)
+    return out
+
+def merge_chapter_into_archive_frame_quality(
+    archive: str,
+    ch_start: int,
+    ch_end: int,
+    scored_rows: dict[int, tuple[float, int]],
     overrides: dict[int, str],
 ) -> Path:
-    """
-    Merge a chapter's auto-detected bad ranges + manual overrides into the
-    archive-level badframes.tsv without disturbing other chapters.
+    path = _archive_frame_quality_path(archive)
+    existing = _read_frame_quality_rows(path)
+    merged: dict[int, dict[str, float | int]] = {
+        fid: row
+        for fid, row in existing.items()
+        if fid < int(ch_start) or fid > int(ch_end)
+    }
+    for fid, (score, bad) in scored_rows.items():
+        if fid < int(ch_start) or fid > int(ch_end):
+            continue
+        merged[int(fid)] = {"score": float(score), "bad_frame": int(bad), "manual_override": 0}
 
-    Algorithm
-    ─────────
-    1. Read existing archive badframes.tsv.
-    2. Drop rows that overlap [ch_start, ch_end] (stale from previous run).
-    3. Build new chapter bad-frame set from chapter_ranges.
-    4. Apply manual overrides: "bad" forces a frame in; "good" forces it out.
-    5. Rebuild ranges and merge back with surviving rows from other chapters.
-    6. Write and return the archive path.
-    """
-    archive_path = _archive_badframes_path(archive)
-
-    existing = _parse_badframes_tsv(archive_path)
-    other_rows: list[tuple[int, int, str]] = [
-        (s, e, note) for s, e, note in existing
-        if e < ch_start or s > ch_end
-    ]
-
-    chapter_bad: set[int] = set()
-    for s, e in chapter_ranges:
-        chapter_bad.update(range(s, e + 1))
-
-    manual_bad_fids:  list[int] = []
-    manual_good_fids: list[int] = []
     for fid, label in overrides.items():
-        if label == "bad":
-            chapter_bad.add(fid)
-            manual_bad_fids.append(fid)
-        elif label == "good":
-            chapter_bad.discard(fid)
-            manual_good_fids.append(fid)
+        if fid < int(ch_start) or fid > int(ch_end):
+            continue
+        base = merged.get(int(fid), existing.get(int(fid), {"score": np.nan, "bad_frame": 0, "manual_override": 0}))
+        base["bad_frame"] = 1 if label == "bad" else 0
+        base["manual_override"] = 1
+        merged[int(fid)] = base
 
-    ch_note     = "tracking_loss+manual" if (manual_bad_fids or manual_good_fids) else "tracking_loss_chapter_iqr"
-    new_ch_rows = [(s, e, ch_note) for s, e in _ranges_from_sorted_frames(sorted(chapter_bad))]
+    _write_frame_quality_rows(path, merged)
+    return path
 
-    all_rows = sorted(other_rows + new_ch_rows, key=lambda r: r[0])
-
-    with archive_path.open("w", encoding="utf-8") as f:
-        f.write("start_frame\tend_frame\tnote\n")
-        for s, e, note in all_rows:
-            f.write(f"{s}\t{e}\t{note}\n")
-        if manual_good_fids:
-            f.write(f"# Manual good overrides (forced good): {sorted(manual_good_fids)}\n")
-        if manual_bad_fids:
-            f.write(f"# Manual bad overrides  (forced bad):  {sorted(manual_bad_fids)}\n")
-
-    return archive_path
-
+def upsert_frame_quality_row(
+    archive: str,
+    frame: int,
+    score: float,
+    bad_frame: int,
+    manual_override: int,
+) -> Path:
+    path = _archive_frame_quality_path(archive)
+    rows = _read_frame_quality_rows(path)
+    rows[int(frame)] = {
+        "score": float(score) if np.isfinite(score) else np.nan,
+        "bad_frame": 1 if int(bad_frame) else 0,
+        "manual_override": 1 if int(manual_override) else 0,
+    }
+    _write_frame_quality_rows(path, rows)
+    return path
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Signal cache
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def load_cached_signals(archive: str, ch_title: str) -> tuple[list[int] | None, dict | None]:
-    p = _signals_cache_path(archive, ch_title)
-    if not p.exists():
-        return None, None
-    try:
-        import pandas as pd
-        df = pd.read_csv(p, sep="\t", comment="#")
-        df.columns = [c.strip().lower() for c in df.columns]
-        if not {"frame","chroma_loss","noise_energy","row_tear","wave_energy"}.issubset(df.columns):
-            return None, None
-        fids = df["frame"].astype(int).tolist()
-        return fids, {
-            "chroma": df["chroma_loss"].values.astype(np.float64),
-            "noise":  df["noise_energy"].values.astype(np.float64),
-            "tear":   df["row_tear"].values.astype(np.float64),
-            "wave":   df["wave_energy"].values.astype(np.float64),
-        }
-    except Exception:
-        return None, None
-
+    return None, None
 
 def save_cached_signals(archive: str, ch_title: str,
                         fids: list[int], sigs: dict) -> None:
-    p = _signals_cache_path(archive, ch_title)
-    with p.open("w", encoding="utf-8") as f:
-        f.write("frame\tchroma_loss\tnoise_energy\trow_tear\twave_energy\n")
-        for i, fid in enumerate(fids):
-            f.write(f"{fid}\t{sigs['chroma'][i]:.8f}\t{sigs['noise'][i]:.8f}"
-                    f"\t{sigs['tear'][i]:.8f}\t{sigs['wave'][i]:.8f}\n")
-
+    return None
 
 def load_overrides(archive: str, ch_title: str) -> dict[int, str]:
-    p = _overrides_path(archive, ch_title)
-    if not p.exists():
-        return {}
-    out: dict[int, str] = {}
-    for line in p.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or line.lower().startswith("frame"):
-            continue
-        parts = line.split("\t")
-        if len(parts) < 2:
-            continue
-        try:
-            fid   = int(parts[0])
-            label = parts[1].strip().lower()
-            if label in ("good", "bad"):
-                out[fid] = label
-        except Exception:
-            pass
-    return out
-
+    return {}
 
 def save_overrides(archive: str, ch_title: str, overrides: dict[int, str]) -> None:
-    p = _overrides_path(archive, ch_title)
-    lines = ["frame\toverride"]
-    for fid in sorted(overrides):
-        lines.append(f"{fid}\t{overrides[fid]}")
-    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-
-def load_overrides_from_archive_badframes(
-    archive: str,
-    ch_start: int,
-    ch_end: int,
-) -> dict[int, str]:
-    """
-    Read manual override comments from the archive-level badframes.tsv and
-    return any that fall within [ch_start, ch_end].  These comments look like:
-      # Manual good overrides (forced good): [12345, 12399]
-      # Manual bad overrides  (forced bad):  [12350]
-    """
-    out: dict[int, str] = {}
-    p = _archive_badframes_path(archive)
-    if not p.exists():
-        return out
-
-    def _parse_list_tail(line: str) -> list[int]:
-        if ":" not in line:
-            return []
-        tail = line.split(":", 1)[1].strip()
-        if not tail:
-            return []
-        try:
-            vals = ast.literal_eval(tail)
-        except Exception:
-            return []
-        if not isinstance(vals, list):
-            return []
-        clean = []
-        for v in vals:
-            try:
-                clean.append(int(v))
-            except Exception:
-                pass
-        return clean
-
-    for raw in p.read_text(encoding="utf-8", errors="ignore").splitlines():
-        s = raw.strip()
-        if s.startswith("# Manual good overrides"):
-            for fid in _parse_list_tail(s):
-                if ch_start <= fid <= ch_end:
-                    out[fid] = "good"
-        elif s.startswith("# Manual bad overrides"):
-            for fid in _parse_list_tail(s):
-                if ch_start <= fid <= ch_end:
-                    out[fid] = "bad"
-    return out
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Signal computation + frame extraction
-# ═══════════════════════════════════════════════════════════════════════════════
+    return None
 
 def _compute_signals(bgr: np.ndarray, crop: int = 50) -> tuple[float, float, float, float]:
     h, w = bgr.shape[:2]
@@ -368,7 +376,6 @@ def _compute_signals(bgr: np.ndarray, crop: int = 50) -> tuple[float, float, flo
                    if row_com.shape[0] >= 5 else float(np.std(row_com)))
     return chroma_loss, noise, tear, wave
 
-
 def _bgr_to_jpeg_b64(bgr: np.ndarray, width: int = 160) -> str:
     h, w = bgr.shape[:2]
     thumb = cv2.resize(bgr, (width, int(width * h / max(w, 1))), interpolation=cv2.INTER_AREA)
@@ -376,14 +383,20 @@ def _bgr_to_jpeg_b64(bgr: np.ndarray, width: int = 160) -> str:
     Image.fromarray(cv2.cvtColor(thumb, cv2.COLOR_BGR2RGB)).save(buf, format="JPEG", quality=72)
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
-
 def extract_frames(
     video_path: str,
     start: int, end: int, n: int,
     archive: str, ch_title: str,
+    frame_ids: list[int] | None = None,
     progress=None,
 ) -> tuple[list[int] | None, list[str] | None, dict | None, str]:
-    frame_ids: list[int] = np.linspace(int(start), int(end), int(n), dtype=int).tolist()
+    if frame_ids is None:
+        frame_ids = np.linspace(int(start), int(end), int(n), dtype=int).tolist()
+    else:
+        frame_ids = [int(x) for x in frame_ids if int(start) <= int(x) <= int(end)]
+        frame_ids = sorted(set(frame_ids))
+        if not frame_ids:
+            frame_ids = np.linspace(int(start), int(end), int(n), dtype=int).tolist()
     frame_set             = set(frame_ids)
 
     cached_fids, cached_sigs = load_cached_signals(archive, ch_title)
@@ -442,7 +455,6 @@ def extract_frames(
 
     return frame_ids, frames_b64, sigs, ""
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Scoring / thresholding
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -456,7 +468,6 @@ def _robust_z(v: np.ndarray) -> np.ndarray:
         sc = float(np.std(v)) or 1.0
     return (v - med) / sc
 
-
 def combined_score(sigs: dict, wc: float, wn: float, wt: float, ww: float) -> np.ndarray:
     wsum = wc + wn + wt + ww or 1.0
     return (
@@ -465,7 +476,6 @@ def combined_score(sigs: dict, wc: float, wn: float, wt: float, ww: float) -> np
         _robust_z(sigs["tear"])   * wt +
         _robust_z(sigs["wave"])   * ww
     ) / wsum
-
 
 def compute_threshold(
     scores: np.ndarray,
@@ -483,7 +493,6 @@ def compute_threshold(
     if mode == "value":
         return float(thresh_val)
     return float(np.quantile(v, 1.0 - bad_pct / 100.0))
-
 
 def toggle_frame_override(
     fid: int,
@@ -516,6 +525,58 @@ def toggle_frame_override(
         out[fid] = "good" if auto_bad else "bad"
     return out
 
+
+def select_focus_frame_ids(
+    *,
+    start: int,
+    end: int,
+    max_frames: int,
+    coarse_fids: list[int],
+    coarse_scores: np.ndarray,
+    threshold: float,
+    burst_radius: int = 4,
+) -> list[int]:
+    """
+    Build a weighted frame list that prioritizes contiguous context around
+    detected bad frames while keeping total count <= max_frames.
+    """
+    budget = max(1, int(max_frames))
+    s = int(start)
+    e = int(end)
+    radius = max(1, int(burst_radius))
+
+    bad_candidates: list[tuple[int, float]] = []
+    for fid, sc in zip(coarse_fids, coarse_scores):
+        if float(sc) >= float(threshold):
+            bad_candidates.append((int(fid), float(sc)))
+    bad_candidates.sort(key=lambda x: x[1], reverse=True)
+
+    selected: set[int] = set()
+    # Add full contiguous neighborhoods (no sampling in chosen windows).
+    for fid, _sc in bad_candidates:
+        lo = max(s, fid - radius)
+        hi = min(e, fid + radius)
+        needed = [f for f in range(lo, hi + 1) if f not in selected]
+        if len(selected) + len(needed) > budget:
+            continue
+        selected.update(needed)
+        if len(selected) >= budget:
+            break
+
+    # Fill remaining budget with uniform samples across the full range.
+    if len(selected) < budget:
+        fill_n = budget - len(selected)
+        baseline = np.linspace(s, e, fill_n, dtype=int).tolist()
+        for f in baseline:
+            selected.add(int(f))
+            if len(selected) >= budget:
+                break
+
+    # Final clamp by deterministic order.
+    ordered = sorted(selected)
+    if len(ordered) > budget:
+        ordered = ordered[:budget]
+    return ordered
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SVG Sparklines  — timeline charts with horizontal red cut line
@@ -588,7 +649,6 @@ def _sparkline_svg(
         f'</svg>'
     )
 
-
 def build_sparklines_html(
     sigs: dict,
     scores: np.ndarray,
@@ -646,7 +706,6 @@ def build_sparklines_html(
 
     return sc_chroma, sc_noise, sc_tear, sc_wave, sc_score
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Frame grid HTML
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -655,7 +714,6 @@ def build_sparklines_html(
 # gr.HTML component that is never included in event outputs, so it survives
 # grid rebuilds. Cells call window.vhsToggleFrame(fid) via inline onclick.
 _GRID_JS = ""
-
 
 def build_grid_html(
     frames_b64: list[str],
@@ -713,7 +771,6 @@ def build_grid_html(
 <div class="vhs-grid">{''.join(cells)}</div>
 """
 
-
 def build_gallery_items(
     frames_b64: list[str],
     fids: list[int],
@@ -750,7 +807,6 @@ def build_gallery_items(
         items.append((styled, f"#{fid}  s={sc:.2f}  {state_short}"))
     return items
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Preview video: ffmpeg burn-in  G/L/S  (global frame, local frame, score)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -786,7 +842,6 @@ def _write_score_ass(path: Path, fids: list[int], scores: np.ndarray,
         + "\n".join(events),
         encoding="utf-8",
     )
-
 
 def make_preview_video(input_path: str | Path, output_path: str | Path,
                        chapter_start_frame: int, fids: list[int],
@@ -838,9 +893,8 @@ def make_preview_video(input_path: str | Path, output_path: str | Path,
     except Exception: pass
     return output_path
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
-# Apply: save config + run tracking_loss + merge overrides into archive badframes
+# Apply: run tracking_loss + merge overrides into archive frame quality
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def apply_and_regenerate(
@@ -854,17 +908,21 @@ def apply_and_regenerate(
 
     logs: list[str] = []
 
-    # 1 ── Save tuner config ────────────────────────────────────────────────
-    cfg = {
-        "archive": archive, "chapter": ch_title,
-        "chapter_start_frame": ch_start, "chapter_end_frame": ch_end,
-        "weight_chroma": w_chroma, "weight_noise": w_noise,
-        "weight_tear":   w_tear,   "weight_wave":  w_wave,
-        "iqr_mult": iqr_mult, "frame_step": frame_step,
-    }
-    cfg_p = _tuner_config_path(archive, ch_title)
-    cfg_p.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-    logs.append(f"✅  Config → {cfg_p.name}")
+    # 1 ── Save chapter settings row ────────────────────────────────────────
+    settings_tsv = upsert_frame_quality_settings(
+        archive=archive,
+        chapter=ch_title,
+        start_frame=int(ch_start),
+        end_frame=int(ch_end),
+        weight_chroma=float(w_chroma),
+        weight_noise=float(w_noise),
+        weight_tear=float(w_tear),
+        weight_wave=float(w_wave),
+        iqr_mult=float(iqr_mult),
+        frame_step=int(frame_step),
+        threshold_window_size=1000,
+    )
+    logs.append(f"✅  Settings → {settings_tsv.name}")
 
     if not _HAS_TRACKING:
         return "\n".join(logs) + "\n❌  tracking_loss module not found."
@@ -878,11 +936,9 @@ def apply_and_regenerate(
 
     # 3 ── Run tracking_loss for this chapter ───────────────────────────────
     logs.append(f"▶️   tracking_loss  frames {ch_start}–{ch_end}  step={frame_step}…")
-    ch_output_dir = _tracking_dir(archive) / f"{slugify(ch_title)}_tl_output"
     config = TrackingLossConfig(  # type: ignore[call-arg]
         archive              = archive,
         video                = video,
-        output_dir           = str(ch_output_dir),
         start_frame          = ch_start,
         max_frame            = ch_end,
         frame_step           = max(1, frame_step),
@@ -892,54 +948,41 @@ def apply_and_regenerate(
         weight_wave          = w_wave,
         iqr_mult             = iqr_mult,
         threshold_window_size= 1000,
-        export_review_png_count = 0,
         # Keep tracking_loss metadata copy local to this chapter run output.
-        metadata_badframes_tsv = str(ch_output_dir / "chapter_badframes.metadata.tsv"),
+        metadata_frame_quality_tsv = str(_archive_frame_quality_path(archive)),
     )
     try:
         result = run_tracking_loss_classification(config=config)  # type: ignore
-        frame_scores_out = Path(result.get("frame_scores_path", ch_output_dir / "frame_scores.tsv"))
-        logs.append(f"✅  tracking_loss done  →  {frame_scores_out.name}")
+        fq_out = Path(result.get("frame_quality_path", _archive_frame_quality_path(archive)))
+        logs.append(f"✅  tracking_loss done  →  {fq_out.name}")
     except Exception as exc:
         logs.append(f"❌  tracking_loss failed: {exc}")
         return "\n".join(logs)
 
     # 4 ── Load auto bad ranges ─────────────────────────────────────────────
-    run_badframes: Path | None = None
-    if isinstance(result, dict):
-        bf = result.get("badframes_path")
-        if bf:
-            run_badframes = Path(bf)
-        if (not run_badframes or not run_badframes.exists()) and result.get("output_dir"):
-            fallback = Path(result["output_dir"]) / "badframes.tsv"
-            if fallback.exists():
-                run_badframes = fallback
-
-    if not run_badframes or not run_badframes.exists():
-        logs.append("❌  tracking_loss did not produce badframes.tsv; archive badframes was not updated.")
+    scored_rows = _load_tracking_frame_scores(fq_out)
+    if not scored_rows:
+        logs.append("ERROR: tracking_loss did not produce usable frame scores; frame_quality.tsv was not updated.")
         return "\n".join(logs)
+    logs.append(f"   Scored frames: {len(scored_rows)}")
 
-    auto_ranges = [(s, e) for s, e, _ in _parse_badframes_tsv(run_badframes)]
-    logs.append(f"   Auto bad ranges: {len(auto_ranges)}")
-
-    # 5 ── Merge overrides into archive-level badframes.tsv ─────────────────
-    overrides      = load_overrides(archive, ch_title)
+    # 5 ── Merge overrides into archive-level frame_quality.tsv ─────────────────
+    overrides      = load_manual_overrides_from_archive_frame_quality(archive, int(ch_start), int(ch_end))
     manual_bad     = [f for f, l in overrides.items() if l == "bad"]
     manual_good    = [f for f, l in overrides.items() if l == "good"]
     if overrides:
         logs.append(f"   Overrides: {len(manual_bad)} forced-bad, {len(manual_good)} forced-good")
 
-    archive_bf = merge_chapter_into_archive_badframes(
+    archive_fq = merge_chapter_into_archive_frame_quality(
         archive        = archive,
         ch_start       = ch_start,
         ch_end         = ch_end,
-        chapter_ranges = auto_ranges,
+        scored_rows    = scored_rows,
         overrides      = overrides,
     )
-    logs.append(f"✅  Archive badframes → {archive_bf}")
-    logs.append(f"   (step_6_make_videos reads this file)")
+    logs.append(f"OK: Archive frame quality -> {archive_fq}")
+    logs.append("   (step_6_make_videos reads frame_quality.tsv)")
     return "\n".join(logs)
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Gradio layout
@@ -947,6 +990,10 @@ def apply_and_regenerate(
 
 _DARK_CSS = """
 body, .gradio-container { background:#0d0d0d !important; color:#ccc; }
+/* Keep margins as narrow as possible so we do not waste screen space. */
+.gradio-container { max-width: 100% !important; padding: 4px 6px !important; margin: 0 !important; }
+.gradio-container .main { padding: 0 !important; }
+.gr-row, .gr-form, .gr-group { gap: 6px !important; }
 .gr-box, .gr-padded { background:#141414 !important; }
 .gr-button-primary { background:#1a6b3a !important; border-color:#27a85a !important; }
 .gr-button { background:#222 !important; color:#bbb !important; border-color:#333 !important; }
@@ -969,6 +1016,24 @@ input[type=range] { accent-color:#27a85a; }
   overflow-wrap:anywhere !important;
   line-height:1.15 !important;
   padding-left:2px !important;
+}
+#vhs-hover-preview {
+  position: fixed;
+  z-index: 9999;
+  display: none;
+  pointer-events: none;
+  border: 2px solid #2a2a2a;
+  background: #050505;
+  box-shadow: 0 8px 24px rgba(0,0,0,.6);
+  border-radius: 3px;
+  overflow: hidden;
+}
+#vhs-hover-preview img {
+  display: block;
+  max-width: min(70vw, 1280px);
+  max-height: min(70vh, 720px);
+  width: auto;
+  height: auto;
 }
 """
 
@@ -1001,12 +1066,10 @@ function vhsStep(dir) {
 </script>
 """
 
-
 def _get_archives() -> list[str]:
     if not ARCHIVE_DIR.exists():
         return []
     return sorted(p.stem for p in ARCHIVE_DIR.glob("*.mkv"))
-
 
 def _get_chapter_titles(archive: str) -> list[str]:
     if not archive:
@@ -1017,14 +1080,11 @@ def _get_chapter_titles(archive: str) -> list[str]:
     chapters = parse_ffmetadata_chapters(cf)
     return ["— select chapter —"] + [ch["title"] for ch in chapters]
 
-
 def _find_chapter(chapters: list[dict], title: str) -> dict | None:
     return next((c for c in chapters if c["title"] == title), None)
 
-
 _E_SIG   = _sparkline_svg(np.array([]), None,  "", height=38)
 _E_SCORE = _sparkline_svg(np.array([]), None,  "", height=52)
-
 
 with gr.Blocks(
     title="📼  VHS Frame Tuner",
@@ -1122,6 +1182,43 @@ with gr.Blocks(
             gr.HTML("""
 <script>
 (function() {
+  function _ensureHoverPreview() {
+    var root = document.getElementById('vhs-hover-preview');
+    if (root) return root;
+    root = document.createElement('div');
+    root.id = 'vhs-hover-preview';
+    var img = document.createElement('img');
+    img.alt = 'hover preview';
+    root.appendChild(img);
+    document.body.appendChild(root);
+    return root;
+  }
+
+  var _hover = _ensureHoverPreview();
+  var _hoverImg = _hover.querySelector('img');
+  var _hoverSrc = '';
+  function _hideHover() {
+    _hover.style.display = 'none';
+  }
+  function _showHover(src, x, y) {
+    if (!src) return;
+    if (_hoverSrc !== src) {
+      _hoverImg.src = src;
+      _hoverSrc = src;
+    }
+    _hover.style.display = 'block';
+    var pad = 18;
+    var left = x + pad;
+    var top = y + pad;
+    var rect = _hover.getBoundingClientRect();
+    var maxLeft = Math.max(0, window.innerWidth - rect.width - 6);
+    var maxTop = Math.max(0, window.innerHeight - rect.height - 6);
+    if (left > maxLeft) left = Math.max(0, x - rect.width - pad);
+    if (top > maxTop) top = Math.max(0, y - rect.height - pad);
+    _hover.style.left = left + 'px';
+    _hover.style.top = top + 'px';
+  }
+
   function _setGradio(elemId, val) {
     var c = document.getElementById(elemId);
     if (!c) return;
@@ -1154,6 +1251,25 @@ with gr.Blocks(
   }
 
   window.vhsToggleFrame = function(fid) { _emit(fid, 'inline'); };
+  document.addEventListener('mousemove', function(e) {
+    var img = e.target.closest('#vhs-grid-gallery img');
+    if (!img) { _hideHover(); return; }
+    _showHover(img.currentSrc || img.src, e.clientX, e.clientY);
+  }, true);
+  // Direct click handling for Gallery tiles so repeated clicks on the same
+  // frame still emit toggle events reliably.
+  document.addEventListener('click', function(e) {
+    var inGallery = e.target.closest('#vhs-grid-gallery');
+    if (!inGallery) return;
+    var box = e.target.closest('[class*="gallery"], [class*="item"], [class*="thumbnail"], figure, li, div');
+    if (!box) return;
+    var txt = String((box.textContent || '')).replace(/\\s+/g, ' ').trim();
+    var m = txt.match(/#\\s*(\\d+)/);
+    if (!m) return;
+    _emit(m[1], 'gallery-click');
+  }, true);
+  document.addEventListener('mouseleave', _hideHover, true);
+  document.addEventListener('scroll', _hideHover, true);
   document.addEventListener('click', function(e) {
     var cell = e.target.closest('.vhs-cell[data-fid]');
     if (!cell) return;
@@ -1270,16 +1386,38 @@ with gr.Blocks(
         video = proxy if proxy.exists() else mkv if mkv.exists() else None
         if not video:
             return FAIL
+        # Pass 1: uniform sample for coarse bad-frame detection.
         fids, b64, sigs, err = extract_frames(
             str(video), int(start), int(end), int(n_samp),
             archive, ch_title, progress=progress,
         )
         if err or fids is None:
             F2 = list(FAIL); F2[1] = f"❌  {err or 'Extraction failed'}"; return tuple(F2)
+
+        # Pass 2: if coarse sample detects bad frames, prioritize contiguous
+        # neighbors around them (no sampling inside those local windows).
+        sc0 = combined_score(sigs, wc, wn, wt, ww)
+        thr0 = compute_threshold(sc0, tmode, iqrk, tv, bp)
+        focus_fids = select_focus_frame_ids(
+            start=int(start),
+            end=int(end),
+            max_frames=int(n_samp),
+            coarse_fids=fids,
+            coarse_scores=sc0,
+            threshold=thr0,
+            burst_radius=4,
+        )
+        if focus_fids != fids:
+            fids, b64, sigs, err = extract_frames(
+                str(video), int(start), int(end), int(n_samp),
+                archive, ch_title, frame_ids=focus_fids, progress=progress,
+            )
+            if err or fids is None:
+                F2 = list(FAIL); F2[1] = f"❌  {err or 'Extraction failed'}"; return tuple(F2)
         # Load overrides from dedicated file, then merge in any recorded in the
-        # archive-level badframes.tsv comment lines (from previous Apply runs).
-        overrides = load_overrides(archive, ch_title)
-        archive_overrides = load_overrides_from_archive_badframes(
+        # archive-level frame_quality.tsv manual_override rows (from previous Apply runs).
+        overrides = {}
+        archive_overrides = load_manual_overrides_from_archive_frame_quality(
             archive=archive, ch_start=int(start), ch_end=int(end),
         )
         if archive_overrides:
@@ -1343,21 +1481,23 @@ with gr.Blocks(
             bp=bp,
         )
 
+        sc = combined_score(sigs, wc, wn, wt, ww)
+        thr = compute_threshold(sc, tm, ik, tv, bp)
+        idx = fids.index(fid) if fid in fids else -1
+        auto_bad = bool(idx >= 0 and sc[idx] >= thr)
+        score_val = float(sc[idx]) if idx >= 0 else float("nan")
+        manual_state = new_ov.get(fid)
+        resolved_bad = (manual_state == "bad") if manual_state else auto_bad
+        manual_flag = 1 if manual_state else 0
+
         ch_title_str = str(ch_title or "")
         if archive and ch_title_str and "select chapter" not in ch_title_str.lower():
-            # Persist override file immediately
-            save_overrides(archive, ch_title_str, new_ov)
-            # Also merge into archive-level badframes.tsv immediately so nothing is lost
-            archive_bf = _archive_badframes_path(archive)
-            # Retain auto ranges for this chapter from file (strip overrides, reapply below)
-            auto_ranges = [(s, e) for s, e, _ in _parse_badframes_tsv(archive_bf)
-                           if s >= int(ch_start) and e <= int(ch_end)]
-            merge_chapter_into_archive_badframes(
-                archive        = archive,
-                ch_start       = int(ch_start),
-                ch_end         = int(ch_end),
-                chapter_ranges = auto_ranges,
-                overrides      = new_ov,
+            upsert_frame_quality_row(
+                archive=archive,
+                frame=int(fid),
+                score=score_val,
+                bad_frame=1 if resolved_bad else 0,
+                manual_override=manual_flag,
             )
 
         after = new_ov.get(fid)
@@ -1385,7 +1525,7 @@ with gr.Blocks(
         if idx < 0 or idx >= len(fids):
             return (*[gr.update()] * 7, overrides, "", f"ignored: gallery index out of range ({idx})")
         fid = int(fids[idx])
-        payload = f"{fid}:{int(idx)}"
+        payload = f"{fid}:{int(time.time() * 1000)}"
         return on_click(
             payload, fids, b64, sigs, overrides, archive, ch_title, ch_start, ch_end,
             wc, wn, wt, ww, tm, ik, tv, bp, cols, tw
@@ -1427,8 +1567,8 @@ with gr.Blocks(
         if not STEP6.exists():
             return (f"❌  {STEP6} not found.", gr.update(visible=False), gr.update(visible=False))
 
-        # Always regenerate badframes.tsv with current weights before rendering
-        progress(0.05, desc="Regenerating badframes.tsv…")
+        # Always regenerate frame_quality.tsv with current weights before rendering
+        progress(0.05, desc="Regenerating frame_quality.tsv…")
         regen_log = apply_and_regenerate(
             archive, ch_title, int(start), int(end),
             float(wc), float(wn), float(wt), float(ww), float(ik), int(fstep),
@@ -1436,18 +1576,18 @@ with gr.Blocks(
         failure_tokens = ["No chapter selected", "tracking_loss failed",
                           "No video found", "module not found"]
         if any(t in regen_log for t in failure_tokens):
-            return (f"❌  Failed to regenerate badframes:\n{regen_log[-3000:]}",
+            return (f"❌  Failed to regenerate frame quality:\n{regen_log[-3000:]}",
                     gr.update(visible=False), gr.update(visible=False))
 
         progress(0.2, desc="Running step_6_make_videos…")
-        archive_bf = _archive_badframes_path(archive)
+        archive_fq = _archive_frame_quality_path(archive)
         result = subprocess.run(
             [sys.executable, str(STEP6),
              "--archive", archive,
              "--title", ch_title,
              "--title-exact",
-             "--badframes-tsv", str(archive_bf),
-             "--badframes-archive", archive],
+             "--frame-quality-tsv", str(archive_fq),
+             "--frame-quality-archive", archive],
             capture_output=True, text=True, cwd=str(PROJECT_ROOT),
         )
         log = (regen_log + "\n\n" + (result.stdout or "") + (result.stderr or ""))[-5000:]
@@ -1494,7 +1634,6 @@ with gr.Blocks(
          start_n, end_n, fstep_sl],
         [render_log, preview_vid, step_ctrl_html],
     )
-
 
 # ── Launch ────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

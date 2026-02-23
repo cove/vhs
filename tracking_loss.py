@@ -27,9 +27,7 @@
 
 import argparse
 from dataclasses import dataclass
-import json
 import re
-import shutil
 from pathlib import Path
 
 import cv2
@@ -47,9 +45,8 @@ class TrackingLossConfig:
     archive: str = DEFAULT_ARCHIVE
     video: str = ""
     chapters_file: str = ""        # default: METADATA_DIR/<archive>/chapters.ffmetadata
-    output_dir: str = ""
     scores_tsv: str = ""
-    existing_badframes: str = ""
+    existing_frame_quality: str = ""
     start_frame: int = 0
     max_frame: int = -1
     frame_step: int = 1
@@ -63,12 +60,7 @@ class TrackingLossConfig:
     weight_wave: float = 0.25      # wave_energy signal weight
     iqr_mult: float = 3.5          # Tukey fence multiplier: threshold = Q3 + iqr_mult * IQR
     threshold_window_size: int = 1000
-    export_bad_png_count: int = -1
-    export_good_png_count: int = -1
-    export_review_png_count: int = 0
-    png_output_dir: str = ""
-    metadata_copy_dir: str = ""
-    metadata_badframes_tsv: str = ""
+    metadata_frame_quality_tsv: str = ""
 
 
 DEFAULT_CONFIG = TrackingLossConfig()
@@ -382,25 +374,28 @@ def combine_signals(chroma_scores, noise_scores, tear_scores, wave_scores,
 # I/O helpers
 # ---------------------------------------------------------------------------
 
-def parse_badframe_ranges(tsv_path):
-    ranges = []
+def parse_existing_bad_frames_from_frame_quality(tsv_path):
+    bad = set()
     if not tsv_path or not Path(tsv_path).exists():
-        return ranges
+        return bad
     for raw_line in Path(tsv_path).read_text(encoding="utf-8", errors="ignore").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        parts = re.split(r"\s+", line)
-        if len(parts) < 2:
+        parts = [p.strip() for p in line.split("\t")]
+        low = [p.lower() for p in parts]
+        if low and low[0] == "frame":
+            continue
+        if len(parts) < 3:
             continue
         try:
-            s, e = int(parts[0]), int(parts[1])
-        except ValueError:
+            fi = int(parts[0])
+            is_bad = int(parts[2]) == 1
+        except Exception:
             continue
-        if e < s:
-            s, e = e, s
-        ranges.append((max(0, s), max(0, e)))
-    return ranges
+        if is_bad:
+            bad.add(fi)
+    return bad
 
 
 def expand_ranges_to_set(ranges, min_frame, max_frame):
@@ -437,7 +432,7 @@ def _try_parse_float(text):
 
 
 def load_scores_tsv(path):
-    """Load a previously saved frame_scores.tsv (supports new and old column names)."""
+    """Load a previously saved per-frame scores TSV (supports old/new column names)."""
     rows, header_map = [], {}
     for raw_line in Path(path).read_text(encoding="utf-8", errors="ignore").splitlines():
         line  = raw_line.strip()
@@ -490,58 +485,6 @@ def pick_evenly_spaced_samples(frame_ids, count):
     return chosen
 
 
-def _resolve_export_count(requested, fallback):
-    return max(0, int(fallback)) if int(requested) < 0 else max(0, int(requested))
-
-
-def export_frame_png_samples(video_path, frame_ids, sample_dir, label):
-    sample_dir.mkdir(parents=True, exist_ok=True)
-    if not frame_ids:
-        return [], []
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        raise RuntimeError(f"Unable to open video for PNG export: {video_path}")
-    written, failed = [], []
-    try:
-        for fi in frame_ids:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(fi))
-            ok, frame_bgr = cap.read()
-            if not ok or frame_bgr is None:
-                failed.append(int(fi))
-                continue
-            out = sample_dir / f"{label}_frame_{int(fi):08d}.png"
-            if cv2.imwrite(str(out), frame_bgr):
-                written.append(out)
-            else:
-                failed.append(int(fi))
-    finally:
-        cap.release()
-    return written, failed
-
-
-def write_review_manifest(manifest_path, rows):
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    with manifest_path.open("w", encoding="utf-8") as f:
-        f.write("frame\tlabel\tscore\tthreshold\tpng_path\n")
-        for row in rows:
-            f.write(f"{int(row['frame'])}\t{row['label']}\t"
-                    f"{float(row['score']):.8f}\t{float(row['threshold']):.8f}\t"
-                    f"{row['png_path']}\n")
-
-
-def mirror_metadata_outputs(source_dir, target_dir):
-    source_dir, target_dir = Path(source_dir), Path(target_dir)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    copied = []
-    for path in source_dir.rglob("*"):
-        if path.is_file() and path.suffix.lower() in {".tsv", ".json"}:
-            dst = target_dir / path.relative_to(source_dir)
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(path, dst)
-            copied.append(dst)
-    return copied
-
-
 def finite_stats(values):
     v = np.asarray(values, dtype=np.float64)
     f = v[np.isfinite(v)]
@@ -550,24 +493,19 @@ def finite_stats(values):
     return {"min": float(np.min(f)), "max": float(np.max(f)), "mean": float(np.mean(f))}
 
 
-def write_outputs(output_dir, indices, scores, chroma_scores, noise_scores, tear_scores,
-                  wave_scores, thresholds, labels, bad_ranges, summary):
-    output_dir.mkdir(parents=True, exist_ok=True)
-    frame_scores_path = output_dir / "frame_scores.tsv"
-    with frame_scores_path.open("w", encoding="utf-8") as f:
-        f.write("frame\tscore\tthreshold\tchroma_loss\tnoise_energy\trow_tear\twave_energy\tlabel\n")
-        for fi, sc, thr, ch, no, te, wa, lbl in zip(
-                indices, scores, thresholds, chroma_scores, noise_scores,
-                tear_scores, wave_scores, labels):
-            f.write(f"{fi}\t{sc:.8f}\t{thr:.8f}\t{ch:.8f}\t{no:.8f}\t{te:.8f}\t{wa:.8f}\t{lbl}\n")
-    badframes_path = output_dir / "badframes.tsv"
-    with badframes_path.open("w", encoding="utf-8") as f:
-        f.write("start_frame\tend_frame\tnote\n")
-        for s, e in bad_ranges:
-            f.write(f"{s}\t{e}\ttracking_loss_chapter_iqr\n")
-    summary_path = output_dir / "summary.json"
-    summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    return frame_scores_path, badframes_path, summary_path
+def write_outputs(frame_quality_path, indices, scores, chroma_scores, noise_scores, tear_scores,
+                  wave_scores, thresholds, labels):
+    frame_quality_path.parent.mkdir(parents=True, exist_ok=True)
+    with frame_quality_path.open("w", encoding="utf-8") as f:
+        f.write("frame\tscore\tbad_frame\tmanual_override\tthreshold\tchroma_loss\tnoise_energy\trow_tear\twave_energy\n")
+        for fi, sc, lbl, thr, ch, no, te, wa in zip(
+                indices, scores, labels, thresholds, chroma_scores, noise_scores, tear_scores, wave_scores):
+            bad = 1 if str(lbl).lower() == "bad" else 0
+            f.write(
+                f"{fi}\t{float(sc):.8f}\t{bad}\t0\t{float(thr):.8f}\t"
+                f"{float(ch):.8f}\t{float(no):.8f}\t{float(te):.8f}\t{float(wa):.8f}\n"
+            )
+    return frame_quality_path
 
 
 # ---------------------------------------------------------------------------
@@ -578,11 +516,8 @@ def _run_with_config(config: TrackingLossConfig):
     archive_name = require_non_empty(config.archive, "archive")
 
     video_path    = Path(config.video)    if config.video    else (ARCHIVE_DIR / f"{archive_name}.mkv")
-    output_dir    = Path(config.output_dir) if config.output_dir else (METADATA_DIR / archive_name / "tracking_badframe")
-    png_dir       = Path(config.png_output_dir)       if config.png_output_dir       else (output_dir / "review_png")
-    meta_copy     = Path(config.metadata_copy_dir)    if config.metadata_copy_dir    else (METADATA_DIR / archive_name / "tracking_badframe")
-    meta_bf_tsv   = Path(config.metadata_badframes_tsv) if config.metadata_badframes_tsv else (METADATA_DIR / archive_name / "badframes.tsv")
-    existing_bf   = Path(config.existing_badframes)   if config.existing_badframes   else (METADATA_DIR / archive_name / "badframes.tsv")
+    meta_fq_tsv   = Path(config.metadata_frame_quality_tsv) if config.metadata_frame_quality_tsv else (METADATA_DIR / archive_name / "frame_quality.tsv")
+    existing_fq   = Path(config.existing_frame_quality)   if config.existing_frame_quality   else (METADATA_DIR / archive_name / "frame_quality.tsv")
     chapters_file = Path(config.chapters_file)        if config.chapters_file        else (METADATA_DIR / archive_name / "chapters.ffmetadata")
     scores_tsv    = Path(config.scores_tsv)           if config.scores_tsv           else None
 
@@ -664,46 +599,14 @@ def _run_with_config(config: TrackingLossConfig):
     bad_frames  = sorted(fi for fi, lbl in zip(indices, labels) if lbl == "bad")
     bad_ranges  = ranges_from_sorted_frames(bad_frames)
 
-    # Ground-truth comparison
-    manual_ranges, manual_bad_eval = [], set()
-    if existing_bf.exists():
-        manual_ranges   = parse_badframe_ranges(existing_bf)
-        manual_bad      = expand_ranges_to_set(manual_ranges, start_frame, end_frame)
-        manual_bad_eval = evaluated_set.intersection(manual_bad)
+    # Existing frame-quality comparison
+    existing_bad_eval = set()
+    if existing_fq.exists():
+        existing_bad_eval = evaluated_set.intersection(
+            parse_existing_bad_frames_from_frame_quality(existing_fq)
+        )
 
-    # PNG export
-    req_bad  = _resolve_export_count(config.export_bad_png_count,  config.export_review_png_count)
-    req_good = _resolve_export_count(config.export_good_png_count, config.export_review_png_count)
-    w_bad, w_good, f_bad, f_good = [], [], [], []
-    manifest_path = None
-
-    if (req_bad > 0 or req_good > 0) and video_path.exists():
-        sel_bad  = pick_evenly_spaced_samples(bad_frames,  req_bad)
-        sel_good = pick_evenly_spaced_samples(good_frames, req_good)
-        try:
-            w_bad,  f_bad  = export_frame_png_samples(video_path, sel_bad,  png_dir / "bad",  "bad")
-            w_good, f_good = export_frame_png_samples(video_path, sel_good, png_dir / "good", "good")
-            review_rows = []
-            for png_path in w_bad + w_good:
-                m = re.search(r"frame_(\d+)\.png$", png_path.name)
-                if not m:
-                    continue
-                fi  = int(m.group(1))
-                lbl = "bad" if "bad" in png_path.parts else "good"
-                review_rows.append({
-                    "frame":     fi,
-                    "label":     lbl,
-                    "score":     score_by_frame.get(fi, np.nan),
-                    "threshold": threshold_by_frame.get(fi, np.nan),
-                    "png_path":  png_path.relative_to(png_dir).as_posix(),
-                })
-            review_rows.sort(key=lambda r: int(r["frame"]))
-            manifest_path = png_dir / "review_manifest.tsv"
-            write_review_manifest(manifest_path, review_rows)
-        except Exception as exc:
-            print(f"WARNING: PNG export failed: {exc}")
-
-    # Summary
+    # In-memory run summary (not written to disk).
     summary = {
         "archive": archive_name,
         "video_path": str(video_path),
@@ -750,37 +653,38 @@ def _run_with_config(config: TrackingLossConfig):
         "bad_frames":  int(len(bad_frames)),
         "predicted_bad_ranges": int(len(bad_ranges)),
         "png_samples": {
-            "review_output_dir": str(png_dir) if (req_bad > 0 or req_good > 0) else None,
-            "review_manifest":   str(manifest_path) if manifest_path else None,
-            "bad":  {"requested": req_bad,  "written": len(w_bad),  "failed": [int(x) for x in f_bad]},
-            "good": {"requested": req_good, "written": len(w_good), "failed": [int(x) for x in f_good]},
+            "enabled": False,
+            "note": "PNG sample export is disabled; use vhs_tuner.py for frame review.",
+            "review_output_dir": None,
+            "review_manifest":   None,
+            "bad":  {"requested": 0, "written": 0, "failed": []},
+            "good": {"requested": 0, "written": 0, "failed": []},
         },
     }
 
-    if existing_bf.exists():
+    if existing_fq.exists():
         predicted_bad = set(bad_frames)
-        tp   = len(predicted_bad & manual_bad_eval)
-        fp   = len(predicted_bad - manual_bad_eval)
-        fn   = len(manual_bad_eval - predicted_bad)
+        tp   = len(predicted_bad & existing_bad_eval)
+        fp   = len(predicted_bad - existing_bad_eval)
+        fn   = len(existing_bad_eval - predicted_bad)
         tn   = len(evaluated_set) - tp - fp - fn
         prec = tp / (tp + fp) if (tp + fp) > 0 else 0.0
         rec  = tp / (tp + fn) if (tp + fn) > 0 else 0.0
         f1   = 2*prec*rec / (prec+rec) if (prec+rec) > 0 else 0.0
-        summary["comparison_to_existing_badframes"] = {
-            "path": str(existing_bf),
-            "manual_bad_ranges": int(len(manual_ranges)),
-            "manual_bad_frames_in_window": int(len(manual_bad_eval)),
+        summary["comparison_to_existing_frame_quality"] = {
+            "path": str(existing_fq),
+            "existing_bad_frames_in_window": int(len(existing_bad_eval)),
             "predicted_bad_frames": int(len(predicted_bad)),
             "tp": int(tp), "fp": int(fp), "fn": int(fn), "tn": int(tn),
             "precision": float(prec), "recall": float(rec), "f1": float(f1),
         }
     else:
-        summary["comparison_to_existing_badframes"] = {
-            "path": str(existing_bf), "note": "file not found; comparison skipped",
+        summary["comparison_to_existing_frame_quality"] = {
+            "path": str(existing_fq), "note": "file not found; comparison skipped",
         }
 
-    frame_scores_path, badframes_path, summary_path = write_outputs(
-        output_dir=output_dir,
+    frame_quality_path = write_outputs(
+        frame_quality_path=meta_fq_tsv,
         indices=indices,
         scores=scores_np.tolist(),
         chroma_scores=chroma_scores,
@@ -789,35 +693,17 @@ def _run_with_config(config: TrackingLossConfig):
         wave_scores=wave_scores,
         thresholds=thresholds.tolist(),
         labels=labels,
-        bad_ranges=bad_ranges,
-        summary=summary,
     )
 
-    print(f"\nFrame scores:           {frame_scores_path}")
-    print(f"Predicted bad ranges:   {badframes_path}")
-    print(f"Summary:                {summary_path}")
-    mirrored = mirror_metadata_outputs(output_dir, meta_copy)
-    print(f"Mirrored metadata:      {meta_copy} ({len(mirrored)} file(s))")
-    meta_bf_tsv.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(badframes_path, meta_bf_tsv)
-    print(f"Metadata badframes TSV: {meta_bf_tsv}")
-    if req_bad > 0 or req_good > 0:
-        print(f"PNG samples:            {png_dir}  (bad={len(w_bad)}, good={len(w_good)})")
-        if manifest_path:
-            print(f"Review manifest:        {manifest_path}")
+    print(f"Frame quality:          {frame_quality_path}")
+    print("Outputs:                frame_quality.tsv only")
 
     return {
-        "frame_scores_path":      frame_scores_path,
-        "badframes_path":         badframes_path,
-        "summary_path":           summary_path,
-        "output_dir":             output_dir,
-        "png_output_dir":         png_dir,
-        "written_bad_pngs":       int(len(w_bad)),
-        "written_good_pngs":      int(len(w_good)),
-        "review_manifest_path":   manifest_path,
-        "metadata_copy_dir":      meta_copy,
-        "metadata_badframes_tsv": meta_bf_tsv,
-        "mirrored_file_count":    int(len(mirrored)),
+        "frame_quality_path":     frame_quality_path,
+        "metadata_frame_quality_tsv": meta_fq_tsv,
+        "evaluated_frames":       int(len(indices)),
+        "bad_frames":             int(len(bad_frames)),
+        "good_frames":            int(len(good_frames)),
     }
 
 
@@ -832,9 +718,8 @@ def parse_args(argv=None):
     p.add_argument("--archive",       default=DEFAULT_ARCHIVE)
     p.add_argument("--video",         default="")
     p.add_argument("--chapters-file", default="")
-    p.add_argument("--output-dir",    default="")
     p.add_argument("--scores-tsv",    default="")
-    p.add_argument("--existing-badframes", default="")
+    p.add_argument("--existing-frame-quality", default="")
     p.add_argument("--start-frame",  type=int,   default=0)
     p.add_argument("--max-frame",    type=int,   default=-1)
     p.add_argument("--frame-step",   type=int,   default=1)
@@ -850,12 +735,7 @@ def parse_args(argv=None):
     p.add_argument("--iqr-mult",      type=float, default=3.5,
                    help="Tukey fence multiplier: threshold = Q3 + k*IQR (default: 3.5)")
     p.add_argument("--threshold-window-size", type=int, default=1000)
-    p.add_argument("--export-review-png-count", type=int, default=1000)
-    p.add_argument("--export-bad-png-count",    type=int, default=-1)
-    p.add_argument("--export-good-png-count",   type=int, default=-1)
-    p.add_argument("--png-output-dir",          default="")
-    p.add_argument("--metadata-copy-dir",       default="")
-    p.add_argument("--metadata-badframes-tsv",  default="")
+    p.add_argument("--metadata-frame-quality-tsv",  default="")
     return p.parse_args(argv)
 
 
@@ -864,9 +744,8 @@ def args_to_config(args):
         archive=args.archive,
         video=args.video or "",
         chapters_file=args.chapters_file or "",
-        output_dir=args.output_dir or "",
         scores_tsv=args.scores_tsv or "",
-        existing_badframes=args.existing_badframes or "",
+        existing_frame_quality=args.existing_frame_quality or "",
         start_frame=int(args.start_frame),
         max_frame=int(args.max_frame),
         frame_step=int(args.frame_step),
@@ -880,12 +759,7 @@ def args_to_config(args):
         weight_wave=float(args.weight_wave),
         iqr_mult=float(args.iqr_mult),
         threshold_window_size=max(1, int(args.threshold_window_size)),
-        export_bad_png_count=int(args.export_bad_png_count),
-        export_good_png_count=int(args.export_good_png_count),
-        export_review_png_count=int(args.export_review_png_count),
-        png_output_dir=args.png_output_dir or "",
-        metadata_copy_dir=args.metadata_copy_dir or "",
-        metadata_badframes_tsv=args.metadata_badframes_tsv or "",
+        metadata_frame_quality_tsv=args.metadata_frame_quality_tsv or "",
     )
 
 
