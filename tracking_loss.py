@@ -34,10 +34,18 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
-from common import ARCHIVE_DIR, METADATA_DIR, apply_config_overrides, require_non_empty
+from common import (
+    ARCHIVE_DIR,
+    METADATA_DIR,
+    apply_config_overrides,
+    parse_bad_frames_csv,
+    require_non_empty,
+    update_chapter_bad_frames_in_ffmetadata,
+)
 
 
 DEFAULT_ARCHIVE = "callahan_01_archive"
+FPS = 30000 / 1001
 
 
 @dataclass(frozen=True)
@@ -46,7 +54,6 @@ class TrackingLossConfig:
     video: str = ""
     chapters_file: str = ""        # default: METADATA_DIR/<archive>/chapters.ffmetadata
     scores_tsv: str = ""
-    existing_frame_quality: str = ""
     start_frame: int = 0
     max_frame: int = -1
     frame_step: int = 1
@@ -60,7 +67,6 @@ class TrackingLossConfig:
     weight_wave: float = 0.25      # wave_energy signal weight
     iqr_mult: float = 3.5          # Tukey fence multiplier: threshold = Q3 + iqr_mult * IQR
     threshold_window_size: int = 1000
-    metadata_frame_quality_tsv: str = ""
 
 
 DEFAULT_CONFIG = TrackingLossConfig()
@@ -138,32 +144,57 @@ def compute_tracking_signals(frame_bgr, crop_top, crop_bottom, crop_left, crop_r
 
 def parse_chapters_ffmetadata(path):
     chapters, current = [], {}
+    default_tb = 1.0 / 1_000_000_000
     for raw_line in Path(path).read_text(encoding="utf-8", errors="ignore").splitlines():
         line = raw_line.strip()
         if line == "[CHAPTER]":
-            if current.get("start") is not None and current.get("end") is not None:
-                chapters.append(current)
-            current = {}
+            if current.get("start_raw") is not None and current.get("end_raw") is not None:
+                tb = float(current.get("_tb", default_tb))
+                start_frame = int(round(float(current["start_raw"]) * tb * FPS))
+                end_frame = int(round(float(current["end_raw"]) * tb * FPS))
+                chapters.append({
+                    "start": start_frame,
+                    "end": end_frame,
+                    "title": str(current.get("title", "")),
+                    "bad_frames": str(current.get("bad_frames", "")),
+                })
+            current = {"_tb": default_tb}
             continue
         if "=" not in line or line.startswith(";"):
             continue
         key, _, value = line.partition("=")
         key   = key.strip().upper()
         value = value.strip()
-        if key == "START":
+        if key == "TIMEBASE":
             try:
-                current["start"] = int(value)
+                n, d = value.split("/")
+                current["_tb"] = float(n) / float(d)
+            except Exception:
+                pass
+        elif key == "START":
+            try:
+                current["start_raw"] = int(value)
             except ValueError:
                 pass
         elif key == "END":
             try:
-                current["end"] = int(value)
+                current["end_raw"] = int(value)
             except ValueError:
                 pass
         elif key == "TITLE":
             current["title"] = value
-    if current.get("start") is not None and current.get("end") is not None:
-        chapters.append(current)
+        elif key == "BAD_FRAMES":
+            current["bad_frames"] = value
+    if current.get("start_raw") is not None and current.get("end_raw") is not None:
+        tb = float(current.get("_tb", default_tb))
+        start_frame = int(round(float(current["start_raw"]) * tb * FPS))
+        end_frame = int(round(float(current["end_raw"]) * tb * FPS))
+        chapters.append({
+            "start": start_frame,
+            "end": end_frame,
+            "title": str(current.get("title", "")),
+            "bad_frames": str(current.get("bad_frames", "")),
+        })
     return chapters
 
 
@@ -374,27 +405,21 @@ def combine_signals(chroma_scores, noise_scores, tear_scores, wave_scores,
 # I/O helpers
 # ---------------------------------------------------------------------------
 
-def parse_existing_bad_frames_from_frame_quality(tsv_path):
+def parse_existing_bad_frames_from_chapters(chapters):
     bad = set()
-    if not tsv_path or not Path(tsv_path).exists():
-        return bad
-    for raw_line in Path(tsv_path).read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = [p.strip() for p in line.split("\t")]
-        low = [p.lower() for p in parts]
-        if low and low[0] == "frame":
-            continue
-        if len(parts) < 3:
-            continue
+    for ch in chapters or []:
         try:
-            fi = int(parts[0])
-            is_bad = int(parts[2]) == 1
+            start = int(ch.get("start", 0))
+            end = int(ch.get("end", 0))
         except Exception:
             continue
-        if is_bad:
-            bad.add(fi)
+        if end <= start:
+            continue
+        local_bad = parse_bad_frames_csv(ch.get("bad_frames", ""))
+        max_local = max(0, (end - start) - 1)
+        for lf in local_bad:
+            if 0 <= int(lf) <= max_local:
+                bad.add(start + int(lf))
     return bad
 
 
@@ -492,20 +517,27 @@ def finite_stats(values):
         return {"min": None, "max": None, "mean": None}
     return {"min": float(np.min(f)), "max": float(np.max(f)), "mean": float(np.mean(f))}
 
-
-def write_outputs(frame_quality_path, indices, scores, chroma_scores, noise_scores, tear_scores,
-                  wave_scores, thresholds, labels):
-    frame_quality_path.parent.mkdir(parents=True, exist_ok=True)
-    with frame_quality_path.open("w", encoding="utf-8") as f:
-        f.write("frame\tscore\tbad_frame\tmanual_override\tthreshold\tchroma_loss\tnoise_energy\trow_tear\twave_energy\n")
-        for fi, sc, lbl, thr, ch, no, te, wa in zip(
-                indices, scores, labels, thresholds, chroma_scores, noise_scores, tear_scores, wave_scores):
-            bad = 1 if str(lbl).lower() == "bad" else 0
-            f.write(
-                f"{fi}\t{float(sc):.8f}\t{bad}\t0\t{float(thr):.8f}\t"
-                f"{float(ch):.8f}\t{float(no):.8f}\t{float(te):.8f}\t{float(wa):.8f}\n"
-            )
-    return frame_quality_path
+def build_chapter_bad_frame_updates(chapters, evaluated_indices, bad_frames):
+    evaluated_set = set(int(x) for x in evaluated_indices)
+    bad_set = set(int(x) for x in bad_frames)
+    updates = {}
+    for ch in chapters or []:
+        title = str(ch.get("title", "")).strip()
+        if not title:
+            continue
+        try:
+            start = int(ch.get("start", 0))
+            end = int(ch.get("end", 0))
+        except Exception:
+            continue
+        if end <= start:
+            continue
+        evaluated_here = any(start <= fi < end for fi in evaluated_set)
+        if not evaluated_here:
+            continue
+        local_bad = sorted(fi - start for fi in bad_set if start <= fi < end)
+        updates[title] = local_bad
+    return updates
 
 
 # ---------------------------------------------------------------------------
@@ -516,8 +548,6 @@ def _run_with_config(config: TrackingLossConfig):
     archive_name = require_non_empty(config.archive, "archive")
 
     video_path    = Path(config.video)    if config.video    else (ARCHIVE_DIR / f"{archive_name}.mkv")
-    meta_fq_tsv   = Path(config.metadata_frame_quality_tsv) if config.metadata_frame_quality_tsv else (METADATA_DIR / archive_name / "frame_quality.tsv")
-    existing_fq   = Path(config.existing_frame_quality)   if config.existing_frame_quality   else (METADATA_DIR / archive_name / "frame_quality.tsv")
     chapters_file = Path(config.chapters_file)        if config.chapters_file        else (METADATA_DIR / archive_name / "chapters.ffmetadata")
     scores_tsv    = Path(config.scores_tsv)           if config.scores_tsv           else None
 
@@ -562,6 +592,7 @@ def _run_with_config(config: TrackingLossConfig):
     evaluated_set = set(indices)
 
     # Load chapters
+    raw_chapters    = []
     chapters        = []
     chapter_overlap = {"original_count": 0, "excluded_count": 0, "kept_count": 0}
     chapters_source = None
@@ -592,18 +623,16 @@ def _run_with_config(config: TrackingLossConfig):
 
     # Classify
     labels             = ["bad" if s >= t else "good" for s, t in zip(scores_np, thresholds)]
-    score_by_frame     = {int(fi): float(sc) for fi, sc in zip(indices, scores_np)}
-    threshold_by_frame = {int(fi): float(t)  for fi, t  in zip(indices, thresholds)}
 
     good_frames = sorted(fi for fi, lbl in zip(indices, labels) if lbl == "good")
     bad_frames  = sorted(fi for fi, lbl in zip(indices, labels) if lbl == "bad")
     bad_ranges  = ranges_from_sorted_frames(bad_frames)
 
-    # Existing frame-quality comparison
+    # Existing chapter-metadata comparison (before writing updates).
     existing_bad_eval = set()
-    if existing_fq.exists():
+    if raw_chapters:
         existing_bad_eval = evaluated_set.intersection(
-            parse_existing_bad_frames_from_frame_quality(existing_fq)
+            parse_existing_bad_frames_from_chapters(raw_chapters)
         )
 
     # In-memory run summary (not written to disk).
@@ -662,7 +691,7 @@ def _run_with_config(config: TrackingLossConfig):
         },
     }
 
-    if existing_fq.exists():
+    if raw_chapters:
         predicted_bad = set(bad_frames)
         tp   = len(predicted_bad & existing_bad_eval)
         fp   = len(predicted_bad - existing_bad_eval)
@@ -671,36 +700,37 @@ def _run_with_config(config: TrackingLossConfig):
         prec = tp / (tp + fp) if (tp + fp) > 0 else 0.0
         rec  = tp / (tp + fn) if (tp + fn) > 0 else 0.0
         f1   = 2*prec*rec / (prec+rec) if (prec+rec) > 0 else 0.0
-        summary["comparison_to_existing_frame_quality"] = {
-            "path": str(existing_fq),
+        summary["comparison_to_existing_bad_frames"] = {
+            "path": str(chapters_file),
             "existing_bad_frames_in_window": int(len(existing_bad_eval)),
             "predicted_bad_frames": int(len(predicted_bad)),
             "tp": int(tp), "fp": int(fp), "fn": int(fn), "tn": int(tn),
             "precision": float(prec), "recall": float(rec), "f1": float(f1),
         }
     else:
-        summary["comparison_to_existing_frame_quality"] = {
-            "path": str(existing_fq), "note": "file not found; comparison skipped",
+        summary["comparison_to_existing_bad_frames"] = {
+            "path": str(chapters_file), "note": "chapters not found; comparison skipped",
         }
 
-    frame_quality_path = write_outputs(
-        frame_quality_path=meta_fq_tsv,
-        indices=indices,
-        scores=scores_np.tolist(),
-        chroma_scores=chroma_scores,
-        noise_scores=noise_scores,
-        tear_scores=tear_scores,
-        wave_scores=wave_scores,
-        thresholds=thresholds.tolist(),
-        labels=labels,
+    chapter_updates = build_chapter_bad_frame_updates(
+        chapters=chapters,
+        evaluated_indices=indices,
+        bad_frames=bad_frames,
     )
-
-    print(f"Frame quality:          {frame_quality_path}")
-    print("Outputs:                frame_quality.tsv only")
+    if not chapters_file.exists():
+        raise FileNotFoundError(
+            f"chapters.ffmetadata not found for metadata write: {chapters_file}"
+        )
+    touched = update_chapter_bad_frames_in_ffmetadata(chapters_file, chapter_updates)
+    print(
+        f"Updated chapter bad_frames in metadata: {chapters_file} "
+        f"({touched} chapter block(s) updated)"
+    )
+    print("Outputs:                chapters.ffmetadata (BAD_FRAMES=...) only")
 
     return {
-        "frame_quality_path":     frame_quality_path,
-        "metadata_frame_quality_tsv": meta_fq_tsv,
+        "chapters_file":          chapters_file,
+        "updated_chapters":       int(touched),
         "evaluated_frames":       int(len(indices)),
         "bad_frames":             int(len(bad_frames)),
         "good_frames":            int(len(good_frames)),
@@ -719,7 +749,6 @@ def parse_args(argv=None):
     p.add_argument("--video",         default="")
     p.add_argument("--chapters-file", default="")
     p.add_argument("--scores-tsv",    default="")
-    p.add_argument("--existing-frame-quality", default="")
     p.add_argument("--start-frame",  type=int,   default=0)
     p.add_argument("--max-frame",    type=int,   default=-1)
     p.add_argument("--frame-step",   type=int,   default=1)
@@ -735,7 +764,6 @@ def parse_args(argv=None):
     p.add_argument("--iqr-mult",      type=float, default=3.5,
                    help="Tukey fence multiplier: threshold = Q3 + k*IQR (default: 3.5)")
     p.add_argument("--threshold-window-size", type=int, default=1000)
-    p.add_argument("--metadata-frame-quality-tsv",  default="")
     return p.parse_args(argv)
 
 
@@ -745,7 +773,6 @@ def args_to_config(args):
         video=args.video or "",
         chapters_file=args.chapters_file or "",
         scores_tsv=args.scores_tsv or "",
-        existing_frame_quality=args.existing_frame_quality or "",
         start_frame=int(args.start_frame),
         max_frame=int(args.max_frame),
         frame_step=int(args.frame_step),
@@ -759,7 +786,6 @@ def args_to_config(args):
         weight_wave=float(args.weight_wave),
         iqr_mult=float(args.iqr_mult),
         threshold_window_size=max(1, int(args.threshold_window_size)),
-        metadata_frame_quality_tsv=args.metadata_frame_quality_tsv or "",
     )
 
 

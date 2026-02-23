@@ -311,6 +311,17 @@ def update_chapter_bad_frames_in_ffmetadata(path, chapter_bad_frames):
             i += 1
 
         title = ""
+        for bline in block:
+            s = bline.strip()
+            if "=" in s and not s.startswith(";"):
+                k, v = s.split("=", 1)
+                if k.strip().lower() == "title":
+                    title = v.strip()
+                    break
+
+        nk = _norm_title(title)
+        should_update = nk in pending
+
         title_idx = -1
         cleaned = []
         for bline in block:
@@ -319,14 +330,13 @@ def update_chapter_bad_frames_in_ffmetadata(path, chapter_bad_frames):
                 k, v = s.split("=", 1)
                 key = k.strip().lower()
                 if key == "title":
-                    title = v.strip()
                     title_idx = len(cleaned)
-                if key == "bad_frames":
+                # Only replace BAD_FRAMES for chapter blocks we're updating.
+                if should_update and key == "bad_frames":
                     continue
             cleaned.append(bline)
 
-        nk = _norm_title(title)
-        if nk in pending:
+        if should_update:
             csv = format_bad_frames_csv(pending[nk])
             insert_at = title_idx + 1 if title_idx >= 0 else len(cleaned)
             cleaned.insert(insert_at, f"BAD_FRAMES={csv}")
