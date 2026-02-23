@@ -8,9 +8,12 @@ Requires:  pip install gradio opencv-python-headless numpy pillow pandas
 
 Metadata layout (all under metadata/<archive>/)
 ────────────────────────────────────────────────
-  chapters.ffmetadata           per-chapter BAD_FRAMES=<csv local frame ids>
+  frame_quality.tsv              archive-level canonical frame labels/scores
+                                 columns: frame, score, bad_frame, manual_override
+  frame_quality_settings.tsv     chapter ranges + tracking-loss parameters used
 
-step_6_make_videos.py reads chapter BAD_FRAMES lists directly from chapters.ffmetadata.
+step_6_make_videos.py reads  metadata/<archive>/frame_quality.tsv
+                              which is kept up-to-date by "Apply & Regenerate"
 """
 
 from __future__ import annotations
@@ -19,7 +22,6 @@ import base64
 import io
 import json
 import re
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -36,7 +38,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 ARCHIVE_DIR  = PROJECT_ROOT / "../Archive"
 METADATA_DIR = PROJECT_ROOT / "metadata"
-STEP6        = PROJECT_ROOT / "step_6_make_videos.py"
 FPS          = 30000 / 1001
 BORDER       = 3
 
@@ -47,8 +48,6 @@ except ImportError:
     TrackingLossConfig = None            # type: ignore
     run_tracking_loss_classification = None  # type: ignore
     _HAS_TRACKING = False
-
-from common import parse_bad_frames_csv, update_chapter_bad_frames_in_ffmetadata
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Chapter / metadata helpers
@@ -81,8 +80,6 @@ def parse_ffmetadata_chapters(path: Path) -> list[dict]:
             except Exception: pass
         elif key == "TITLE":
             current["title"] = val
-        elif key == "BAD_FRAMES":
-            current["bad_frames"] = parse_bad_frames_csv(val)
     if "start_raw" in current:
         chapters.append(current)
     result = []
@@ -95,121 +92,258 @@ def parse_ffmetadata_chapters(path: Path) -> list[dict]:
             "start_sec":   s_sec,  "end_sec":   e_sec,
             "start_frame": int(round(s_sec * FPS)),
             "end_frame":   int(round(e_sec * FPS)),
-            "bad_frames":  list(ch.get("bad_frames", [])),
         })
     return result
 
 def slugify(title: str) -> str:
     return re.sub(r"[^\w]+", "_", str(title).strip()).strip("_").lower()
 
-def _chapters_file_path(archive: str) -> Path:
-    return METADATA_DIR / str(archive or "").strip() / "chapters.ffmetadata"
+def _archive_frame_quality_path(archive: str) -> Path:
+    p = METADATA_DIR / archive / "frame_quality.tsv"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
 
-def _chapter_bad_overrides(
+def _archive_frame_quality_settings_path(archive: str) -> Path:
+    p = METADATA_DIR / archive / "frame_quality_settings.tsv"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _archive_tracking_tmp_frame_quality_path(archive: str) -> Path:
+    p = METADATA_DIR / archive / "_frame_quality_tracking_tmp.tsv"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+def upsert_frame_quality_settings(
+    *,
     archive: str,
-    chapter_title: str,
+    chapter: str,
+    start_frame: int,
+    end_frame: int,
+    weight_chroma: float,
+    weight_noise: float,
+    weight_tear: float,
+    weight_wave: float,
+    iqr_mult: float,
+    frame_step: int,
+    threshold_window_size: int = 1000,
+) -> Path:
+    def _chapter_key(text: str) -> str:
+        # Canonical chapter key so Apply replaces the same chapter row reliably.
+        return " ".join(str(text or "").strip().lower().split())
+
+    path = _archive_frame_quality_settings_path(archive)
+    rows: list[dict[str, str]] = []
+    if path.exists():
+        for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            s = raw.strip()
+            if not s or s.startswith("#"):
+                continue
+            parts = [p.strip() for p in s.split("\t")]
+            if parts and parts[0].lower() == "chapter":
+                continue
+            if len(parts) < 10:
+                continue
+            rows.append({
+                "chapter": parts[0],
+                "start_frame": parts[1],
+                "end_frame": parts[2],
+                "weight_chroma": parts[3],
+                "weight_noise": parts[4],
+                "weight_tear": parts[5],
+                "weight_wave": parts[6],
+                "iqr_mult": parts[7],
+                "frame_step": parts[8],
+                "threshold_window_size": parts[9],
+            })
+
+    key = _chapter_key(chapter)
+    new_row = {
+        "chapter": str(chapter),
+        "start_frame": str(int(start_frame)),
+        "end_frame": str(int(end_frame)),
+        "weight_chroma": f"{float(weight_chroma):.6f}",
+        "weight_noise": f"{float(weight_noise):.6f}",
+        "weight_tear": f"{float(weight_tear):.6f}",
+        "weight_wave": f"{float(weight_wave):.6f}",
+        "iqr_mult": f"{float(iqr_mult):.6f}",
+        "frame_step": str(int(frame_step)),
+        "threshold_window_size": str(int(threshold_window_size)),
+    }
+
+    # Drop all prior rows for this chapter and keep only the latest settings.
+    deduped = [r for r in rows if _chapter_key(r.get("chapter", "")) != key]
+    deduped.append(new_row)
+
+    deduped.sort(key=lambda r: (int(r["start_frame"]), int(r["end_frame"]), r["chapter"]))
+    with path.open("w", encoding="utf-8") as f:
+        f.write(
+            "chapter\tstart_frame\tend_frame\tweight_chroma\tweight_noise\t"
+            "weight_tear\tweight_wave\tiqr_mult\tframe_step\tthreshold_window_size\n"
+        )
+        for r in deduped:
+            f.write(
+                f"{r['chapter']}\t{r['start_frame']}\t{r['end_frame']}\t"
+                f"{r['weight_chroma']}\t{r['weight_noise']}\t{r['weight_tear']}\t"
+                f"{r['weight_wave']}\t{r['iqr_mult']}\t{r['frame_step']}\t"
+                f"{r['threshold_window_size']}\n"
+            )
+    return path
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Bad-frame range I/O
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _read_frame_quality_rows(path: Path) -> dict[int, dict[str, float | int]]:
+    rows: dict[int, dict[str, float | int]] = {}
+    if not path.exists():
+        return rows
+    for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        s = raw.strip()
+        if not s or s.startswith("#"):
+            continue
+        parts = [p.strip() for p in s.split("\t")]
+        low = [p.lower() for p in parts]
+        if low and low[0] in {"frame", "start_frame"}:
+            continue
+        if len(parts) < 3:
+            continue
+        try:
+            fid = int(parts[0])
+        except Exception:
+            continue
+        score = np.nan
+        try:
+            if len(parts) > 1 and parts[1] != "":
+                score = float(parts[1])
+        except Exception:
+            score = np.nan
+        try:
+            bad_frame = int(parts[2])
+        except Exception:
+            bad_frame = 0
+        manual_override = 0
+        if len(parts) > 3:
+            try:
+                manual_override = int(parts[3])
+            except Exception:
+                manual_override = 0
+        rows[fid] = {
+            "score": score,
+            "bad_frame": 1 if int(bad_frame) else 0,
+            "manual_override": 1 if int(manual_override) else 0,
+        }
+    return rows
+
+def _write_frame_quality_rows(path: Path, rows: dict[int, dict[str, float | int]]) -> None:
+    with path.open("w", encoding="utf-8") as f:
+        f.write("frame\tscore\tbad_frame\tmanual_override\n")
+        for fid in sorted(rows):
+            row = rows[fid]
+            sc = float(row.get("score", np.nan))
+            sc_txt = "" if not np.isfinite(sc) else f"{sc:.8f}"
+            bad = 1 if int(row.get("bad_frame", 0)) else 0
+            man = 1 if int(row.get("manual_override", 0)) else 0
+            f.write(f"{int(fid)}\t{sc_txt}\t{bad}\t{man}\n")
+
+def load_manual_overrides_from_archive_frame_quality(
+    archive: str,
     ch_start: int,
     ch_end: int,
 ) -> dict[int, str]:
     out: dict[int, str] = {}
-    cf = _chapters_file_path(archive)
-    if not cf.exists():
-        return out
-    chapters = parse_ffmetadata_chapters(cf)
-    ch = _find_chapter(chapters, chapter_title)
-    if not ch:
-        return out
-    start = int(ch_start)
-    end = int(ch_end)
-    chapter_span = max(0, end - start + 1)
-    for lf in [int(x) for x in ch.get("bad_frames", [])]:
-        if 0 <= int(lf) < chapter_span:
-            out[start + int(lf)] = "bad"
+    rows = _read_frame_quality_rows(_archive_frame_quality_path(archive))
+    for fid, row in rows.items():
+        if fid < int(ch_start) or fid > int(ch_end):
+            continue
+        if int(row.get("manual_override", 0)) != 1:
+            continue
+        out[int(fid)] = "bad" if int(row.get("bad_frame", 0)) == 1 else "good"
     return out
 
-def _write_chapter_bad_overrides(
+def _load_tracking_frame_scores(path: Path) -> dict[int, tuple[float, int]]:
+    out: dict[int, tuple[float, int]] = {}
+    if not path.exists():
+        return out
+    header: dict[str, int] | None = None
+    for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        s = raw.strip()
+        if not s or s.startswith("#"):
+            continue
+        parts = [p.strip() for p in s.split("\t")]
+        low = [p.lower() for p in parts]
+        if header is None and "frame" in low and "score" in low:
+            header = {name: idx for idx, name in enumerate(low)}
+            continue
+        if header is None:
+            continue
+        try:
+            fid = int(parts[header["frame"]])
+            score = float(parts[header["score"]])
+        except Exception:
+            continue
+        bad = 0
+        if "bad_frame" in header and header["bad_frame"] < len(parts):
+            try:
+                bad = 1 if int(parts[header["bad_frame"]]) == 1 else 0
+            except Exception:
+                bad = 0
+        elif "label" in header and header["label"] < len(parts):
+            label = parts[header["label"]].strip().lower()
+            bad = 1 if label == "bad" else 0
+        out[fid] = (score, bad)
+    return out
+
+def merge_chapter_into_archive_frame_quality(
     archive: str,
-    chapter_title: str,
     ch_start: int,
     ch_end: int,
+    scored_rows: dict[int, tuple[float, int]],
     overrides: dict[int, str],
 ) -> Path:
-    cf = _chapters_file_path(archive)
-    start = int(ch_start)
-    end = int(ch_end)
-    chapter_span = max(0, end - start + 1)
-    local_bad = sorted(
-        {
-            int(fid) - start
-            for fid, label in (overrides or {}).items()
-            if str(label) == "bad" and start <= int(fid) <= end
-        }
-    )
-    local_bad = [lf for lf in local_bad if 0 <= int(lf) < chapter_span]
-    update_chapter_bad_frames_in_ffmetadata(cf, {str(chapter_title): local_bad})
-    return cf
-
-
-def _persist_visible_bad_frames(
-    *,
-    archive: str,
-    chapter_title: str,
-    ch_start: int,
-    ch_end: int,
-    fids: list[int],
-    sigs: dict[str, np.ndarray],
-    overrides: dict[int, str],
-    wc: float,
-    wn: float,
-    wt: float,
-    ww: float,
-    tm: str,
-    ik: float,
-    tv: float,
-    bp: float,
-) -> tuple[Path | None, int]:
-    if not archive or not chapter_title or not fids or not sigs:
-        return None, 0
-    cf = _chapters_file_path(archive)
-    if not cf.exists():
-        return None, 0
-    chapters = parse_ffmetadata_chapters(cf)
-    ch = _find_chapter(chapters, chapter_title)
-    if not ch:
-        return None, 0
-
-    start = int(ch_start)
-    end = int(ch_end)
-    span = max(0, end - start + 1)
-    existing_local_bad = {
-        int(x)
-        for x in ch.get("bad_frames", [])
-        if 0 <= int(x) < span
+    path = _archive_frame_quality_path(archive)
+    existing = _read_frame_quality_rows(path)
+    merged: dict[int, dict[str, float | int]] = {
+        fid: row
+        for fid, row in existing.items()
+        if fid < int(ch_start) or fid > int(ch_end)
     }
-
-    scores = combined_score(sigs, wc, wn, wt, ww)
-    thr = compute_threshold(scores, tm, ik, tv, bp)
-
-    for fid, sc in zip(fids, scores):
-        fid_i = int(fid)
-        if not (start <= fid_i <= end):
+    for fid, (score, bad) in scored_rows.items():
+        if fid < int(ch_start) or fid > int(ch_end):
             continue
-        lf = fid_i - start
-        ov = overrides.get(fid_i)
-        if ov == "bad":
-            is_bad = True
-        elif ov == "good":
-            is_bad = False
-        else:
-            is_bad = bool(float(sc) >= float(thr))
-        if is_bad:
-            existing_local_bad.add(int(lf))
-        else:
-            existing_local_bad.discard(int(lf))
+        merged[int(fid)] = {"score": float(score), "bad_frame": int(bad), "manual_override": 0}
 
-    out_local = sorted(existing_local_bad)
-    update_chapter_bad_frames_in_ffmetadata(cf, {str(chapter_title): out_local})
-    return cf, len(out_local)
+    for fid, label in overrides.items():
+        if fid < int(ch_start) or fid > int(ch_end):
+            continue
+        base = merged.get(int(fid), existing.get(int(fid), {"score": np.nan, "bad_frame": 0, "manual_override": 0}))
+        base["bad_frame"] = 1 if label == "bad" else 0
+        base["manual_override"] = 1
+        merged[int(fid)] = base
+
+    _write_frame_quality_rows(path, merged)
+    return path
+
+def upsert_frame_quality_row(
+    archive: str,
+    frame: int,
+    score: float,
+    bad_frame: int,
+    manual_override: int,
+) -> Path:
+    path = _archive_frame_quality_path(archive)
+    rows = _read_frame_quality_rows(path)
+    rows[int(frame)] = {
+        "score": float(score) if np.isfinite(score) else np.nan,
+        "bad_frame": 1 if int(bad_frame) else 0,
+        "manual_override": 1 if int(manual_override) else 0,
+    }
+    _write_frame_quality_rows(path, rows)
+    return path
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Signal cache
+# ═══════════════════════════════════════════════════════════════════════════════
 
 def load_cached_signals(archive: str, ch_title: str) -> tuple[list[int] | None, dict | None]:
     return None, None
@@ -378,19 +512,21 @@ def toggle_frame_override(
     tv: float,
     bp: float,
 ) -> dict[int, str]:
+    """
+    Toggle one frame between:
+    - auto state (no override)
+    - forced opposite of auto state
+    """
     out = dict(overrides)
-    # 3-state manual override:
-    # - no override + auto-good -> force bad
-    # - no override + auto-bad  -> force good
-    # - forced bad/good         -> clear override (back to auto)
-    if int(fid) not in out:
-        scores = combined_score(sigs, wc, wn, wt, ww)
-        thr = compute_threshold(scores, tm, ik, tv, bp)
-        pos = {int(f): i for i, f in enumerate(fids)}.get(int(fid))
-        auto_bad = bool(pos is not None and float(scores[pos]) >= float(thr))
-        out[int(fid)] = "good" if auto_bad else "bad"
+    sc = combined_score(sigs, wc, wn, wt, ww)
+    thr = compute_threshold(sc, tm, ik, tv, bp)
+    idx = fids.index(fid) if fid in fids else -1
+    auto_bad = (idx >= 0 and sc[idx] >= thr)
+
+    if fid in out:
+        del out[fid]
     else:
-        del out[int(fid)]
+        out[fid] = "good" if auto_bad else "bad"
     return out
 
 
@@ -432,9 +568,6 @@ def apply_manual_click_override(
     sigs: dict[str, np.ndarray],
     overrides: dict[int, str],
     archive: str,
-    chapter_title: str,
-    ch_start: int,
-    ch_end: int,
     wc: float,
     wn: float,
     wt: float,
@@ -475,33 +608,33 @@ def apply_manual_click_override(
         bp=bp,
     )
 
-    after = new_ov.get(fid)
-    p, n = _persist_visible_bad_frames(
-        archive=str(archive or ""),
-        chapter_title=str(chapter_title or ""),
-        ch_start=int(ch_start),
-        ch_end=int(ch_end),
-        fids=[int(x) for x in (fids or [])],
-        sigs=sigs or {},
-        overrides=new_ov,
-        wc=wc,
-        wn=wn,
-        wt=wt,
-        ww=ww,
-        tm=tm,
-        ik=ik,
-        tv=tv,
-        bp=bp,
-    )
-    persisted = p is not None
-    persisted_count = int(n)
-    persisted_path = str(p) if p is not None else ""
+    sc = combined_score(sigs, wc, wn, wt, ww)
+    thr = compute_threshold(sc, tm, ik, tv, bp)
+    idx = fids.index(fid) if fid in fids else -1
+    auto_bad = bool(idx >= 0 and sc[idx] >= thr)
+    score_val = float(sc[idx]) if idx >= 0 else float("nan")
+    manual_state = new_ov.get(fid)
+    resolved_bad = (manual_state == "bad") if manual_state else auto_bad
+    manual_flag = 1 if manual_state else 0
 
+    persisted = False
+    persisted_path = ""
+    if archive:
+        out_path = upsert_frame_quality_row(
+            archive=archive,
+            frame=int(fid),
+            score=score_val,
+            bad_frame=1 if resolved_bad else 0,
+            manual_override=manual_flag,
+        )
+        persisted = True
+        persisted_path = str(out_path)
+
+    after = new_ov.get(fid)
     srv_dbg = (
         f"payload={raw_click} fid={fid} ts={ts} before={before} after={after} "
-        f"persisted={persisted} count={persisted_count} path={persisted_path}"
+        f"persisted={persisted} path={persisted_path}"
     )
-    print(f"[vhs_tuner] {srv_dbg}")
     return new_ov, {"fid": int(fid), "ts": int(ts)}, srv_dbg
 
 
@@ -702,26 +835,28 @@ def build_grid_html(
     threshold: float,
     cols: int,
     thumb_w: int,
-    chapter_start_frame: int = 0,
 ) -> str:
     if not fids:
         return "<p style='color:#666;font-family:monospace;padding:20px'>No frames loaded.</p>"
 
     cells = []
     for b64, fid, sc in zip(frames_b64, fids, scores):
-        local_fid = int(fid) - int(chapter_start_frame)
         ov    = overrides.get(int(fid))
-        auto_bad = bool(float(sc) >= float(threshold))
-        bad = (ov == "bad") or auto_bad
-        color = "#e03030" if bad else "#30c870"
+        auto  = sc >= threshold
+        bad   = (ov == "bad") if ov else auto
         if ov == "bad":
-            badge = " LISTED_BAD"
+            color = "#8b1f1f"   # dark red = manual bad
+            badge = " M:BAD"
+        elif ov == "good":
+            color = "#1f6b3a"   # dark green = manual good
+            badge = " M:GOOD"
         else:
-            badge = " AUTO_BAD" if auto_bad else " AUTO_GOOD"
-        label = f"#{local_fid} {sc:.2f}{badge}"
+            color = "#e03030" if bad else "#30c870"
+            badge = ""
+        label = f"#{fid} {sc:.2f}{badge}"
         cells.append(
             f'<div class="vhs-cell" data-fid="{fid}" onclick="if(window.vhsToggleFrame){{window.vhsToggleFrame({fid});}} return false;"'
-            f' title="local {local_fid} · global {fid} · score {sc:.4f} · click to toggle">'
+            f' title="frame {fid} · score {sc:.4f} · click to toggle">'
             f'<div class="vhs-wrap" style="border-color:{color}">'
             f'<img src="{b64}" class="vhs-thumb"/></div>'
             f'<div class="vhs-lbl" style="color:{color}">{label}</div>'
@@ -754,11 +889,9 @@ def build_gallery_items(
     scores: np.ndarray,
     overrides: dict[int, str],
     threshold: float,
-    chapter_start_frame: int,
 ) -> list[tuple[Image.Image, str]]:
     items: list[tuple[Image.Image, str]] = []
     for b64, fid, sc in zip(frames_b64, fids, scores):
-        local_fid = int(fid) - int(chapter_start_frame)
         # Gradio Gallery.select in v6 rejects data: URIs in event payload.
         # Convert to in-memory PIL images so selected items are cache-safe.
         try:
@@ -767,107 +900,27 @@ def build_gallery_items(
         except Exception:
             img = Image.new("RGB", (160, 90), (20, 20, 20))
         ov = overrides.get(int(fid))
-        auto_bad = bool(float(sc) >= float(threshold))
-        is_bad = (ov == "bad") or auto_bad
+        auto_bad = sc >= threshold
         if ov == "bad":
-            state_short = "LB"   # listed bad in chapter metadata
+            state = "M:BAD"
+            state_short = "MB"
+            color = "#8b1f1f"   # dark red = manual bad
+        elif ov == "good":
+            state = "M:GOOD"
+            state_short = "MG"
+            color = "#1f6b3a"   # dark green = manual good
         else:
+            state = "AUTO:BAD" if auto_bad else "AUTO:GOOD"
             state_short = "AB" if auto_bad else "AG"
-        color = "#e03030" if is_bad else "#30c870"
+            color = "#e03030" if auto_bad else "#30c870"
 
         # Restore fast visual scanning: colored border per frame state.
         styled = ImageOps.expand(img, border=BORDER, fill=color)
-        items.append((styled, f"#{local_fid}  s={sc:.2f}  {state_short}"))
+        items.append((styled, f"#{fid}  s={sc:.2f}  {state_short}"))
     return items
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Preview video: ffmpeg burn-in  G/L/S  (global frame, local frame, score)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def _write_score_ass(path: Path, fids: list[int], scores: np.ndarray,
-                     chapter_start_frame: int, fps: float,
-                     total_local_frames: int) -> None:
-    score_map   = {int(f): float(s) for f, s in zip(fids, scores)}
-    sorted_fids = sorted(score_map)
-    if not sorted_fids:
-        path.write_text("", encoding="utf-8"); return
-
-    def _t(lf: int) -> str:
-        secs = max(0.0, lf / fps)
-        h = int(secs//3600); m = int((secs%3600)//60); s = secs%60
-        return f"{h}:{m:02d}:{int(s):02d}.{int((s%1)*100):02d}"
-
-    events = []
-    for i, fid in enumerate(sorted_fids):
-        lo = max(0, fid - chapter_start_frame)
-        hi = (sorted_fids[i+1] - chapter_start_frame
-              if i+1 < len(sorted_fids) else total_local_frames + 60)
-        events.append(f"Dialogue: 0,{_t(lo)},{_t(hi)},Sc,,0,0,0,,S:{score_map[fid]:.2f}")
-
-    path.write_text(
-        "[Script Info]\nScriptType: v4.00+\nPlayResX: 1280\nPlayResY: 720\n\n"
-        "[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,"
-        "OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,"
-        "Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n"
-        "Style: Sc,Courier New,18,&H00FFFFFF,&H000000FF,&H00000000,&H99000000,"
-        "1,0,0,0,100,100,0,0,1,2,0,7,6,6,36,1\n\n"
-        "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
-        + "\n".join(events),
-        encoding="utf-8",
-    )
-
-def make_preview_video(input_path: str | Path, output_path: str | Path,
-                       chapter_start_frame: int, fids: list[int],
-                       scores: np.ndarray, fps: float = FPS) -> Path:
-    input_path  = Path(input_path)
-    output_path = Path(output_path)
-    ass_path    = output_path.with_suffix(".score_overlay.ass")
-
-    cap   = cv2.VideoCapture(str(input_path))
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) if cap.isOpened() else 0
-    cap.release()
-
-    if fids and len(scores) == len(fids):
-        _write_score_ass(ass_path, fids, scores, chapter_start_frame, fps, total)
-    else:
-        ass_path.write_text("", encoding="utf-8")
-
-    offset = int(chapter_start_frame)
-    font_candidates = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-        "/System/Library/Fonts/Menlo.ttc",
-        "C\\:/Windows/Fonts/cour.ttf",
-    ]
-    font_path = next((f for f in font_candidates if Path(f).exists()), "")
-    font_arg  = f"fontfile={font_path}:" if font_path else ""
-
-    vf_parts = [
-        "scale=iw/2:ih/2",
-        f"subtitles='{ass_path}'",
-        (f"drawtext={font_arg}fontsize=16:fontcolor=white:x=6:y=6:"
-         f"box=1:boxcolor=black@0.75:boxborderw=3:"
-         f"text='G\\:%{{eif\\:n+{offset}\\:d\\:7}} L\\:%{{n}}'"),
-    ]
-
-    def _run(vf: str) -> bool:
-        return subprocess.run(
-            ["ffmpeg", "-nostdin", "-y", "-i", str(input_path),
-             "-vf", vf, "-c:v", "libx264", "-crf", "22", "-preset", "fast",
-             "-c:a", "aac", "-b:a", "128k", str(output_path)],
-            capture_output=True,
-        ).returncode == 0
-
-    if not _run(",".join(vf_parts)):
-        if not _run(",".join([vf_parts[0], vf_parts[2]])):
-            _run(vf_parts[0])
-
-    try: ass_path.unlink()
-    except Exception: pass
-    return output_path
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Apply: run tracking_loss and write BAD_FRAMES into chapters.ffmetadata
+# Apply: run tracking_loss + merge overrides into archive frame quality
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def apply_and_regenerate(
@@ -876,47 +929,97 @@ def apply_and_regenerate(
     w_chroma: float, w_noise: float, w_tear: float, w_wave: float,
     iqr_mult: float, frame_step: int,
 ) -> str:
-    ch_text = str(ch_title or "").strip().lower()
-    if (not archive or not ch_title
-            or "select chapter" in ch_text
-            or "no chapters" in ch_text):
-        return "No chapter selected."
+    if not archive or not ch_title or ch_title.startswith("—"):
+        return "❌  No chapter selected."
 
     logs: list[str] = []
+    archive_fq_path = _archive_frame_quality_path(archive)
+
+    # 1 ── Save chapter settings row ────────────────────────────────────────
+    settings_tsv = upsert_frame_quality_settings(
+        archive=archive,
+        chapter=ch_title,
+        start_frame=int(ch_start),
+        end_frame=int(ch_end),
+        weight_chroma=float(w_chroma),
+        weight_noise=float(w_noise),
+        weight_tear=float(w_tear),
+        weight_wave=float(w_wave),
+        iqr_mult=float(iqr_mult),
+        frame_step=int(frame_step),
+        threshold_window_size=1000,
+    )
+    logs.append(f"✅  Settings → {settings_tsv.name}")
+
+    # Preserve current manual overrides before any re-scoring writes occur.
+    preserved_overrides = load_manual_overrides_from_archive_frame_quality(
+        archive, int(ch_start), int(ch_end)
+    )
+    if preserved_overrides:
+        manual_bad = [f for f, l in preserved_overrides.items() if l == "bad"]
+        manual_good = [f for f, l in preserved_overrides.items() if l == "good"]
+        logs.append(
+            f"   Preserved overrides: {len(manual_bad)} forced-bad, {len(manual_good)} forced-good"
+        )
 
     if not _HAS_TRACKING:
-        return "\n".join(logs) + "\ntracking_loss module not found."
+        return "\n".join(logs) + "\n❌  tracking_loss module not found."
 
+    # 2 ── Locate video ─────────────────────────────────────────────────────
     proxy = ARCHIVE_DIR / f"{archive}_proxy.mp4"
     mkv   = ARCHIVE_DIR / f"{archive}.mkv"
     video = str(proxy if proxy.exists() else mkv if mkv.exists() else "")
     if not video:
-        return "\n".join(logs) + f"\nNo video found for '{archive}'."
+        return "\n".join(logs) + f"\n❌  No video found for '{archive}'."
 
-    logs.append(f"tracking_loss frames {ch_start}-{ch_end} step={frame_step}...")
+    # 3 ── Run tracking_loss for this chapter ───────────────────────────────
+    logs.append(f"▶️   tracking_loss  frames {ch_start}–{ch_end}  step={frame_step}…")
+    tracking_tmp_fq = _archive_tracking_tmp_frame_quality_path(archive)
+    tracking_tmp_fq.unlink(missing_ok=True)
     config = TrackingLossConfig(  # type: ignore[call-arg]
-        archive=archive,
-        video=video,
-        chapters_file=str(_chapters_file_path(archive)),
-        start_frame=ch_start,
-        max_frame=ch_end,
-        frame_step=max(1, frame_step),
-        weight_chroma=w_chroma,
-        weight_noise=w_noise,
-        weight_tear=w_tear,
-        weight_wave=w_wave,
-        iqr_mult=iqr_mult,
-        threshold_window_size=1000,
+        archive              = archive,
+        video                = video,
+        start_frame          = ch_start,
+        max_frame            = ch_end,
+        frame_step           = max(1, frame_step),
+        weight_chroma        = w_chroma,
+        weight_noise         = w_noise,
+        weight_tear          = w_tear,
+        weight_wave          = w_wave,
+        iqr_mult             = iqr_mult,
+        threshold_window_size= 1000,
+        # Write tracking output to a temp TSV; we merge into canonical file after
+        # applying preserved manual overrides.
+        metadata_frame_quality_tsv = str(tracking_tmp_fq),
     )
     try:
         result = run_tracking_loss_classification(config=config)  # type: ignore
-        logs.append("tracking_loss wrote BAD_FRAMES in chapters.ffmetadata")
-        logs.append(f"Updated chapter blocks: {int(result.get('updated_chapters', 0))}")
+        fq_out = Path(result.get("frame_quality_path", tracking_tmp_fq))
+        logs.append(f"✅  tracking_loss done  →  {fq_out.name}")
     except Exception as exc:
-        logs.append(f"tracking_loss failed: {exc}")
+        logs.append(f"❌  tracking_loss failed: {exc}")
         return "\n".join(logs)
 
-    logs.append("step_6_make_videos will read BAD_FRAMES from chapters.ffmetadata")
+    # 4 ── Load auto bad ranges ─────────────────────────────────────────────
+    scored_rows = _load_tracking_frame_scores(fq_out)
+    if not scored_rows:
+        logs.append("ERROR: tracking_loss did not produce usable frame scores; frame_quality.tsv was not updated.")
+        return "\n".join(logs)
+    logs.append(f"   Scored frames: {len(scored_rows)}")
+
+    # 5 ── Merge overrides into archive-level frame_quality.tsv ─────────────────
+    overrides = preserved_overrides
+
+    archive_fq = merge_chapter_into_archive_frame_quality(
+        archive        = archive,
+        ch_start       = ch_start,
+        ch_end         = ch_end,
+        scored_rows    = scored_rows,
+        overrides      = overrides,
+    )
+    tracking_tmp_fq.unlink(missing_ok=True)
+    logs.append(f"OK: Archive frame quality -> {archive_fq}")
+    logs.append("   (step_6_make_videos reads frame_quality.tsv)")
     return "\n".join(logs)
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1156,13 +1259,12 @@ with gr.Blocks(
         # ── LEFT column ───────────────────────────────────────────────────────
         with gr.Column(scale=1, min_width=210, elem_id="vhs-left-col"):
 
-            with gr.Accordion("Range & Sample", open=False):
+            with gr.Accordion("Range & Sample", open=True):
                 with gr.Row():
-                    start_n = gr.Number(label="Start", value=0, precision=0, elem_id="vhs-start-frame")
+                    start_n = gr.Number(label="Start", value=0, precision=0)
                     end_n   = gr.Number(label="End", value=1000, precision=0)
-                    n_sl = gr.Slider(20, 1000, value=400, step=10, label="n")
+                    n_sl = gr.Slider(20, 300, value=90, step=10, label="n")
                 with gr.Row():
-                    strict_sampling_cb = gr.Checkbox(label="Strict Sampling", value=True)
                     apply_range_btn = gr.Button("Apply Range", variant="secondary")
                     reload_btn = gr.Button("Reload", variant="secondary")
 
@@ -1186,10 +1288,15 @@ with gr.Blocks(
                                      label="Bad %", visible=False)
                 spark_score = gr.HTML(_E_SCORE)
 
-            with gr.Accordion("Grid", open=False):
+            with gr.Accordion("Grid + Apply", open=True):
                 with gr.Row():
                     cols_sl   = gr.Slider(4, 16, value=7, step=1, label="Cols")
                     twidth_sl = gr.Slider(64, 220, value=120, step=8, label="Width")
+                    fstep_sl  = gr.Slider(1, 10, value=1, step=1, label="Step")
+                with gr.Row():
+                    apply_btn = gr.Button("Apply & Regenerate", variant="primary")
+                apply_log = gr.Textbox(label="Apply log", lines=2,
+                                        interactive=False, elem_id="vhs-apply-log")
 
         # ── RIGHT column ──────────────────────────────────────────────────────
         with gr.Column(scale=4, elem_id="vhs-right-col"):
@@ -1263,15 +1370,6 @@ with gr.Blocks(
     inp.dispatchEvent(new Event('input', {bubbles: true}));
   }
 
-  function _getNumber(elemId, fallbackVal) {
-    var c = document.getElementById(elemId);
-    if (!c) return fallbackVal;
-    var inp = c.querySelector('textarea') || c.querySelector('input');
-    if (!inp) return fallbackVal;
-    var n = parseInt(String(inp.value || '').trim(), 10);
-    return Number.isFinite(n) ? n : fallbackVal;
-  }
-
   var _lastFid = null;
   var _lastTs = 0;
   function _emit(fid, source) {
@@ -1303,10 +1401,7 @@ with gr.Blocks(
     var txt = String((box.textContent || '')).replace(/\\s+/g, ' ').trim();
     var m = txt.match(/#\\s*(\\d+)/);
     if (!m) return;
-    var localFid = parseInt(m[1], 10);
-    if (!Number.isFinite(localFid)) return;
-    var chapterStart = _getNumber('vhs-start-frame', 0);
-    _emit(localFid + chapterStart, 'gallery-click');
+    _emit(m[1], 'gallery-click');
   }, true);
   document.addEventListener('mouseleave', _hideHover, true);
   document.addEventListener('scroll', _hideHover, true);
@@ -1331,15 +1426,13 @@ with gr.Blocks(
     # =========================================================================
 
     def _rebuild(fids, b64, sigs, overrides, wc, wn, wt, ww,
-                 t_mode, iqr_k, tval, bpct, cols, twidth, ch_start):
+                 t_mode, iqr_k, tval, bpct, cols, twidth):
         if not fids or not b64:
             return (gr.update(value=[]), "*(no frames loaded)*",
                     _E_SIG, _E_SIG, _E_SIG, _E_SIG, _E_SCORE)
         sc   = combined_score(sigs, wc, wn, wt, ww)
         thr  = compute_threshold(sc, t_mode, iqr_k, tval, bpct)
-        gallery_items = build_gallery_items(
-            b64, fids, sc, overrides, thr, chapter_start_frame=int(ch_start)
-        )
+        gallery_items = build_gallery_items(b64, fids, sc, overrides, thr)
         gallery_update = gr.update(value=gallery_items, columns=int(cols))
         n_bad  = sum(
             (overrides.get(int(f), "bad" if s >= thr else "good") == "bad")
@@ -1393,7 +1486,7 @@ with gr.Blocks(
     t_mode.change(on_tmode, [t_mode], [iqr_sl, tval_sl, bpct_sl])
 
     # ── Load chapter ───────────────────────────────────────────────────────
-    def on_load(archive, ch_title, chapters, start, end, n_samp, strict_sampling,
+    def on_load(archive, ch_title, chapters, start, end, n_samp,
                 wc, wn, wt, ww, tmode, iqrk, tv, bp, cols, tw,
                 progress=gr.Progress()):
         FAIL = (gr.update(visible=False), "❌  No chapter/video found.",
@@ -1404,7 +1497,7 @@ with gr.Blocks(
             return FAIL
         proxy = ARCHIVE_DIR / f"{archive}_proxy.mp4"
         mkv   = ARCHIVE_DIR / f"{archive}.mkv"
-        video = mkv if mkv.exists() else proxy if proxy.exists() else None
+        video = proxy if proxy.exists() else mkv if mkv.exists() else None
         if not video:
             return FAIL
         # Pass 1: uniform sample for coarse bad-frame detection.
@@ -1415,53 +1508,38 @@ with gr.Blocks(
         if err or fids is None:
             F2 = list(FAIL); F2[1] = f"❌  {err or 'Extraction failed'}"; return tuple(F2)
 
-        if not bool(strict_sampling):
-            # Pass 2: if coarse sample detects bad frames, prioritize contiguous
-            # neighbors around them (no sampling inside those local windows).
-            sc0 = combined_score(sigs, wc, wn, wt, ww)
-            thr0 = compute_threshold(sc0, tmode, iqrk, tv, bp)
-            focus_fids = select_focus_frame_ids(
-                start=int(start),
-                end=int(end),
-                max_frames=int(n_samp),
-                coarse_fids=fids,
-                coarse_scores=sc0,
-                threshold=thr0,
-                burst_radius=4,
+        # Pass 2: if coarse sample detects bad frames, prioritize contiguous
+        # neighbors around them (no sampling inside those local windows).
+        sc0 = combined_score(sigs, wc, wn, wt, ww)
+        thr0 = compute_threshold(sc0, tmode, iqrk, tv, bp)
+        focus_fids = select_focus_frame_ids(
+            start=int(start),
+            end=int(end),
+            max_frames=int(n_samp),
+            coarse_fids=fids,
+            coarse_scores=sc0,
+            threshold=thr0,
+            burst_radius=4,
+        )
+        if focus_fids != fids:
+            fids, b64, sigs, err = extract_frames(
+                str(video), int(start), int(end), int(n_samp),
+                archive, ch_title, frame_ids=focus_fids, progress=progress,
             )
-            if focus_fids != fids:
-                fids, b64, sigs, err = extract_frames(
-                    str(video), int(start), int(end), int(n_samp),
-                    archive, ch_title, frame_ids=focus_fids, progress=progress,
-                )
-                if err or fids is None:
-                    F2 = list(FAIL); F2[1] = f"❌  {err or 'Extraction failed'}"; return tuple(F2)
-        # Seed overrides from chapter BAD_FRAMES in chapters.ffmetadata.
-        overrides = _chapter_bad_overrides(
-            archive=archive,
-            chapter_title=ch_title,
-            ch_start=int(start),
-            ch_end=int(end),
+            if err or fids is None:
+                F2 = list(FAIL); F2[1] = f"❌  {err or 'Extraction failed'}"; return tuple(F2)
+        # Load overrides from dedicated file, then merge in any recorded in the
+        # archive-level frame_quality.tsv manual_override rows (from previous Apply runs).
+        overrides = {}
+        archive_overrides = load_manual_overrides_from_archive_frame_quality(
+            archive=archive, ch_start=int(start), ch_end=int(end),
         )
+        if archive_overrides:
+            merged = dict(archive_overrides)
+            merged.update(overrides)   # dedicated file wins on conflict
+            overrides = merged
         html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc = _rebuild(
-            fids, b64, sigs, overrides, wc, wn, wt, ww, tmode, iqrk, tv, bp, cols, tw, int(start)
-        )
-        _persist_visible_bad_frames(
-            archive=str(archive or ""),
-            chapter_title=str(ch_title or ""),
-            ch_start=int(start),
-            ch_end=int(end),
-            fids=[int(x) for x in fids],
-            sigs=sigs,
-            overrides=overrides,
-            wc=wc,
-            wn=wn,
-            wt=wt,
-            ww=ww,
-            tm=tmode,
-            ik=iqrk,
-            tv=tv,
-            bp=bp,
+            fids, b64, sigs, overrides, wc, wn, wt, ww, tmode, iqrk, tv, bp, cols, tw
         )
         return (gr.update(visible=True),
                 f"✅  Loaded **{len(fids)}** frames for **{ch_title}**",
@@ -1472,7 +1550,7 @@ with gr.Blocks(
     _LOAD_OUTS = [main_panel, status_md,
                   st_fids, st_b64, st_sigs, st_overrides, st_last_click] + _RB_OUTS + [load_row, load_status_row, show_loader_btn]
     _LOAD_INS  = [archive_dd, chapter_dd, st_chapters,
-                  start_n, end_n, n_sl, strict_sampling_cb,
+                  start_n, end_n, n_sl,
                   wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
                   cols_sl, twidth_sl]
     load_btn.click(on_load,       _LOAD_INS, _LOAD_OUTS)
@@ -1480,32 +1558,10 @@ with gr.Blocks(
     apply_range_btn.click(on_load, _LOAD_INS, _LOAD_OUTS)
 
     # ── Live slider updates ────────────────────────────────────────────────
-    def on_sliders(archive, ch_title, ch_start, ch_end, fids, b64, sigs, ovr,
-                   wc, wn, wt, ww, tm, ik, tv, bp, cols, tw):
-        out = _rebuild(
-            fids, b64, sigs, ovr, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, int(ch_start)
-        )
-        _persist_visible_bad_frames(
-            archive=str(archive or ""),
-            chapter_title=str(ch_title or ""),
-            ch_start=int(ch_start),
-            ch_end=int(ch_end),
-            fids=[int(x) for x in (fids or [])],
-            sigs=sigs or {},
-            overrides=ovr or {},
-            wc=wc,
-            wn=wn,
-            wt=wt,
-            ww=ww,
-            tm=tm,
-            ik=ik,
-            tv=tv,
-            bp=bp,
-        )
-        return out
+    def on_sliders(fids, b64, sigs, ovr, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw):
+        return _rebuild(fids, b64, sigs, ovr, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw)
 
-    _SL_INS = [archive_dd, chapter_dd, start_n, end_n,
-               st_fids, st_b64, st_sigs, st_overrides,
+    _SL_INS = [st_fids, st_b64, st_sigs, st_overrides,
                wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
                cols_sl, twidth_sl]
     for _s in [wc_sl, wn_sl, wt_sl, ww_sl, iqr_sl, tval_sl, bpct_sl, cols_sl, twidth_sl]:
@@ -1524,9 +1580,6 @@ with gr.Blocks(
             sigs=sigs,
             overrides=overrides,
             archive=str(archive or ""),
-            chapter_title=str(ch_title or ""),
-            ch_start=int(ch_start),
-            ch_end=int(ch_end),
             wc=wc,
             wn=wn,
             wt=wt,
@@ -1541,7 +1594,7 @@ with gr.Blocks(
             return (*[gr.update()] * 7, overrides, "", new_last_click)
 
         html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc = _rebuild(
-            fids, b64, sigs, new_ov, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, int(ch_start)
+            fids, b64, sigs, new_ov, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw
         )
         return html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, new_ov, "", new_last_click
 
@@ -1579,6 +1632,20 @@ with gr.Blocks(
         show_progress="minimal",
     )
 
+    # ── Apply & Regenerate ─────────────────────────────────────────────────
+    def on_apply(archive, ch_title, start, end, wc, wn, wt, ww, iqrk, fstep):
+        return apply_and_regenerate(
+            archive, ch_title, int(start), int(end),
+            wc, wn, wt, ww, iqrk, int(fstep),
+        )
+
+    apply_btn.click(
+        on_apply,
+        [archive_dd, chapter_dd, start_n, end_n,
+         wc_sl, wn_sl, wt_sl, ww_sl, iqr_sl, fstep_sl],
+        [apply_log],
+    )
+
 # ── Launch ────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     demo.launch(
@@ -1590,5 +1657,3 @@ if __name__ == "__main__":
         share=False,
         show_error=True,
     )
-
-

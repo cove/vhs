@@ -1104,6 +1104,9 @@ def test_vhs_tuner_ui_defaults_and_controls():
     src = (ROOT / "vhs_tuner.py").read_text(encoding="utf-8", errors="ignore")
 
     assert 'n_sl = gr.Slider(20, 1000, value=400, step=10, label="n")' in src
+    assert 'strict_sampling_cb = gr.Checkbox(label="Strict Sampling", value=True)' in src
+    assert "video = mkv if mkv.exists() else proxy if proxy.exists() else None" in src
+    assert "if not bool(strict_sampling):" in src
     assert 'with gr.Accordion("Range & Sample", open=False):' in src
     assert 'with gr.Accordion("Signal Weights", open=False):' in src
     assert 'with gr.Accordion("Threshold", open=False):' in src
