@@ -22,7 +22,6 @@ import base64
 import io
 import json
 import re
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -39,7 +38,6 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 ARCHIVE_DIR  = PROJECT_ROOT / "../Archive"
 METADATA_DIR = PROJECT_ROOT / "metadata"
-STEP6        = PROJECT_ROOT / "step_6_make_videos.py"
 FPS          = 30000 / 1001
 BORDER       = 3
 
@@ -922,92 +920,6 @@ def build_gallery_items(
     return items
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Preview video: ffmpeg burn-in  G/L/S  (global frame, local frame, score)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def _write_score_ass(path: Path, fids: list[int], scores: np.ndarray,
-                     chapter_start_frame: int, fps: float,
-                     total_local_frames: int) -> None:
-    score_map   = {int(f): float(s) for f, s in zip(fids, scores)}
-    sorted_fids = sorted(score_map)
-    if not sorted_fids:
-        path.write_text("", encoding="utf-8"); return
-
-    def _t(lf: int) -> str:
-        secs = max(0.0, lf / fps)
-        h = int(secs//3600); m = int((secs%3600)//60); s = secs%60
-        return f"{h}:{m:02d}:{int(s):02d}.{int((s%1)*100):02d}"
-
-    events = []
-    for i, fid in enumerate(sorted_fids):
-        lo = max(0, fid - chapter_start_frame)
-        hi = (sorted_fids[i+1] - chapter_start_frame
-              if i+1 < len(sorted_fids) else total_local_frames + 60)
-        events.append(f"Dialogue: 0,{_t(lo)},{_t(hi)},Sc,,0,0,0,,S:{score_map[fid]:.2f}")
-
-    path.write_text(
-        "[Script Info]\nScriptType: v4.00+\nPlayResX: 1280\nPlayResY: 720\n\n"
-        "[V4+ Styles]\nFormat: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,"
-        "OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,"
-        "Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding\n"
-        "Style: Sc,Courier New,18,&H00FFFFFF,&H000000FF,&H00000000,&H99000000,"
-        "1,0,0,0,100,100,0,0,1,2,0,7,6,6,36,1\n\n"
-        "[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n"
-        + "\n".join(events),
-        encoding="utf-8",
-    )
-
-def make_preview_video(input_path: str | Path, output_path: str | Path,
-                       chapter_start_frame: int, fids: list[int],
-                       scores: np.ndarray, fps: float = FPS) -> Path:
-    input_path  = Path(input_path)
-    output_path = Path(output_path)
-    ass_path    = output_path.with_suffix(".score_overlay.ass")
-
-    cap   = cv2.VideoCapture(str(input_path))
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) if cap.isOpened() else 0
-    cap.release()
-
-    if fids and len(scores) == len(fids):
-        _write_score_ass(ass_path, fids, scores, chapter_start_frame, fps, total)
-    else:
-        ass_path.write_text("", encoding="utf-8")
-
-    offset = int(chapter_start_frame)
-    font_candidates = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-        "/System/Library/Fonts/Menlo.ttc",
-        "C\\:/Windows/Fonts/cour.ttf",
-    ]
-    font_path = next((f for f in font_candidates if Path(f).exists()), "")
-    font_arg  = f"fontfile={font_path}:" if font_path else ""
-
-    vf_parts = [
-        "scale=iw/2:ih/2",
-        f"subtitles='{ass_path}'",
-        (f"drawtext={font_arg}fontsize=16:fontcolor=white:x=6:y=6:"
-         f"box=1:boxcolor=black@0.75:boxborderw=3:"
-         f"text='G\\:%{{eif\\:n+{offset}\\:d\\:7}} L\\:%{{n}}'"),
-    ]
-
-    def _run(vf: str) -> bool:
-        return subprocess.run(
-            ["ffmpeg", "-nostdin", "-y", "-i", str(input_path),
-             "-vf", vf, "-c:v", "libx264", "-crf", "22", "-preset", "fast",
-             "-c:a", "aac", "-b:a", "128k", str(output_path)],
-            capture_output=True,
-        ).returncode == 0
-
-    if not _run(",".join(vf_parts)):
-        if not _run(",".join([vf_parts[0], vf_parts[2]])):
-            _run(vf_parts[0])
-
-    try: ass_path.unlink()
-    except Exception: pass
-    return output_path
-
-# ═══════════════════════════════════════════════════════════════════════════════
 # Apply: run tracking_loss + merge overrides into archive frame quality
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1115,28 +1027,106 @@ def apply_and_regenerate(
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _DARK_CSS = """
+html, body {
+  margin: 0 !important;
+  padding: 0 !important;
+  background:#0d0d0d !important;
+  height: 100vh !important;
+  overflow: hidden !important;
+}
 body, .gradio-container { background:#0d0d0d !important; color:#ccc; }
-/* Keep margins as narrow as possible so we do not waste screen space. */
-.gradio-container { max-width: 100% !important; padding: 4px 6px !important; margin: 0 !important; }
-.gradio-container .main { padding: 0 !important; }
-.gr-row, .gr-form, .gr-group { gap: 6px !important; }
+/* Full-bleed layout for maximum usable area. */
+.gradio-container {
+  max-width: 100% !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.gradio-container .main {
+  margin: 0 !important;
+  padding: 0 !important;
+  max-width: 100% !important;
+  width: 100% !important;
+}
+.gradio-container .wrap,
+.gradio-container .contain,
+.gradio-container .app {
+  margin: 0 !important;
+  padding: 0 !important;
+  max-width: 100% !important;
+  width: 100% !important;
+}
+.gr-row, .gr-form, .gr-group { gap: 3px !important; margin: 0 !important; padding: 0 !important; }
 .gr-box, .gr-padded { background:#141414 !important; }
 .gr-button-primary { background:#1a6b3a !important; border-color:#27a85a !important; }
 .gr-button { background:#222 !important; color:#bbb !important; border-color:#333 !important; }
-label { color:#999 !important; font-family:'Courier New',monospace !important; font-size:0.77rem !important; }
+label { color:#999 !important; font-family:'Courier New',monospace !important; font-size:0.72rem !important; }
 input[type=range] { accent-color:#27a85a; }
-#vhs-stats { font-family:'Courier New',monospace; font-size:13px;
-             background:#111; padding:8px 12px; border-left:3px solid #27a85a; }
+# Compact common controls to help fit one screen.
+.gradio-container input,
+.gradio-container textarea,
+.gradio-container .gr-button,
+.gradio-container .gr-markdown,
+.gradio-container .gr-form,
+.gradio-container .gr-slider,
+.gradio-container .gr-number,
+.gradio-container .gr-dropdown {
+  font-size: 11px !important;
+}
+.gradio-container .gr-button {
+  min-height: 26px !important;
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+}
+.gradio-container .gr-slider,
+.gradio-container .gr-number,
+.gradio-container .gr-dropdown,
+.gradio-container .gr-radio {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+.gradio-container .gr-accordion {
+  margin: 0 !important;
+}
+.gradio-container .gr-accordion summary {
+  padding: 2px 8px !important;
+  min-height: 22px !important;
+  font-size: 11px !important;
+}
+.gradio-container .gr-accordion > div {
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+}
+.gradio-container .gr-block.gr-box,
+.gradio-container .block {
+  margin: 0 !important;
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
+}
+.gradio-container .prose,
+.gradio-container .gr-markdown {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.gradio-container h1,
+.gradio-container h2,
+.gradio-container h3,
+.gradio-container p {
+  margin-top: 2px !important;
+  margin-bottom: 2px !important;
+}
+#vhs-stats { font-family:'Courier New',monospace; font-size:11px;
+             background:#111; padding:5px 8px; border-left:2px solid #27a85a; }
 #vhs-apply-log textarea  { font-family:'Courier New',monospace; font-size:11px;
                            background:#0a0a0a !important; color:#9fdfb8 !important; }
 #vhs-render-log textarea { font-family:'Courier New',monospace; font-size:11px;
                            background:#0a0a0a !important; color:#9fdfb8 !important; }
-#vhs-click-recv input, #vhs-click-recv textarea {
-  height:26px !important; font-family:monospace; font-size:10px;
-  background:#111 !important; color:#555 !important; }
 #vhs-grid-gallery [class*="caption"] {
   font-family:'Courier New',monospace !important;
-  font-size:10px !important;
+  font-size:9px !important;
   text-align:left !important;
   white-space:normal !important;
   overflow-wrap:anywhere !important;
@@ -1161,35 +1151,49 @@ input[type=range] { accent-color:#27a85a; }
   width: auto;
   height: auto;
 }
-"""
-
-_STEP_BTN_HTML = """
-<div style="display:flex;gap:8px;align-items:center;padding:6px 0;
-            font-family:'Courier New',monospace;">
-  <button onclick="vhsStep(-1)"
-    style="background:#1a1a1a;color:#ccc;border:1px solid #333;
-           padding:5px 14px;cursor:pointer;border-radius:3px;font-family:inherit;">
-    ◀ −1 frame
-  </button>
-  <button onclick="vhsStep(1)"
-    style="background:#1a1a1a;color:#ccc;border:1px solid #333;
-           padding:5px 14px;cursor:pointer;border-radius:3px;font-family:inherit;">
-    +1 frame ▶
-  </button>
-  <span id="vhs-step-info" style="color:#666;font-size:11px;"></span>
-</div>
-<script>
-function vhsStep(dir) {
-  const fps = 30000/1001;
-  const wrap = document.getElementById('vhs-preview-video');
-  const vid  = wrap ? wrap.querySelector('video') : document.querySelector('video');
-  if (!vid) { document.getElementById('vhs-step-info').textContent='(no video)'; return; }
-  vid.pause();
-  vid.currentTime = Math.max(0, Math.min(vid.duration||Infinity, vid.currentTime + dir/fps));
-  document.getElementById('vhs-step-info').textContent =
-    'local ≈ ' + Math.round(vid.currentTime * fps);
+#vhs-main-panel {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100vh !important;
+  overflow: hidden !important;
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
 }
-</script>
+#vhs-right-col {
+  order: 1 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  width: 100% !important;
+  overflow: hidden !important;
+}
+#vhs-left-col {
+  order: 2 !important;
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  margin-top: auto !important;
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+#vhs-grid-gallery {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  height: auto !important;
+  overflow: auto !important;
+}
+#vhs-grid-gallery > div {
+  height: 100% !important;
+}
+#vhs-grid-gallery [class*="grid"] {
+  min-height: 100% !important;
+}
+#vhs-loader-toggle button {
+  min-height: 20px !important;
+  padding: 1px 6px !important;
+  font-size: 10px !important;
+}
 """
 
 def _get_archives() -> list[str]:
@@ -1209,8 +1213,8 @@ def _get_chapter_titles(archive: str) -> list[str]:
 def _find_chapter(chapters: list[dict], title: str) -> dict | None:
     return next((c for c in chapters if c["title"] == title), None)
 
-_E_SIG   = _sparkline_svg(np.array([]), None,  "", height=38)
-_E_SCORE = _sparkline_svg(np.array([]), None,  "", height=52)
+_E_SIG   = _sparkline_svg(np.array([]), None,  "", height=24)
+_E_SCORE = _sparkline_svg(np.array([]), None,  "", height=32)
 
 with gr.Blocks(
     title="📼  VHS Frame Tuner",
@@ -1224,10 +1228,8 @@ with gr.Blocks(
     st_last_click = gr.State({"fid": -1, "ts": -1})
     st_chapters  = gr.State([])
 
-    gr.Markdown("# 📼  VHS Frame Tuner")
-
     # ── Archive + Chapter ─────────────────────────────────────────────────────
-    with gr.Row():
+    with gr.Row() as load_row:
         _archives  = _get_archives()
         archive_dd = gr.Dropdown(
             choices=_archives, value=_archives[0] if _archives else None,
@@ -1239,64 +1241,64 @@ with gr.Blocks(
         )
         load_btn = gr.Button("🔄  Load Chapter", variant="primary", scale=1)
 
-    status_md = gr.Markdown("*Pick an archive and chapter, then click **Load Chapter**.*")
+    with gr.Row() as load_status_row:
+        status_md = gr.Markdown("`Select archive/chapter and load.`")
+        show_loader_btn = gr.Button("Loader", variant="secondary", visible=False, elem_id="vhs-loader-toggle")
 
     # ── Main panel ────────────────────────────────────────────────────────────
-    with gr.Row(visible=False) as main_panel:
+    with gr.Column(visible=False, elem_id="vhs-main-panel") as main_panel:
 
         # ── LEFT column ───────────────────────────────────────────────────────
-        with gr.Column(scale=1, min_width=230):
+        with gr.Column(scale=1, min_width=210, elem_id="vhs-left-col"):
 
-            gr.Markdown("### 🎞  Range & Sample")
-            with gr.Row():
-                start_n = gr.Number(label="Start frame", value=0,   precision=0)
-                end_n   = gr.Number(label="End frame",   value=1000, precision=0)
-            n_sl = gr.Slider(20, 400, value=100, step=10, label="Sample n frames")
-            apply_range_btn = gr.Button("Apply Range", variant="secondary")
+            with gr.Accordion("Range & Sample", open=True):
+                with gr.Row():
+                    start_n = gr.Number(label="Start", value=0, precision=0)
+                    end_n   = gr.Number(label="End", value=1000, precision=0)
+                    n_sl = gr.Slider(20, 300, value=90, step=10, label="n")
+                with gr.Row():
+                    apply_range_btn = gr.Button("Apply Range", variant="secondary")
+                    reload_btn = gr.Button("Reload", variant="secondary")
 
-            gr.Markdown("### ⚖️  Signal Weights")
-            wc_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="chroma_loss")
-            spark_chroma = gr.HTML(_E_SIG)
-            wn_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="noise_energy")
-            spark_noise  = gr.HTML(_E_SIG)
-            wt_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="row_tear")
-            spark_tear   = gr.HTML(_E_SIG)
-            ww_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="wave_energy")
-            spark_wave   = gr.HTML(_E_SIG)
+            with gr.Accordion("Signal Weights", open=False):
+                wc_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="chroma")
+                spark_chroma = gr.HTML(_E_SIG)
+                wn_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="noise")
+                spark_noise  = gr.HTML(_E_SIG)
+                wt_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="tear")
+                spark_tear   = gr.HTML(_E_SIG)
+                ww_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="wave")
+                spark_wave   = gr.HTML(_E_SIG)
 
-            gr.Markdown("### 🎚️  Threshold")
-            t_mode  = gr.Radio(["iqr", "value", "quantile"], value="iqr",
-                                label="Mode", interactive=True)
-            iqr_sl  = gr.Slider(1.0, 8.0,   value=3.5,  step=0.05,
-                                 label="k  (Q3 + k × IQR)")
-            tval_sl = gr.Slider(-5.0, 15.0, value=1.0,  step=0.05,
-                                 label="Hard threshold value", visible=False)
-            bpct_sl = gr.Slider(1, 60,      value=10,   step=1,
-                                 label="Bad %", visible=False)
-            spark_score = gr.HTML(_E_SCORE)
+            with gr.Accordion("Threshold", open=False):
+                t_mode  = gr.Radio(["iqr", "value", "quantile"], value="iqr",
+                                    label="Mode", interactive=True)
+                iqr_sl  = gr.Slider(1.0, 8.0, value=3.5, step=0.05, label="k")
+                tval_sl = gr.Slider(-5.0, 15.0, value=1.0, step=0.05,
+                                     label="Hard value", visible=False)
+                bpct_sl = gr.Slider(1, 60, value=10, step=1,
+                                     label="Bad %", visible=False)
+                spark_score = gr.HTML(_E_SCORE)
 
-            gr.Markdown("### 🖼️  Grid Display")
-            with gr.Row():
-                cols_sl   = gr.Slider(4,  24,  value=10,  step=1,  label="Cols")
-                twidth_sl = gr.Slider(80, 320, value=160, step=20, label="px wide")
-
-            gr.Markdown("### ✅  Apply")
-            fstep_sl  = gr.Slider(1, 10, value=1, step=1,
-                                   label="Full-scan frame step  (1=accurate, 10=fast)")
-            apply_btn = gr.Button("✅  Apply & Regenerate", variant="primary")
-            apply_log = gr.Textbox(label="Apply log", lines=8,
-                                    interactive=False, elem_id="vhs-apply-log")
-            reload_btn = gr.Button("🔄  Reload Frames", variant="secondary")
+            with gr.Accordion("Grid + Apply", open=True):
+                with gr.Row():
+                    cols_sl   = gr.Slider(4, 16, value=7, step=1, label="Cols")
+                    twidth_sl = gr.Slider(64, 220, value=120, step=8, label="Width")
+                    fstep_sl  = gr.Slider(1, 10, value=1, step=1, label="Step")
+                with gr.Row():
+                    apply_btn = gr.Button("Apply & Regenerate", variant="primary")
+                apply_log = gr.Textbox(label="Apply log", lines=2,
+                                        interactive=False, elem_id="vhs-apply-log")
 
         # ── RIGHT column ──────────────────────────────────────────────────────
-        with gr.Column(scale=4):
+        with gr.Column(scale=4, elem_id="vhs-right-col"):
 
             stats_md  = gr.Markdown("", elem_id="vhs-stats")
             grid_gallery = gr.Gallery(
                 value=[],
                 label="Frames (click a tile to toggle good/bad)",
                 show_label=True,
-                columns=10,
+                columns=7,
                 object_fit="contain",
                 height="auto",
                 allow_preview=False,
@@ -1367,13 +1369,11 @@ with gr.Blocks(
     if (!sid) return;
     var now = Date.now();
     if (_lastFid === sid && (now - _lastTs) < 120) {
-      _setGradio('vhs-click-debug-js', 'dedupe ' + source + ' fid=' + sid + ' dt=' + (now - _lastTs) + 'ms');
       return;
     }
     _lastFid = sid;
     _lastTs = now;
     var payload = sid + ':' + now;
-    _setGradio('vhs-click-debug-js', 'emit ' + source + ' payload=' + payload);
     _setGradio('vhs-click-recv', payload);
   }
 
@@ -1407,38 +1407,11 @@ with gr.Blocks(
 </script>
 """)
 
-            with gr.Row():
-                click_recv = gr.Textbox(
-                    value="", label="Last clicked frame",
-                    interactive=True, scale=1, max_lines=1,
-                    elem_id="vhs-click-recv",
-                )
-                click_debug_js = gr.Textbox(
-                    value="", label="JS click debug",
-                    interactive=False, scale=2, max_lines=1,
-                    elem_id="vhs-click-debug-js",
-                )
-                click_debug_srv = gr.Textbox(
-                    value="", label="Server click debug",
-                    interactive=False, scale=2, max_lines=1,
-                    elem_id="vhs-click-debug-srv",
-                )
-
-            gr.Markdown("---")
-            gr.Markdown("### 🎬  Render Chapter")
-
-            preview_vid    = gr.Video(
-                label="Preview  (½ size · G/L frame + S score burn-in)",
-                visible=False, elem_id="vhs-preview-video",
+            click_recv = gr.Textbox(
+                value="", label="",
+                interactive=True, max_lines=1, visible=False,
+                elem_id="vhs-click-recv",
             )
-            step_ctrl_html = gr.HTML(_STEP_BTN_HTML, visible=False)
-
-            with gr.Row():
-                render_btn = gr.Button("▶️  Render", variant="primary", scale=1)
-                render_log = gr.Textbox(
-                    label="", lines=3, interactive=False,
-                    scale=4, elem_id="vhs-render-log",
-                )
 
     # =========================================================================
     # Rebuild helper — grid + stats + 5 sparklines
@@ -1491,6 +1464,11 @@ with gr.Blocks(
 
     chapter_dd.change(on_chapter, [chapter_dd, st_chapters], [start_n, end_n])
 
+    def on_show_loader():
+        return gr.update(visible=True), gr.update(visible=True), gr.update(visible=False)
+
+    show_loader_btn.click(on_show_loader, outputs=[load_row, load_status_row, show_loader_btn])
+
     # ── Threshold mode ─────────────────────────────────────────────────────
     def on_tmode(mode):
         return (gr.update(visible=(mode=="iqr")),
@@ -1505,7 +1483,8 @@ with gr.Blocks(
                 progress=gr.Progress()):
         FAIL = (gr.update(visible=False), "❌  No chapter/video found.",
                 [], [], {}, {}, {"fid": -1, "ts": -1}, gr.update(value=[]), "",
-                _E_SIG, _E_SIG, _E_SIG, _E_SIG, _E_SCORE)
+                _E_SIG, _E_SIG, _E_SIG, _E_SIG, _E_SCORE,
+                gr.update(visible=True), gr.update(visible=True), gr.update(visible=False))
         if not archive or not ch_title or ch_title.startswith("—"):
             return FAIL
         proxy = ARCHIVE_DIR / f"{archive}_proxy.mp4"
@@ -1557,10 +1536,11 @@ with gr.Blocks(
         return (gr.update(visible=True),
                 f"✅  Loaded **{len(fids)}** frames for **{ch_title}**",
                 fids, b64, sigs, overrides, {"fid": -1, "ts": -1},
-                html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc)
+                html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc,
+                gr.update(visible=False), gr.update(visible=False), gr.update(visible=True))
 
     _LOAD_OUTS = [main_panel, status_md,
-                  st_fids, st_b64, st_sigs, st_overrides, st_last_click] + _RB_OUTS
+                  st_fids, st_b64, st_sigs, st_overrides, st_last_click] + _RB_OUTS + [load_row, load_status_row, show_loader_btn]
     _LOAD_INS  = [archive_dd, chapter_dd, st_chapters,
                   start_n, end_n, n_sl,
                   wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
@@ -1584,7 +1564,7 @@ with gr.Blocks(
     def on_click(raw_click, fids, b64, sigs, overrides, last_click_event, archive, ch_title, ch_start, ch_end,
                  wc, wn, wt, ww, tm, ik, tv, bp, cols, tw):
         if not raw_click or not raw_click.strip() or not fids:
-            return (*[gr.update()] * 7, overrides, "", "ignored: empty click payload or no frames", last_click_event)
+            return (*[gr.update()] * 7, overrides, "", last_click_event)
 
         new_ov, new_last_click, srv_dbg = apply_manual_click_override(
             raw_click=raw_click,
@@ -1603,12 +1583,12 @@ with gr.Blocks(
             last_click_event=last_click_event,
         )
         if str(srv_dbg).startswith("ignored:"):
-            return (*[gr.update()] * 7, overrides, "", srv_dbg, new_last_click)
+            return (*[gr.update()] * 7, overrides, "", new_last_click)
 
         html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc = _rebuild(
             fids, b64, sigs, new_ov, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw
         )
-        return html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, new_ov, "", srv_dbg, new_last_click
+        return html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, new_ov, "", new_last_click
 
     click_recv.input(
         on_click,
@@ -1616,16 +1596,16 @@ with gr.Blocks(
          archive_dd, chapter_dd, start_n, end_n,
          wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
          cols_sl, twidth_sl],
-        [*_RB_OUTS, st_overrides, click_recv, click_debug_srv, st_last_click],
+        [*_RB_OUTS, st_overrides, click_recv, st_last_click],
     )
 
     def on_gallery_select(fids, b64, sigs, overrides, last_click_event, archive, ch_title, ch_start, ch_end,
                           wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, evt: gr.SelectData):
         if evt is None or getattr(evt, "index", None) is None:
-            return (*[gr.update()] * 7, overrides, "", "ignored: no gallery selection event", last_click_event)
+            return (*[gr.update()] * 7, overrides, "", last_click_event)
         idx = int(evt.index)
         if idx < 0 or idx >= len(fids):
-            return (*[gr.update()] * 7, overrides, "", f"ignored: gallery index out of range ({idx})", last_click_event)
+            return (*[gr.update()] * 7, overrides, "", last_click_event)
         fid = int(fids[idx])
         payload = f"{fid}:{int(time.time() * 1000)}"
         return on_click(
@@ -1639,7 +1619,7 @@ with gr.Blocks(
          archive_dd, chapter_dd, start_n, end_n,
          wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
          cols_sl, twidth_sl],
-        [*_RB_OUTS, st_overrides, click_recv, click_debug_srv, st_last_click],
+        [*_RB_OUTS, st_overrides, click_recv, st_last_click],
     )
 
     # ── Apply & Regenerate ─────────────────────────────────────────────────
@@ -1654,87 +1634,6 @@ with gr.Blocks(
         [archive_dd, chapter_dd, start_n, end_n,
          wc_sl, wn_sl, wt_sl, ww_sl, iqr_sl, fstep_sl],
         [apply_log],
-    )
-
-    # ── Render + preview ───────────────────────────────────────────────────
-    def on_render(archive, ch_title, chapters, fids, sigs, overrides,
-                  wc, wn, wt, ww, tm, ik, tv, bp, start, end, fstep,
-                  progress=gr.Progress()):
-        NA = ("❌  No chapter selected.", gr.update(visible=False), gr.update(visible=False))
-        ch_title_text = str(ch_title or "").strip().lower()
-        if (not archive or not ch_title
-                or "select chapter" in ch_title_text
-                or "no chapters" in ch_title_text):
-            return NA
-        if not STEP6.exists():
-            return (f"❌  {STEP6} not found.", gr.update(visible=False), gr.update(visible=False))
-
-        # Always regenerate frame_quality.tsv with current weights before rendering
-        progress(0.05, desc="Regenerating frame_quality.tsv…")
-        regen_log = apply_and_regenerate(
-            archive, ch_title, int(start), int(end),
-            float(wc), float(wn), float(wt), float(ww), float(ik), int(fstep),
-        )
-        failure_tokens = ["No chapter selected", "tracking_loss failed",
-                          "No video found", "module not found"]
-        if any(t in regen_log for t in failure_tokens):
-            return (f"❌  Failed to regenerate frame quality:\n{regen_log[-3000:]}",
-                    gr.update(visible=False), gr.update(visible=False))
-
-        progress(0.2, desc="Running step_6_make_videos…")
-        archive_fq = _archive_frame_quality_path(archive)
-        result = subprocess.run(
-            [sys.executable, str(STEP6),
-             "--archive", archive,
-             "--title", ch_title,
-             "--title-exact",
-             "--frame-quality-tsv", str(archive_fq),
-             "--frame-quality-archive", archive],
-            capture_output=True, text=True, cwd=str(PROJECT_ROOT),
-        )
-        log = (regen_log + "\n\n" + (result.stdout or "") + (result.stderr or ""))[-5000:]
-        if result.returncode != 0:
-            return (f"❌  step_6 failed (exit {result.returncode}):\n{log}",
-                    gr.update(visible=False), gr.update(visible=False))
-
-        rendered = None
-        try:
-            from common import VIDEOS_DIR, CLIPS_DIR, safe  # type: ignore
-            for d in [VIDEOS_DIR, CLIPS_DIR]:
-                c = d / f"{safe(ch_title)}.mp4"
-                if c.exists() and c.stat().st_size > 100_000:
-                    rendered = c; break
-        except Exception:
-            pass
-
-        if not rendered:
-            return (f"✅  Render done; output file not found.\n{log}",
-                    gr.update(visible=False), gr.update(visible=False))
-
-        progress(0.65, desc="Building preview with burn-in…")
-        ch       = _find_chapter(chapters, ch_title)
-        ch_start = ch["start_frame"] if ch else 0
-        sc_np    = combined_score(sigs, wc, wn, wt, ww) if sigs else np.array([])
-        preview_p = rendered.parent / f"{rendered.stem}_tuner_preview.mp4"
-        try:
-            make_preview_video(rendered, preview_p, ch_start, fids or [], sc_np)
-            vid_path = str(preview_p)
-        except Exception as exc:
-            vid_path = str(rendered)
-            log += f"\n(Burn-in failed: {exc})"
-
-        progress(1.0)
-        return (f"✅  {rendered.name}",
-                gr.update(visible=True, value=vid_path),
-                gr.update(visible=True))
-
-    render_btn.click(
-        on_render,
-        [archive_dd, chapter_dd, st_chapters,
-         st_fids, st_sigs, st_overrides,
-         wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
-         start_n, end_n, fstep_sl],
-        [render_log, preview_vid, step_ctrl_html],
     )
 
 # ── Launch ────────────────────────────────────────────────────────────────────
