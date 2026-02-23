@@ -110,6 +110,12 @@ def _archive_frame_quality_settings_path(archive: str) -> Path:
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
+
+def _archive_tracking_tmp_frame_quality_path(archive: str) -> Path:
+    p = METADATA_DIR / archive / "_frame_quality_tracking_tmp.tsv"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
 def upsert_frame_quality_settings(
     *,
     archive: str,
@@ -526,6 +532,114 @@ def toggle_frame_override(
     return out
 
 
+def _parse_click_payload(raw_click: str) -> tuple[int, int]:
+    text = str(raw_click or "").strip()
+    if not text:
+        raise ValueError("empty click payload")
+    parts = text.split(":")
+    fid = int(parts[0])
+    # Use server receive time for dedupe; client clocks can differ.
+    ts = int(time.time() * 1000)
+    return fid, ts
+
+
+def _should_dedupe_click(
+    *,
+    fid: int,
+    ts: int,
+    last_click_event: dict | None,
+    window_ms: int = 220,
+) -> bool:
+    if not isinstance(last_click_event, dict):
+        return False
+    try:
+        last_fid = int(last_click_event.get("fid", -1))
+        last_ts = int(last_click_event.get("ts", -1))
+    except Exception:
+        return False
+    if fid != last_fid:
+        return False
+    dt = int(ts) - int(last_ts)
+    return 0 <= dt <= max(0, int(window_ms))
+
+
+def apply_manual_click_override(
+    *,
+    raw_click: str,
+    fids: list[int],
+    sigs: dict[str, np.ndarray],
+    overrides: dict[int, str],
+    archive: str,
+    wc: float,
+    wn: float,
+    wt: float,
+    ww: float,
+    tm: str,
+    ik: float,
+    tv: float,
+    bp: float,
+    last_click_event: dict | None = None,
+) -> tuple[dict[int, str], dict[str, int], str]:
+    current = dict(overrides or {})
+    try:
+        fid, ts = _parse_click_payload(raw_click)
+    except Exception:
+        return current, dict(last_click_event or {}), f"ignored: invalid payload '{raw_click}'"
+
+    if fid not in {int(x) for x in fids}:
+        return current, dict(last_click_event or {}), f"ignored: frame {fid} not in sampled set"
+
+    if _should_dedupe_click(fid=fid, ts=ts, last_click_event=last_click_event):
+        return current, dict(last_click_event or {}), (
+            f"ignored: duplicate click fid={fid} ts={ts}"
+        )
+
+    before = current.get(fid)
+    new_ov = toggle_frame_override(
+        fid=fid,
+        fids=fids,
+        sigs=sigs,
+        overrides=current,
+        wc=wc,
+        wn=wn,
+        wt=wt,
+        ww=ww,
+        tm=tm,
+        ik=ik,
+        tv=tv,
+        bp=bp,
+    )
+
+    sc = combined_score(sigs, wc, wn, wt, ww)
+    thr = compute_threshold(sc, tm, ik, tv, bp)
+    idx = fids.index(fid) if fid in fids else -1
+    auto_bad = bool(idx >= 0 and sc[idx] >= thr)
+    score_val = float(sc[idx]) if idx >= 0 else float("nan")
+    manual_state = new_ov.get(fid)
+    resolved_bad = (manual_state == "bad") if manual_state else auto_bad
+    manual_flag = 1 if manual_state else 0
+
+    persisted = False
+    persisted_path = ""
+    if archive:
+        out_path = upsert_frame_quality_row(
+            archive=archive,
+            frame=int(fid),
+            score=score_val,
+            bad_frame=1 if resolved_bad else 0,
+            manual_override=manual_flag,
+        )
+        persisted = True
+        persisted_path = str(out_path)
+
+    after = new_ov.get(fid)
+    srv_dbg = (
+        f"payload={raw_click} fid={fid} ts={ts} before={before} after={after} "
+        f"persisted={persisted} path={persisted_path}"
+    )
+    return new_ov, {"fid": int(fid), "ts": int(ts)}, srv_dbg
+
+
 def select_focus_frame_ids(
     *,
     start: int,
@@ -907,6 +1021,7 @@ def apply_and_regenerate(
         return "❌  No chapter selected."
 
     logs: list[str] = []
+    archive_fq_path = _archive_frame_quality_path(archive)
 
     # 1 ── Save chapter settings row ────────────────────────────────────────
     settings_tsv = upsert_frame_quality_settings(
@@ -924,6 +1039,17 @@ def apply_and_regenerate(
     )
     logs.append(f"✅  Settings → {settings_tsv.name}")
 
+    # Preserve current manual overrides before any re-scoring writes occur.
+    preserved_overrides = load_manual_overrides_from_archive_frame_quality(
+        archive, int(ch_start), int(ch_end)
+    )
+    if preserved_overrides:
+        manual_bad = [f for f, l in preserved_overrides.items() if l == "bad"]
+        manual_good = [f for f, l in preserved_overrides.items() if l == "good"]
+        logs.append(
+            f"   Preserved overrides: {len(manual_bad)} forced-bad, {len(manual_good)} forced-good"
+        )
+
     if not _HAS_TRACKING:
         return "\n".join(logs) + "\n❌  tracking_loss module not found."
 
@@ -936,6 +1062,8 @@ def apply_and_regenerate(
 
     # 3 ── Run tracking_loss for this chapter ───────────────────────────────
     logs.append(f"▶️   tracking_loss  frames {ch_start}–{ch_end}  step={frame_step}…")
+    tracking_tmp_fq = _archive_tracking_tmp_frame_quality_path(archive)
+    tracking_tmp_fq.unlink(missing_ok=True)
     config = TrackingLossConfig(  # type: ignore[call-arg]
         archive              = archive,
         video                = video,
@@ -948,12 +1076,13 @@ def apply_and_regenerate(
         weight_wave          = w_wave,
         iqr_mult             = iqr_mult,
         threshold_window_size= 1000,
-        # Keep tracking_loss metadata copy local to this chapter run output.
-        metadata_frame_quality_tsv = str(_archive_frame_quality_path(archive)),
+        # Write tracking output to a temp TSV; we merge into canonical file after
+        # applying preserved manual overrides.
+        metadata_frame_quality_tsv = str(tracking_tmp_fq),
     )
     try:
         result = run_tracking_loss_classification(config=config)  # type: ignore
-        fq_out = Path(result.get("frame_quality_path", _archive_frame_quality_path(archive)))
+        fq_out = Path(result.get("frame_quality_path", tracking_tmp_fq))
         logs.append(f"✅  tracking_loss done  →  {fq_out.name}")
     except Exception as exc:
         logs.append(f"❌  tracking_loss failed: {exc}")
@@ -967,11 +1096,7 @@ def apply_and_regenerate(
     logs.append(f"   Scored frames: {len(scored_rows)}")
 
     # 5 ── Merge overrides into archive-level frame_quality.tsv ─────────────────
-    overrides      = load_manual_overrides_from_archive_frame_quality(archive, int(ch_start), int(ch_end))
-    manual_bad     = [f for f, l in overrides.items() if l == "bad"]
-    manual_good    = [f for f, l in overrides.items() if l == "good"]
-    if overrides:
-        logs.append(f"   Overrides: {len(manual_bad)} forced-bad, {len(manual_good)} forced-good")
+    overrides = preserved_overrides
 
     archive_fq = merge_chapter_into_archive_frame_quality(
         archive        = archive,
@@ -980,6 +1105,7 @@ def apply_and_regenerate(
         scored_rows    = scored_rows,
         overrides      = overrides,
     )
+    tracking_tmp_fq.unlink(missing_ok=True)
     logs.append(f"OK: Archive frame quality -> {archive_fq}")
     logs.append("   (step_6_make_videos reads frame_quality.tsv)")
     return "\n".join(logs)
@@ -1095,6 +1221,7 @@ with gr.Blocks(
     st_b64       = gr.State([])
     st_sigs      = gr.State({})
     st_overrides = gr.State({})
+    st_last_click = gr.State({"fid": -1, "ts": -1})
     st_chapters  = gr.State([])
 
     gr.Markdown("# 📼  VHS Frame Tuner")
@@ -1377,7 +1504,7 @@ with gr.Blocks(
                 wc, wn, wt, ww, tmode, iqrk, tv, bp, cols, tw,
                 progress=gr.Progress()):
         FAIL = (gr.update(visible=False), "❌  No chapter/video found.",
-                [], [], {}, {}, gr.update(value=[]), "",
+                [], [], {}, {}, {"fid": -1, "ts": -1}, gr.update(value=[]), "",
                 _E_SIG, _E_SIG, _E_SIG, _E_SIG, _E_SCORE)
         if not archive or not ch_title or ch_title.startswith("—"):
             return FAIL
@@ -1429,11 +1556,11 @@ with gr.Blocks(
         )
         return (gr.update(visible=True),
                 f"✅  Loaded **{len(fids)}** frames for **{ch_title}**",
-                fids, b64, sigs, overrides,
+                fids, b64, sigs, overrides, {"fid": -1, "ts": -1},
                 html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc)
 
     _LOAD_OUTS = [main_panel, status_md,
-                  st_fids, st_b64, st_sigs, st_overrides] + _RB_OUTS
+                  st_fids, st_b64, st_sigs, st_overrides, st_last_click] + _RB_OUTS
     _LOAD_INS  = [archive_dd, chapter_dd, st_chapters,
                   start_n, end_n, n_sl,
                   wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
@@ -1454,23 +1581,17 @@ with gr.Blocks(
     t_mode.change(on_sliders, _SL_INS, _RB_OUTS)
 
     # ── Frame click toggle ─────────────────────────────────────────────────
-    def on_click(raw_click, fids, b64, sigs, overrides, archive, ch_title, ch_start, ch_end,
+    def on_click(raw_click, fids, b64, sigs, overrides, last_click_event, archive, ch_title, ch_start, ch_end,
                  wc, wn, wt, ww, tm, ik, tv, bp, cols, tw):
         if not raw_click or not raw_click.strip() or not fids:
-            return (*[gr.update()] * 7, overrides, "", "ignored: empty click payload or no frames")
-        try:
-            # Value is "fid:timestamp" — timestamp guarantees every click is unique
-            fid = int(raw_click.strip().split(":")[0])
-        except ValueError:
-            return (*[gr.update()] * 7, overrides, "", f"ignored: invalid payload '{raw_click}'")
+            return (*[gr.update()] * 7, overrides, "", "ignored: empty click payload or no frames", last_click_event)
 
-        before = overrides.get(fid)
-
-        new_ov = toggle_frame_override(
-            fid=fid,
+        new_ov, new_last_click, srv_dbg = apply_manual_click_override(
+            raw_click=raw_click,
             fids=fids,
             sigs=sigs,
             overrides=overrides,
+            archive=str(archive or ""),
             wc=wc,
             wn=wn,
             wt=wt,
@@ -1479,65 +1600,46 @@ with gr.Blocks(
             ik=ik,
             tv=tv,
             bp=bp,
+            last_click_event=last_click_event,
         )
+        if str(srv_dbg).startswith("ignored:"):
+            return (*[gr.update()] * 7, overrides, "", srv_dbg, new_last_click)
 
-        sc = combined_score(sigs, wc, wn, wt, ww)
-        thr = compute_threshold(sc, tm, ik, tv, bp)
-        idx = fids.index(fid) if fid in fids else -1
-        auto_bad = bool(idx >= 0 and sc[idx] >= thr)
-        score_val = float(sc[idx]) if idx >= 0 else float("nan")
-        manual_state = new_ov.get(fid)
-        resolved_bad = (manual_state == "bad") if manual_state else auto_bad
-        manual_flag = 1 if manual_state else 0
-
-        ch_title_str = str(ch_title or "")
-        if archive and ch_title_str and "select chapter" not in ch_title_str.lower():
-            upsert_frame_quality_row(
-                archive=archive,
-                frame=int(fid),
-                score=score_val,
-                bad_frame=1 if resolved_bad else 0,
-                manual_override=manual_flag,
-            )
-
-        after = new_ov.get(fid)
-        in_sample = fid in {int(x) for x in fids}
-        srv_dbg = f"payload={raw_click} fid={fid} before={before} after={after} in_sample={in_sample}"
         html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc = _rebuild(
             fids, b64, sigs, new_ov, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw
         )
-        return html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, new_ov, "", srv_dbg
+        return html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, new_ov, "", srv_dbg, new_last_click
 
     click_recv.input(
         on_click,
-        [click_recv, st_fids, st_b64, st_sigs, st_overrides,
+        [click_recv, st_fids, st_b64, st_sigs, st_overrides, st_last_click,
          archive_dd, chapter_dd, start_n, end_n,
          wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
          cols_sl, twidth_sl],
-        [*_RB_OUTS, st_overrides, click_recv, click_debug_srv],
+        [*_RB_OUTS, st_overrides, click_recv, click_debug_srv, st_last_click],
     )
 
-    def on_gallery_select(fids, b64, sigs, overrides, archive, ch_title, ch_start, ch_end,
+    def on_gallery_select(fids, b64, sigs, overrides, last_click_event, archive, ch_title, ch_start, ch_end,
                           wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, evt: gr.SelectData):
         if evt is None or getattr(evt, "index", None) is None:
-            return (*[gr.update()] * 7, overrides, "", "ignored: no gallery selection event")
+            return (*[gr.update()] * 7, overrides, "", "ignored: no gallery selection event", last_click_event)
         idx = int(evt.index)
         if idx < 0 or idx >= len(fids):
-            return (*[gr.update()] * 7, overrides, "", f"ignored: gallery index out of range ({idx})")
+            return (*[gr.update()] * 7, overrides, "", f"ignored: gallery index out of range ({idx})", last_click_event)
         fid = int(fids[idx])
         payload = f"{fid}:{int(time.time() * 1000)}"
         return on_click(
-            payload, fids, b64, sigs, overrides, archive, ch_title, ch_start, ch_end,
+            payload, fids, b64, sigs, overrides, last_click_event, archive, ch_title, ch_start, ch_end,
             wc, wn, wt, ww, tm, ik, tv, bp, cols, tw
         )
 
     grid_gallery.select(
         on_gallery_select,
-        [st_fids, st_b64, st_sigs, st_overrides,
+        [st_fids, st_b64, st_sigs, st_overrides, st_last_click,
          archive_dd, chapter_dd, start_n, end_n,
          wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
          cols_sl, twidth_sl],
-        [*_RB_OUTS, st_overrides, click_recv, click_debug_srv],
+        [*_RB_OUTS, st_overrides, click_recv, click_debug_srv, st_last_click],
     )
 
     # ── Apply & Regenerate ─────────────────────────────────────────────────

@@ -225,68 +225,58 @@ def test_step_6_badframe_sidecar_mapping():
     assert local == [0, 1, 2]
     assert local == [0, 1, 2]
 
-    tmp_tsv = test_meta_dir / "_badframes_test.tsv"
+    tmp_tsv = test_meta_dir / "_frame_quality_test.tsv"
     tmp_tsv.write_text(
-        "start_frame\tend_frame\tnote\n"
-        "100\t102\tshort,no_pad\n"
-        "200\t200\t\n"
-        "500\t502\t\n"
-        "300\t1700\ttoo long\n"
-        "300\t1700\tallow_long\n",
+        "frame\tscore\tbad_frame\tmanual_override\n"
+        "102\t0.1\t1\t0\n"
+        "100\t0.2\t1\t0\n"
+        "101\t0.3\t1\t0\n"
+        "101\t0.4\t1\t1\n"
+        "200\t0.5\t1\t0\n"
+        "500\t0.6\t1\t0\n"
+        "502\t0.7\t1\t0\n"
+        "999\t0.8\t0\t0\n",
         encoding="utf-8",
     )
     try:
         ranges = step_6_make_videos.load_badframe_ranges(tmp_tsv)
         assert (100, 102) in ranges
         assert (200, 200) in ranges
-        assert any(a <= 499 and b >= 502 for (a, b) in ranges)
-        assert (298, 1700) in ranges
+        assert (500, 500) in ranges
+        assert (502, 502) in ranges
     finally:
         tmp_tsv.unlink(missing_ok=True)
 
-    tmp_source_tsv = test_meta_dir / "_badframes_source_test.tsv"
-    tmp_source_tsv.write_text(
-        "start_frame\tend_frame\tsource_frame\tnote\n"
-        "100\t102\t98\tno_pad\n"
-        "200\t200\t\tauto\n"
-        "300\t301\tno_pad\n",
+    # Invalid sidecar schema should fail fast.
+    tmp_invalid_tsv = test_meta_dir / "_frame_quality_invalid.tsv"
+    tmp_invalid_tsv.write_text("start_frame\tend_frame\n100\t102\n", encoding="utf-8")
+    try:
+        try:
+            step_6_make_videos.load_badframe_repairs(tmp_invalid_tsv)
+            raise AssertionError("Expected ValueError for invalid frame_quality sidecar schema.")
+        except ValueError:
+            pass
+    finally:
+        tmp_invalid_tsv.unlink(missing_ok=True)
+
+    # Repairs parsed from frame_quality sidecar should map with source=None.
+    tmp_repairs_tsv = test_meta_dir / "_frame_quality_repairs.tsv"
+    tmp_repairs_tsv.write_text(
+        "frame\tscore\tbad_frame\tmanual_override\n"
+        "1000\t0.1\t1\t0\n"
+        "1001\t0.1\t1\t0\n"
+        "1002\t0.1\t1\t0\n"
+        "1005\t0.1\t1\t0\n",
         encoding="utf-8",
     )
     try:
-        repairs = step_6_make_videos.load_badframe_repairs(tmp_source_tsv)
-        assert (100, 102, 98) in repairs
-        assert (200, 200, None) in repairs
-        assert (300, 301, None) in repairs
-
-        chapter_local = step_6_make_videos.map_bad_repairs_to_chapter_local_ranges(
-            [(1000, 1002, 1005)],
-            chapter,
-        )
-        assert chapter_local == [(0, 2, 5)]
+        repairs = step_6_make_videos.load_badframe_repairs(tmp_repairs_tsv)
+        assert (1000, 1002, None) in repairs
+        assert (1005, 1005, None) in repairs
+        chapter_local = step_6_make_videos.map_bad_repairs_to_chapter_local_ranges(repairs, chapter)
+        assert chapter_local == [(0, 2, None), (5, 5, None)]
     finally:
-        tmp_source_tsv.unlink(missing_ok=True)
-
-    tmp_bool_tsv = test_meta_dir / "_badframes_no_pad_bool.tsv"
-    tmp_bool_tsv.write_text(
-        "start_frame\tend_frame\tsource_frame\tno_pad\tnote\n"
-        "100\t101\t99\ttrue\t\n"
-        "200\t201\t199\tfalse\t\n"
-        "300\t301\t299\t\tyes-no-note\n"
-        "400\t401\t399\tinvalid\t\n",
-        encoding="utf-8",
-    )
-    try:
-        repairs = step_6_make_videos.load_badframe_repairs(tmp_bool_tsv)
-        # no_pad=true keeps exact range.
-        assert (100, 101, 99) in repairs
-        # no_pad=false keeps adaptive pre-pad for 2-frame burst.
-        assert (199, 201, 199) in repairs
-        # blank no_pad falls back to note parsing (no no_pad token here -> adaptive pre-pad).
-        assert (299, 301, 299) in repairs
-        # invalid no_pad token is ignored (falls back to note/default behavior).
-        assert (399, 401, 399) in repairs
-    finally:
-        tmp_bool_tsv.unlink(missing_ok=True)
+        tmp_repairs_tsv.unlink(missing_ok=True)
 
     print("Test step_6_make_videos badframe sidecar mapping: PASSED.")
     del sys.modules['step_6_make_videos']
@@ -385,20 +375,20 @@ def test_step_6_make_create_avs_includes_chapter_bounds():
     sys.modules.pop("whisper.utils", None)
 
 def test_step_6_real_badframes_do_not_pick_bad_sources():
-    print("Testing step_6_make_videos against real badframes.tsv source picking...")
+    print("Testing step_6_make_videos against real frame_quality.tsv source picking...")
     step_6_make_videos = import_step_6_module()
 
     real_meta = ROOT / "metadata" / "callahan_01_archive"
-    badframes_tsv = real_meta / "badframes.tsv"
+    frame_quality_tsv = real_meta / "frame_quality.tsv"
     chapters_file = real_meta / "chapters.ffmetadata"
-    if not badframes_tsv.exists() or not chapters_file.exists():
-        print("Skipping real badframes source-picking test: callahan_01 metadata not present.")
+    if not frame_quality_tsv.exists() or not chapters_file.exists():
+        print("Skipping real frame-quality source-picking test: callahan_01 metadata not present.")
         del sys.modules['step_6_make_videos']
         sys.modules.pop("whisper", None)
         sys.modules.pop("whisper.utils", None)
         return
 
-    repairs = step_6_make_videos.load_badframe_repairs(badframes_tsv)
+    repairs = step_6_make_videos.load_badframe_repairs(frame_quality_tsv)
     raw_ranges = [(a, b) for (a, b, _src) in repairs]
     _ffm, chapters = parse_chapters(chapters_file)
 
@@ -446,6 +436,74 @@ def test_step_6_real_badframes_do_not_pick_bad_sources():
     sys.modules.pop("whisper", None)
     sys.modules.pop("whisper.utils", None)
 
+
+def test_step_6_frame_quality_ingest_exact_archive01():
+    print("Testing step_6_make_videos exact ingest from archive-01 frame_quality.tsv...")
+    step_6_make_videos = import_step_6_module()
+    try:
+        real_meta = ROOT / "metadata" / "callahan_01_archive"
+        frame_quality_tsv = real_meta / "frame_quality.tsv"
+        chapters_file = real_meta / "chapters.ffmetadata"
+        if not frame_quality_tsv.exists() or not chapters_file.exists():
+            print("Skipping exact frame-quality ingest test: callahan_01 metadata not present.")
+            return
+
+        # Exact bad-frame set from source TSV.
+        bad_exact = set()
+        idx_frame = 0
+        idx_bad = 2
+        for raw in frame_quality_tsv.read_text(encoding="utf-8", errors="ignore").splitlines():
+            s = raw.strip()
+            if not s or s.startswith("#"):
+                continue
+            parts = [p.strip() for p in s.split("\t")]
+            low = [p.lower() for p in parts]
+            if low and low[0] == "frame":
+                idx_frame = low.index("frame")
+                idx_bad = low.index("bad_frame")
+                continue
+            try:
+                frame = int(parts[idx_frame])
+                is_bad = int(parts[idx_bad]) == 1
+            except Exception:
+                continue
+            if is_bad:
+                bad_exact.add(frame)
+
+        repairs = step_6_make_videos.load_badframe_repairs(frame_quality_tsv)
+        bad_from_repairs = set()
+        for a, b, _src in repairs:
+            for f in range(int(a), int(b) + 1):
+                bad_from_repairs.add(f)
+
+        assert bad_from_repairs == bad_exact, (
+            "step_6 frame_quality ingestion mismatch: "
+            f"missing={sorted(bad_exact - bad_from_repairs)[:20]} "
+            f"extra={sorted(bad_from_repairs - bad_exact)[:20]}"
+        )
+
+        # Chapter-local mapping should preserve the exact per-chapter intersections.
+        _ffm, chapters = parse_chapters(chapters_file)
+        raw_ranges = [(a, b) for (a, b, _src) in repairs]
+        for ch in chapters:
+            start, end = step_6_make_videos.chapter_global_frame_bounds(ch)
+            expect_local = {
+                f - start for f in bad_exact
+                if start <= f <= max(start, end - 1)
+            }
+            got_local = set(step_6_make_videos.map_bad_ranges_to_chapter_local_frames(raw_ranges, ch))
+            assert got_local == expect_local, (
+                f"chapter mapping mismatch for '{ch.get('title', '')}': "
+                f"missing={sorted(expect_local - got_local)[:10]} "
+                f"extra={sorted(got_local - expect_local)[:10]}"
+            )
+        print("Test step_6_make_videos exact ingest from archive-01 frame_quality.tsv: PASSED.")
+    finally:
+        del sys.modules['step_6_make_videos']
+        sys.modules.pop("whisper", None)
+        sys.modules.pop("whisper.utils", None)
+
+
 def test_step_6_proxy_badframes_overlay_e2e():
     print("Testing step_6_make_videos proxy overlay + OpenCV decode badframe safety...")
     if os.getenv("RUN_PROXY_BADFRAME_E2E", "0").strip() != "1":
@@ -465,9 +523,9 @@ def test_step_6_proxy_badframes_overlay_e2e():
         proxy_path = ROOT.parent / "Archive" / "callahan_01_archive_proxy.mp4"
         meta_dir = ROOT / "metadata" / "callahan_01_archive"
         filter_src = meta_dir / "filter.avs"
-        badframes_src = meta_dir / "badframes.tsv"
-        if not proxy_path.exists() or not filter_src.exists() or not badframes_src.exists():
-            print("Skipping proxy overlay E2E test: archive proxy/filter/badframes not found.")
+        frame_quality_src = meta_dir / "frame_quality.tsv"
+        if not proxy_path.exists() or not filter_src.exists() or not frame_quality_src.exists():
+            print("Skipping proxy overlay E2E test: archive proxy/filter/frame_quality not found.")
             return
 
         frame_start = 0
@@ -487,9 +545,9 @@ def test_step_6_proxy_badframes_overlay_e2e():
         src_md5 = work_dir / f"{stem}_src.md5"
         clip_md5 = work_dir / f"{stem}_clip.md5"
         filter_copy = work_dir / "filter_copy.avs"
-        badframes_copy = work_dir / "badframes_copy.tsv"
+        frame_quality_copy = work_dir / "frame_quality_copy.tsv"
         shutil.copy(filter_src, filter_copy)
-        shutil.copy(badframes_src, badframes_copy)
+        shutil.copy(frame_quality_src, frame_quality_copy)
 
         vf_select = f"select='between(n\\,{frame_start}\\,{frame_end})',setpts=N/FRAME_RATE/TB"
         subprocess.run(
@@ -600,7 +658,7 @@ def test_step_6_proxy_badframes_overlay_e2e():
             )
         cap_num.release()
 
-        repairs = step_6_make_videos.load_badframe_repairs(badframes_copy)
+        repairs = step_6_make_videos.load_badframe_repairs(frame_quality_copy)
         fake_chapter = {
             "start": 0.0,
             "end": (frame_end + 1) * 1001.0 / 30000.0,
@@ -629,7 +687,7 @@ def test_step_6_proxy_badframes_overlay_e2e():
         )
 
         bad_set = set()
-        for a, b in step_6_make_videos.load_badframe_ranges(badframes_copy):
+        for a, b in step_6_make_videos.load_badframe_ranges(frame_quality_copy):
             lo = max(frame_start, int(a))
             hi = min(frame_end, int(b))
             if hi < lo:
@@ -776,6 +834,205 @@ def test_vhs_tuner_toggle_override_cycle():
 
     print("Test vhs_tuner frame-toggle override cycle: PASSED.")
 
+
+def test_vhs_tuner_manual_click_persists_frame_quality():
+    print("Testing vhs_tuner manual click persistence to frame_quality.tsv...")
+    import tempfile
+    import time
+    import vhs_tuner
+
+    fids = [35774]
+    sigs = {
+        "chroma": np.array([0.0], dtype=np.float64),
+        "noise": np.array([0.0], dtype=np.float64),
+        "tear": np.array([0.0], dtype=np.float64),
+        "wave": np.array([0.0], dtype=np.float64),
+    }
+
+    old_meta = vhs_tuner.METADATA_DIR
+    with tempfile.TemporaryDirectory() as td:
+        vhs_tuner.METADATA_DIR = Path(td)
+        try:
+            overrides, last_click, dbg = vhs_tuner.apply_manual_click_override(
+                raw_click="35774:1000",
+                fids=fids,
+                sigs=sigs,
+                overrides={},
+                archive="unit_archive",
+                wc=1.0, wn=0.0, wt=0.0, ww=0.0,
+                tm="value", ik=3.5, tv=1.0, bp=10.0,
+                last_click_event={"fid": -1, "ts": -1},
+            )
+            assert overrides.get(35774) == "bad", dbg
+
+            fq = vhs_tuner._archive_frame_quality_path("unit_archive")
+            rows = vhs_tuner._read_frame_quality_rows(fq)
+            assert 35774 in rows, "clicked frame not written to frame_quality.tsv"
+            assert int(rows[35774]["bad_frame"]) == 1
+            assert int(rows[35774]["manual_override"]) == 1
+
+            time.sleep(0.30)
+            overrides2, _last2, dbg2 = vhs_tuner.apply_manual_click_override(
+                raw_click="35774:1400",
+                fids=fids,
+                sigs=sigs,
+                overrides=overrides,
+                archive="unit_archive",
+                wc=1.0, wn=0.0, wt=0.0, ww=0.0,
+                tm="value", ik=3.5, tv=1.0, bp=10.0,
+                last_click_event=last_click,
+            )
+            assert 35774 not in overrides2, dbg2
+
+            rows = vhs_tuner._read_frame_quality_rows(fq)
+            assert int(rows[35774]["manual_override"]) == 0
+            assert int(rows[35774]["bad_frame"]) == 0
+        finally:
+            vhs_tuner.METADATA_DIR = old_meta
+    print("Test vhs_tuner manual click persistence to frame_quality.tsv: PASSED.")
+
+
+def test_vhs_tuner_click_dedupe_prevents_double_toggle():
+    print("Testing vhs_tuner click dedupe for duplicate events...")
+    import tempfile
+    import vhs_tuner
+
+    fids = [35774]
+    sigs = {
+        "chroma": np.array([0.0], dtype=np.float64),
+        "noise": np.array([0.0], dtype=np.float64),
+        "tear": np.array([0.0], dtype=np.float64),
+        "wave": np.array([0.0], dtype=np.float64),
+    }
+
+    old_meta = vhs_tuner.METADATA_DIR
+    with tempfile.TemporaryDirectory() as td:
+        vhs_tuner.METADATA_DIR = Path(td)
+        try:
+            overrides, last_click, dbg = vhs_tuner.apply_manual_click_override(
+                raw_click="35774:2000",
+                fids=fids,
+                sigs=sigs,
+                overrides={},
+                archive="unit_archive",
+                wc=1.0, wn=0.0, wt=0.0, ww=0.0,
+                tm="value", ik=3.5, tv=1.0, bp=10.0,
+                last_click_event={"fid": -1, "ts": -1},
+            )
+            assert overrides.get(35774) == "bad", dbg
+
+            overrides2, last2, dbg2 = vhs_tuner.apply_manual_click_override(
+                raw_click="35774:2050",
+                fids=fids,
+                sigs=sigs,
+                overrides=overrides,
+                archive="unit_archive",
+                wc=1.0, wn=0.0, wt=0.0, ww=0.0,
+                tm="value", ik=3.5, tv=1.0, bp=10.0,
+                last_click_event=last_click,
+            )
+            assert overrides2 == overrides
+            assert last2 == last_click
+            assert "ignored: duplicate click" in dbg2
+
+            fq = vhs_tuner._archive_frame_quality_path("unit_archive")
+            rows = vhs_tuner._read_frame_quality_rows(fq)
+            assert int(rows[35774]["bad_frame"]) == 1
+            assert int(rows[35774]["manual_override"]) == 1
+        finally:
+            vhs_tuner.METADATA_DIR = old_meta
+    print("Test vhs_tuner click dedupe for duplicate events: PASSED.")
+
+
+def test_vhs_tuner_apply_preserves_manual_overrides():
+    print("Testing vhs_tuner apply preserves manual overrides during tracking rerun...")
+    import tempfile
+    import types
+    import vhs_tuner
+
+    old_meta = vhs_tuner.METADATA_DIR
+    old_arch = vhs_tuner.ARCHIVE_DIR
+    old_has = vhs_tuner._HAS_TRACKING
+    old_cfg = vhs_tuner.TrackingLossConfig
+    old_run = vhs_tuner.run_tracking_loss_classification
+
+    class _DummyConfig:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        vhs_tuner.METADATA_DIR = root / "metadata"
+        vhs_tuner.ARCHIVE_DIR = root / "archive"
+        vhs_tuner.METADATA_DIR.mkdir(parents=True, exist_ok=True)
+        vhs_tuner.ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Make apply_and_regenerate find a video.
+        (vhs_tuner.ARCHIVE_DIR / "unit_archive.mkv").write_bytes(b"")
+
+        # Existing canonical frame quality has a manual bad override we must preserve.
+        fq = vhs_tuner._archive_frame_quality_path("unit_archive")
+        fq.parent.mkdir(parents=True, exist_ok=True)
+        fq.write_text(
+            "frame\tscore\tbad_frame\tmanual_override\n"
+            "35894\t1.11\t1\t1\n"
+            "35895\t-0.41\t1\t1\n",
+            encoding="utf-8",
+        )
+
+        def _fake_tracking_run(config=None, **_kwargs):
+            # Ensure apply writes tracking output to temp sidecar, not canonical.
+            assert config is not None
+            out = Path(config.metadata_frame_quality_tsv)
+            assert out.resolve() != fq.resolve(), "tracking output should not overwrite canonical frame_quality.tsv"
+            out.parent.mkdir(parents=True, exist_ok=True)
+            # Simulate tracking calling both frames good; preserved overrides must win.
+            out.write_text(
+                "frame\tscore\tbad_frame\tmanual_override\tthreshold\tchroma_loss\tnoise_energy\trow_tear\twave_energy\n"
+                "35894\t-0.25\t0\t0\t0.5\t0\t0\t0\t0\n"
+                "35895\t-0.30\t0\t0\t0.5\t0\t0\t0\t0\n"
+                "35900\t1.20\t1\t0\t0.5\t0\t0\t0\t0\n",
+                encoding="utf-8",
+            )
+            return {"frame_quality_path": str(out)}
+
+        try:
+            vhs_tuner._HAS_TRACKING = True
+            vhs_tuner.TrackingLossConfig = _DummyConfig
+            vhs_tuner.run_tracking_loss_classification = _fake_tracking_run
+
+            log = vhs_tuner.apply_and_regenerate(
+                archive="unit_archive",
+                ch_title="Unit Chapter",
+                ch_start=35800,
+                ch_end=36000,
+                w_chroma=0.25,
+                w_noise=0.25,
+                w_tear=0.25,
+                w_wave=0.25,
+                iqr_mult=3.5,
+                frame_step=1,
+            )
+            assert "OK: Archive frame quality" in log
+
+            rows = vhs_tuner._read_frame_quality_rows(fq)
+            # Manual overrides must be preserved even if tracking predicts good.
+            assert int(rows[35894]["bad_frame"]) == 1
+            assert int(rows[35894]["manual_override"]) == 1
+            assert int(rows[35895]["bad_frame"]) == 1
+            assert int(rows[35895]["manual_override"]) == 1
+            # Non-overridden tracking output should still be merged.
+            assert int(rows[35900]["bad_frame"]) == 1
+            assert int(rows[35900]["manual_override"]) == 0
+        finally:
+            vhs_tuner.METADATA_DIR = old_meta
+            vhs_tuner.ARCHIVE_DIR = old_arch
+            vhs_tuner._HAS_TRACKING = old_has
+            vhs_tuner.TrackingLossConfig = old_cfg
+            vhs_tuner.run_tracking_loss_classification = old_run
+
+    print("Test vhs_tuner apply preserves manual overrides during tracking rerun: PASSED.")
+
 def main():
     print("Running tests...")
     test_step_4_generate_archive_metadata()
@@ -785,11 +1042,15 @@ def main():
     test_step_6_badframe_repair_injection_and_comment()
     test_step_6_make_create_avs_includes_chapter_bounds()
     test_step_6_real_badframes_do_not_pick_bad_sources()
+    test_step_6_frame_quality_ingest_exact_archive01()
     test_step_6_proxy_badframes_overlay_e2e()
     test_step_drive_checksums()
     test_sha3_generate_and_verify()
     test_blake3_verify_only()
     test_vhs_tuner_toggle_override_cycle()
+    test_vhs_tuner_manual_click_persists_frame_quality()
+    test_vhs_tuner_click_dedupe_prevents_double_toggle()
+    test_vhs_tuner_apply_preserves_manual_overrides()
 
 if __name__ == "__main__":
     main()
