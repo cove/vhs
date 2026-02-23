@@ -734,17 +734,20 @@ def build_gallery_items(
         auto_bad = sc >= threshold
         if ov == "bad":
             state = "M:BAD"
+            state_short = "MB"
             color = "#8b1f1f"   # dark red = manual bad
         elif ov == "good":
             state = "M:GOOD"
+            state_short = "MG"
             color = "#1f6b3a"   # dark green = manual good
         else:
             state = "AUTO:BAD" if auto_bad else "AUTO:GOOD"
+            state_short = "AB" if auto_bad else "AG"
             color = "#e03030" if auto_bad else "#30c870"
 
         # Restore fast visual scanning: colored border per frame state.
         styled = ImageOps.expand(img, border=BORDER, fill=color)
-        items.append((styled, f"#{fid}  S={sc:.2f}  {state}"))
+        items.append((styled, f"#{fid}  s={sc:.2f}  {state_short}"))
     return items
 
 
@@ -958,6 +961,15 @@ input[type=range] { accent-color:#27a85a; }
 #vhs-click-recv input, #vhs-click-recv textarea {
   height:26px !important; font-family:monospace; font-size:10px;
   background:#111 !important; color:#555 !important; }
+#vhs-grid-gallery [class*="caption"] {
+  font-family:'Courier New',monospace !important;
+  font-size:10px !important;
+  text-align:left !important;
+  white-space:normal !important;
+  overflow-wrap:anywhere !important;
+  line-height:1.15 !important;
+  padding-left:2px !important;
+}
 """
 
 _STEP_BTN_HTML = """
@@ -1101,6 +1113,7 @@ with gr.Blocks(
                 object_fit="contain",
                 height="auto",
                 allow_preview=False,
+                elem_id="vhs-grid-gallery",
             )
 
             # ── Static JS — never included in event outputs, so it persists
