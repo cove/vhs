@@ -842,12 +842,12 @@ def test_vhs_tuner_toggle_override_cycle():
     )
     assert 100 not in overrides
 
-    # Frame 102 is auto-bad at threshold 0, so first toggle should force good.
+    # Toggle is now a simple BAD_FRAMES membership add/remove.
     overrides = vhs_tuner.toggle_frame_override(
         fid=102, fids=fids, sigs=sigs, overrides={},
         wc=1.0, wn=0.0, wt=0.0, ww=0.0, tm="value", ik=3.5, tv=0.0, bp=10.0,
     )
-    assert overrides.get(102) == "good"
+    assert overrides.get(102) == "bad"
     overrides = vhs_tuner.toggle_frame_override(
         fid=102, fids=fids, sigs=sigs, overrides=overrides,
         wc=1.0, wn=0.0, wt=0.0, ww=0.0, tm="value", ik=3.5, tv=0.0, bp=10.0,
@@ -866,11 +866,12 @@ def test_vhs_tuner_toggle_override_cycle():
     print("Test vhs_tuner frame-toggle override cycle: PASSED.")
 
 
-def test_vhs_tuner_manual_click_persists_frame_quality():
-    print("Testing vhs_tuner manual click persistence to frame_quality.tsv...")
+def test_vhs_tuner_manual_click_persists_chapter_bad_frames():
+    print("Testing vhs_tuner manual click persistence to chapter BAD_FRAMES...")
     import tempfile
     import time
     import vhs_tuner
+    from common import parse_chapters
 
     fids = [35774]
     sigs = {
@@ -884,23 +885,37 @@ def test_vhs_tuner_manual_click_persists_frame_quality():
     with tempfile.TemporaryDirectory() as td:
         vhs_tuner.METADATA_DIR = Path(td)
         try:
+            cf = vhs_tuner.METADATA_DIR / "unit_archive" / "chapters.ffmetadata"
+            cf.parent.mkdir(parents=True, exist_ok=True)
+            cf.write_text(
+                ";FFMETADATA1\n"
+                "[CHAPTER]\n"
+                "TIMEBASE=1/1000\n"
+                "START=1192125\n"
+                "END=1202935\n"
+                "title=Unit Chapter\n"
+                "BAD_FRAMES=\n",
+                encoding="utf-8",
+            )
+
             overrides, last_click, dbg = vhs_tuner.apply_manual_click_override(
                 raw_click="35774:1000",
                 fids=fids,
                 sigs=sigs,
                 overrides={},
                 archive="unit_archive",
+                chapter_title="Unit Chapter",
+                ch_start=35743,
+                ch_end=36052,
                 wc=1.0, wn=0.0, wt=0.0, ww=0.0,
                 tm="value", ik=3.5, tv=1.0, bp=10.0,
                 last_click_event={"fid": -1, "ts": -1},
             )
             assert overrides.get(35774) == "bad", dbg
 
-            fq = vhs_tuner._archive_frame_quality_path("unit_archive")
-            rows = vhs_tuner._read_frame_quality_rows(fq)
-            assert 35774 in rows, "clicked frame not written to frame_quality.tsv"
-            assert int(rows[35774]["bad_frame"]) == 1
-            assert int(rows[35774]["manual_override"]) == 1
+            _ffm, chapters = parse_chapters(cf)
+            ch = next(c for c in chapters if c.get("title") == "Unit Chapter")
+            assert "31" in str(ch.get("bad_frames", "")), "clicked frame not written to BAD_FRAMES"
 
             time.sleep(0.30)
             overrides2, _last2, dbg2 = vhs_tuner.apply_manual_click_override(
@@ -909,24 +924,29 @@ def test_vhs_tuner_manual_click_persists_frame_quality():
                 sigs=sigs,
                 overrides=overrides,
                 archive="unit_archive",
+                chapter_title="Unit Chapter",
+                ch_start=35743,
+                ch_end=36052,
                 wc=1.0, wn=0.0, wt=0.0, ww=0.0,
                 tm="value", ik=3.5, tv=1.0, bp=10.0,
                 last_click_event=last_click,
             )
             assert 35774 not in overrides2, dbg2
 
-            rows = vhs_tuner._read_frame_quality_rows(fq)
-            assert int(rows[35774]["manual_override"]) == 0
-            assert int(rows[35774]["bad_frame"]) == 0
+            _ffm2, chapters2 = parse_chapters(cf)
+            ch2 = next(c for c in chapters2 if c.get("title") == "Unit Chapter")
+            bad_csv = str(ch2.get("bad_frames", "")).strip()
+            assert bad_csv == "", f"expected cleared BAD_FRAMES, got: {bad_csv}"
         finally:
             vhs_tuner.METADATA_DIR = old_meta
-    print("Test vhs_tuner manual click persistence to frame_quality.tsv: PASSED.")
+    print("Test vhs_tuner manual click persistence to chapter BAD_FRAMES: PASSED.")
 
 
 def test_vhs_tuner_click_dedupe_prevents_double_toggle():
     print("Testing vhs_tuner click dedupe for duplicate events...")
     import tempfile
     import vhs_tuner
+    from common import parse_chapters
 
     fids = [35774]
     sigs = {
@@ -940,12 +960,28 @@ def test_vhs_tuner_click_dedupe_prevents_double_toggle():
     with tempfile.TemporaryDirectory() as td:
         vhs_tuner.METADATA_DIR = Path(td)
         try:
+            cf = vhs_tuner.METADATA_DIR / "unit_archive" / "chapters.ffmetadata"
+            cf.parent.mkdir(parents=True, exist_ok=True)
+            cf.write_text(
+                ";FFMETADATA1\n"
+                "[CHAPTER]\n"
+                "TIMEBASE=1/1000\n"
+                "START=1192125\n"
+                "END=1202935\n"
+                "title=Unit Chapter\n"
+                "BAD_FRAMES=\n",
+                encoding="utf-8",
+            )
+
             overrides, last_click, dbg = vhs_tuner.apply_manual_click_override(
                 raw_click="35774:2000",
                 fids=fids,
                 sigs=sigs,
                 overrides={},
                 archive="unit_archive",
+                chapter_title="Unit Chapter",
+                ch_start=35743,
+                ch_end=36052,
                 wc=1.0, wn=0.0, wt=0.0, ww=0.0,
                 tm="value", ik=3.5, tv=1.0, bp=10.0,
                 last_click_event={"fid": -1, "ts": -1},
@@ -958,6 +994,9 @@ def test_vhs_tuner_click_dedupe_prevents_double_toggle():
                 sigs=sigs,
                 overrides=overrides,
                 archive="unit_archive",
+                chapter_title="Unit Chapter",
+                ch_start=35743,
+                ch_end=36052,
                 wc=1.0, wn=0.0, wt=0.0, ww=0.0,
                 tm="value", ik=3.5, tv=1.0, bp=10.0,
                 last_click_event=last_click,
@@ -966,20 +1005,19 @@ def test_vhs_tuner_click_dedupe_prevents_double_toggle():
             assert last2 == last_click
             assert "ignored: duplicate click" in dbg2
 
-            fq = vhs_tuner._archive_frame_quality_path("unit_archive")
-            rows = vhs_tuner._read_frame_quality_rows(fq)
-            assert int(rows[35774]["bad_frame"]) == 1
-            assert int(rows[35774]["manual_override"]) == 1
+            _ffm, chapters = parse_chapters(cf)
+            ch = next(c for c in chapters if c.get("title") == "Unit Chapter")
+            assert "31" in str(ch.get("bad_frames", ""))
         finally:
             vhs_tuner.METADATA_DIR = old_meta
     print("Test vhs_tuner click dedupe for duplicate events: PASSED.")
 
 
-def test_vhs_tuner_apply_preserves_manual_overrides():
-    print("Testing vhs_tuner apply preserves manual overrides during tracking rerun...")
+def test_vhs_tuner_apply_updates_chapter_bad_frames():
+    print("Testing vhs_tuner apply updates chapter BAD_FRAMES via tracking_loss...")
     import tempfile
-    import types
     import vhs_tuner
+    from common import parse_chapters, update_chapter_bad_frames_in_ffmetadata
 
     old_meta = vhs_tuner.METADATA_DIR
     old_arch = vhs_tuner.ARCHIVE_DIR
@@ -1001,31 +1039,26 @@ def test_vhs_tuner_apply_preserves_manual_overrides():
         # Make apply_and_regenerate find a video.
         (vhs_tuner.ARCHIVE_DIR / "unit_archive.mkv").write_bytes(b"")
 
-        # Existing canonical frame quality has a manual bad override we must preserve.
-        fq = vhs_tuner._archive_frame_quality_path("unit_archive")
-        fq.parent.mkdir(parents=True, exist_ok=True)
-        fq.write_text(
-            "frame\tscore\tbad_frame\tmanual_override\n"
-            "35894\t1.11\t1\t1\n"
-            "35895\t-0.41\t1\t1\n",
+        cf = vhs_tuner.METADATA_DIR / "unit_archive" / "chapters.ffmetadata"
+        cf.parent.mkdir(parents=True, exist_ok=True)
+        cf.write_text(
+            ";FFMETADATA1\n"
+            "[CHAPTER]\n"
+            "TIMEBASE=1/1000\n"
+            "START=1192125\n"
+            "END=1202935\n"
+            "title=Unit Chapter\n"
+            "BAD_FRAMES=\n",
             encoding="utf-8",
         )
 
         def _fake_tracking_run(config=None, **_kwargs):
-            # Ensure apply writes tracking output to temp sidecar, not canonical.
             assert config is not None
-            out = Path(config.metadata_frame_quality_tsv)
-            assert out.resolve() != fq.resolve(), "tracking output should not overwrite canonical frame_quality.tsv"
-            out.parent.mkdir(parents=True, exist_ok=True)
-            # Simulate tracking calling both frames good; preserved overrides must win.
-            out.write_text(
-                "frame\tscore\tbad_frame\tmanual_override\tthreshold\tchroma_loss\tnoise_energy\trow_tear\twave_energy\n"
-                "35894\t-0.25\t0\t0\t0.5\t0\t0\t0\t0\n"
-                "35895\t-0.30\t0\t0\t0.5\t0\t0\t0\t0\n"
-                "35900\t1.20\t1\t0\t0.5\t0\t0\t0\t0\n",
-                encoding="utf-8",
+            update_chapter_bad_frames_in_ffmetadata(
+                Path(config.chapters_file),
+                {"Unit Chapter": [31, 32, 33]},
             )
-            return {"frame_quality_path": str(out)}
+            return {"updated_chapters": 1}
 
         try:
             vhs_tuner._HAS_TRACKING = True
@@ -1044,17 +1077,10 @@ def test_vhs_tuner_apply_preserves_manual_overrides():
                 iqr_mult=3.5,
                 frame_step=1,
             )
-            assert "OK: Archive frame quality" in log
-
-            rows = vhs_tuner._read_frame_quality_rows(fq)
-            # Manual overrides must be preserved even if tracking predicts good.
-            assert int(rows[35894]["bad_frame"]) == 1
-            assert int(rows[35894]["manual_override"]) == 1
-            assert int(rows[35895]["bad_frame"]) == 1
-            assert int(rows[35895]["manual_override"]) == 1
-            # Non-overridden tracking output should still be merged.
-            assert int(rows[35900]["bad_frame"]) == 1
-            assert int(rows[35900]["manual_override"]) == 0
+            assert "tracking_loss wrote BAD_FRAMES" in log
+            _ffm, chapters = parse_chapters(cf)
+            ch = next(c for c in chapters if c.get("title") == "Unit Chapter")
+            assert str(ch.get("bad_frames", "")).strip() == "31,32,33"
         finally:
             vhs_tuner.METADATA_DIR = old_meta
             vhs_tuner.ARCHIVE_DIR = old_arch
@@ -1062,7 +1088,7 @@ def test_vhs_tuner_apply_preserves_manual_overrides():
             vhs_tuner.TrackingLossConfig = old_cfg
             vhs_tuner.run_tracking_loss_classification = old_run
 
-    print("Test vhs_tuner apply preserves manual overrides during tracking rerun: PASSED.")
+    print("Test vhs_tuner apply updates chapter BAD_FRAMES via tracking_loss: PASSED.")
 
 def main():
     print("Running tests...")
@@ -1079,9 +1105,9 @@ def main():
     test_sha3_generate_and_verify()
     test_blake3_verify_only()
     test_vhs_tuner_toggle_override_cycle()
-    test_vhs_tuner_manual_click_persists_frame_quality()
+    test_vhs_tuner_manual_click_persists_chapter_bad_frames()
     test_vhs_tuner_click_dedupe_prevents_double_toggle()
-    test_vhs_tuner_apply_preserves_manual_overrides()
+    test_vhs_tuner_apply_updates_chapter_bad_frames()
 
 if __name__ == "__main__":
     main()

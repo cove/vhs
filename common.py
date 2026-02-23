@@ -244,6 +244,98 @@ def parse_chapters(path):
 
     return ffmetadata, chapters
 
+def parse_bad_frames_csv(text):
+    vals = []
+    seen = set()
+    for raw in str(text or "").split(","):
+        token = raw.strip()
+        if not token:
+            continue
+        try:
+            fid = int(token)
+        except Exception:
+            continue
+        if fid < 0 or fid in seen:
+            continue
+        seen.add(fid)
+        vals.append(fid)
+    vals.sort()
+    return vals
+
+def format_bad_frames_csv(frame_ids):
+    vals = sorted({int(x) for x in (frame_ids or []) if int(x) >= 0})
+    return ",".join(str(v) for v in vals)
+
+def load_bad_frames_by_chapter(path):
+    bad_by_title = {}
+    _ffm, chapters = parse_chapters(Path(path))
+    for ch in chapters:
+        title = str(ch.get("title", "")).strip()
+        if not title:
+            continue
+        bad_by_title[title] = parse_bad_frames_csv(ch.get("bad_frames", ""))
+    return bad_by_title
+
+def update_chapter_bad_frames_in_ffmetadata(path, chapter_bad_frames):
+    """
+    Update BAD_FRAMES lines in chapters.ffmetadata in-place.
+    chapter_bad_frames: {chapter_title: [local_frame_ids]}.
+    """
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"chapters.ffmetadata not found: {p}")
+
+    def _norm_title(text):
+        return " ".join(str(text or "").strip().lower().split())
+
+    pending = {_norm_title(k): list(v or []) for k, v in (chapter_bad_frames or {}).items()}
+    if not pending:
+        return 0
+
+    lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()
+    out = []
+    i = 0
+    touched = 0
+
+    while i < len(lines):
+        line = lines[i]
+        if line.strip() != "[CHAPTER]":
+            out.append(line)
+            i += 1
+            continue
+
+        block = [line]
+        i += 1
+        while i < len(lines) and lines[i].strip() != "[CHAPTER]":
+            block.append(lines[i])
+            i += 1
+
+        title = ""
+        title_idx = -1
+        cleaned = []
+        for bline in block:
+            s = bline.strip()
+            if "=" in s and not s.startswith(";"):
+                k, v = s.split("=", 1)
+                key = k.strip().lower()
+                if key == "title":
+                    title = v.strip()
+                    title_idx = len(cleaned)
+                if key == "bad_frames":
+                    continue
+            cleaned.append(bline)
+
+        nk = _norm_title(title)
+        if nk in pending:
+            csv = format_bad_frames_csv(pending[nk])
+            insert_at = title_idx + 1 if title_idx >= 0 else len(cleaned)
+            cleaned.insert(insert_at, f"BAD_FRAMES={csv}")
+            touched += 1
+        out.extend(cleaned)
+
+    p.write_text("\n".join(out) + "\n", encoding="utf-8")
+    return touched
+
 metadata_by_title = {}
 def load_all_metadata():
     for dirpath in METADATA_DIR.glob("*"):

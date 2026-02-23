@@ -93,17 +93,15 @@ def parse_args(argv=None):
         "--frame-quality-tsv",
         default="",
         help=(
-            "Optional alternate frame_quality TSV sidecar path "
-            "(global columns: frame, score, bad_frame, manual_override; "
-            "or chapter-local columns: chapter, local_frame, score, bad_frame, manual_override)."
+            "Deprecated and ignored. step_6 now reads per-chapter BAD_FRAMES from "
+            "metadata/<archive>/chapters.ffmetadata."
         ),
     )
     p.add_argument(
         "--frame-quality-archive",
         default="",
         help=(
-            "Archive stem to apply --frame-quality-tsv to (example: callahan_01_archive). "
-            "Default: apply override to every processed archive."
+            "Deprecated and ignored."
         ),
     )
     return p.parse_args(argv)
@@ -435,6 +433,21 @@ def load_badframe_ranges(tsv_path, chapter_title=None, chapter_start_frame=None)
             chapter_start_frame=chapter_start_frame,
         )
     ]
+
+def local_bad_frames_to_repairs(local_bad_frames):
+    frames = sorted({int(f) for f in (local_bad_frames or []) if int(f) >= 0})
+    if not frames:
+        return []
+    out = []
+    start = prev = frames[0]
+    for f in frames[1:]:
+        if f == prev + 1:
+            prev = f
+            continue
+        out.append((start, prev, None))
+        start = prev = f
+    out.append((start, prev, None))
+    return _merge_badframe_repairs(out)
 
 def chapter_global_frame_bounds(chapter):
     # Chapters are parsed to seconds in common.parse_chapters; convert back to
@@ -815,24 +828,12 @@ def transcribe_audio(model, temp_transcript, final_srt, final_vtt, final_dir):
 def _run_with_args(args):
     model = None
     rebuild_selected = bool(args.title)
-    quality_override = None
-    quality_override_archive = str(getattr(args, "frame_quality_archive", "") or "").strip()
-    quality_override_applied = False
-    quality_schema = None
     quality_arg = str(getattr(args, "frame_quality_tsv", "") or "").strip()
     if quality_arg:
-        quality_override = Path(quality_arg).expanduser()
-        if not quality_override.is_absolute():
-            quality_override = (Path.cwd() / quality_override).resolve()
-        if not quality_override.exists():
-            raise FileNotFoundError(f"Alternate sidecar TSV not found: {quality_override}")
-        if quality_override_archive:
-            print(
-                f"Using alternate frame-quality sidecar for archive '{quality_override_archive}': "
-                f"{quality_override}"
-            )
-        else:
-            print(f"Using alternate frame-quality sidecar for all archives: {quality_override}")
+        print(
+            "WARNING: --frame-quality-tsv/--frame-quality-archive are deprecated and ignored. "
+            "Using BAD_FRAMES in chapters.ffmetadata."
+        )
 
     archive_filters = [str(x or "").strip().lower() for x in (args.archive or []) if str(x or "").strip()]
     for src in ARCHIVE_DIR.glob("*.mkv"):
@@ -850,33 +851,6 @@ def _run_with_args(args):
         if not chapters:
             print(f"No chapters for {src.name}")
             continue
-
-        quality_tsv = resolve_quality_sidecar_tsv(
-            archive_name,
-            override_path=quality_override,
-            override_archive=quality_override_archive,
-        )
-        if quality_override and quality_tsv == quality_override:
-            quality_override_applied = True
-        archive_badframe_repairs = []
-        archive_badframe_ranges = [(a, b) for (a, b, _src) in archive_badframe_repairs]
-        if quality_tsv:
-            quality_schema = frame_quality_schema(quality_tsv)
-            if quality_schema == "global":
-                archive_badframe_repairs = load_badframe_repairs(quality_tsv)
-                archive_badframe_ranges = [(a, b) for (a, b, _src) in archive_badframe_repairs]
-                if archive_badframe_repairs:
-                    explicit_count = sum(1 for (_a, _b, src) in archive_badframe_repairs if src is not None)
-                    print(
-                        f"Loaded frame quality sidecar: {quality_tsv} ({len(archive_badframe_repairs)} range(s), "
-                        f"{explicit_count} with source override)"
-                    )
-                else:
-                    print(f"Frame quality sidecar is present but empty: {quality_tsv}")
-            else:
-                print(f"Loaded chapter-local frame quality sidecar: {quality_tsv}")
-        else:
-            print(f"WARNING: no archive-level frame_quality.tsv found for {archive_name}; proceeding without it.")
 
         for ch in chapters:
             ch["duration"] = float(ch.get("end", 0)) - float(ch.get("start", 0))
@@ -909,22 +883,12 @@ def _run_with_args(args):
             if not transcribe_dialogue:
                 cleanup_stale_dialogue_files(final_srt, final_vtt, final_ass)
 
-            sidecar_forces_rebuild = False
-            if chapter_done(final_file) and quality_tsv:
-                try:
-                    sidecar_forces_rebuild = Path(quality_tsv).stat().st_mtime > final_file.stat().st_mtime
-                except Exception:
-                    sidecar_forces_rebuild = False
-            if chapter_done(final_file) and quality_override:
-                sidecar_forces_rebuild = True
-
-            if chapter_done(final_file) and not rebuild_selected and not sidecar_forces_rebuild:
+            if chapter_done(final_file) and not rebuild_selected:
                 print(f"Skipping existing chapter: {title}")
                 cur_count += 1
                 continue
-            if chapter_done(final_file) and (rebuild_selected or sidecar_forces_rebuild):
-                why = "matched chapter filter" if rebuild_selected else "updated frame-quality sidecar"
-                print(f"Rebuilding chapter ({why}): {title}")
+            if chapter_done(final_file) and rebuild_selected:
+                print(f"Rebuilding matched chapter: {title}")
 
             # inline temp path creation
             temp_dir = final_dir / f"{safe(title)}_temp"
@@ -957,40 +921,25 @@ def _run_with_args(args):
                 print(f"Applying video filters...")
                 if sys.platform == "win32":
                     if filter_script.exists():
-                        source_repairs = archive_badframe_repairs
-                        source_ranges = archive_badframe_ranges
-                        if quality_tsv and quality_schema == "local":
-                            source_repairs = load_badframe_repairs(
-                                quality_tsv,
-                                chapter_title=title,
-                                chapter_start_frame=chapter_start_frame,
+                        chapter_len = max(0, int(chapter_end_frame) - int(chapter_start_frame))
+                        if "bad_frames" not in ch:
+                            print(
+                                f"WARNING: chapter '{title}' has no BAD_FRAMES metadata; "
+                                "rendering without freeze-frame repair for this chapter."
                             )
-                            source_ranges = [(a, b) for (a, b, _src) in source_repairs]
-                        manual_repairs = map_bad_repairs_to_chapter_local_ranges(source_repairs, ch)
-                        manual_source_frames = map_bad_ranges_to_chapter_local_frames(source_ranges, ch)
+                        local_bad = parse_bad_frames_csv(ch.get("bad_frames", ""))
+                        manual_source_frames = [
+                            f for f in local_bad if 0 <= int(f) < max(1, chapter_len)
+                        ]
+                        manual_repairs = local_bad_frames_to_repairs(manual_source_frames)
                         if manual_source_frames:
                             print(
-                                f"Sidecar source bad frame(s): {len(manual_source_frames)} -> "
+                                f"Chapter metadata bad frame(s): {len(manual_source_frames)} -> "
                                 + ",".join(str(f) for f in manual_source_frames[:12])
                                 + ("..." if len(manual_source_frames) > 12 else "")
                             )
-                        if manual_source_frames:
-                            print(
-                                f"Applying bad-frame repair at {len(manual_source_frames)} source frame(s): "
-                                + ",".join(str(f) for f in manual_source_frames[:12])
-                                + ("..." if len(manual_source_frames) > 12 else "")
-                            )
-                        manual_override_ranges = [r for r in manual_repairs if r[2] is not None]
-                        if manual_override_ranges:
-                            preview = ",".join(
-                                f"{a}-{b}->{src}" for (a, b, src) in manual_override_ranges[:8]
-                            )
-                            if len(manual_override_ranges) > 8:
-                                preview += "..."
-                            print(
-                                f"Applying explicit bad-frame source overrides: "
-                                f"{len(manual_override_ranges)} range(s) [{preview}]"
-                            )
+                        else:
+                            print("No chapter bad frames listed; no freeze-frame repairs applied.")
 
                         script = make_create_avs(
                             extracted,
@@ -1066,10 +1015,6 @@ def _run_with_args(args):
             cur_count += 1
 
         print(f"All done")
-    if quality_override and quality_override_archive and not quality_override_applied:
-        print(
-            f"WARNING: --frame-quality-archive '{quality_override_archive}' did not match any processed archive."
-        )
 
 
 def run_make_videos(
