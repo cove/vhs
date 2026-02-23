@@ -87,14 +87,15 @@ def parse_args(argv=None):
     p.add_argument(
         "--no-bob",
         action="store_true",
-        help="Disable bob output by selecting even frames after the QTGMC filter chain.",
+        help="Deprecated: bob output has been removed; step_6 always renders non-bob output.",
     )
     p.add_argument(
         "--frame-quality-tsv",
         default="",
         help=(
             "Optional alternate frame_quality TSV sidecar path "
-            "(columns: frame, score, bad_frame, manual_override)."
+            "(global columns: frame, score, bad_frame, manual_override; "
+            "or chapter-local columns: chapter, local_frame, score, bad_frame, manual_override)."
         ),
     )
     p.add_argument(
@@ -320,9 +321,9 @@ def _merge_badframe_repairs(repairs):
             merged.append((a, b, src))
     return merged
 
-def load_badframe_repairs(tsv_path):
+def _read_frame_quality_header(tsv_path):
     if not tsv_path:
-        return []
+        return [], None, []
     rows = Path(tsv_path).read_text(encoding="utf-8-sig").splitlines()
     first_data = None
     for line in rows:
@@ -331,15 +332,47 @@ def load_badframe_repairs(tsv_path):
             first_data = s
             break
     if not first_data:
-        return []
+        return rows, None, []
     cols = [c.strip().lower() for c in first_data.split("\t")]
-    if "frame" not in cols or "bad_frame" not in cols:
-        raise ValueError(
-            f"Expected frame_quality.tsv format in {tsv_path} "
-            "(required columns: frame, bad_frame)."
-        )
-    idx_frame = cols.index("frame")
+    return rows, first_data, cols
+
+def frame_quality_schema(tsv_path):
+    rows, first_data, cols = _read_frame_quality_header(tsv_path)
+    if not first_data:
+        return None
+    if "frame" in cols and "bad_frame" in cols:
+        return "global"
+    if "local_frame" in cols and "bad_frame" in cols:
+        return "local"
+    raise ValueError(
+        f"Expected frame_quality.tsv format in {tsv_path} "
+        "(required columns: frame,bad_frame or local_frame,bad_frame)."
+    )
+
+def load_badframe_repairs(tsv_path, chapter_title=None, chapter_start_frame=None):
+    if not tsv_path:
+        return []
+    rows, first_data, cols = _read_frame_quality_header(tsv_path)
+    if not first_data:
+        return []
+    schema = frame_quality_schema(tsv_path)
+
     idx_bad = cols.index("bad_frame")
+    idx_frame = cols.index("frame") if "frame" in cols else None
+    idx_local_frame = cols.index("local_frame") if "local_frame" in cols else None
+    idx_chapter = cols.index("chapter") if "chapter" in cols else None
+
+    local_title = str(chapter_title or "").strip().lower()
+    local_start = int(chapter_start_frame or 0)
+    if schema == "local" and chapter_start_frame is None:
+        raise ValueError(
+            f"Local frame_quality sidecar requires chapter_start_frame: {tsv_path}"
+        )
+    if schema == "local" and idx_chapter is not None and not local_title:
+        raise ValueError(
+            f"Local frame_quality sidecar with chapter column requires chapter_title: {tsv_path}"
+        )
+
     bad_frames = []
     for line in rows:
         s = line.strip()
@@ -349,15 +382,36 @@ def load_badframe_repairs(tsv_path):
         low = [p.lower() for p in parts]
         if low and low[0] == "frame":
             continue
-        if max(idx_frame, idx_bad) >= len(parts):
+        idxs = [idx_bad]
+        if idx_frame is not None:
+            idxs.append(idx_frame)
+        if idx_local_frame is not None:
+            idxs.append(idx_local_frame)
+        if idx_chapter is not None:
+            idxs.append(idx_chapter)
+        if max(idxs) >= len(parts):
             continue
         try:
-            frame = int(parts[idx_frame])
             is_bad = int(parts[idx_bad]) == 1
         except Exception:
             continue
-        if is_bad:
-            bad_frames.append(frame)
+        if not is_bad:
+            continue
+        if schema == "global":
+            try:
+                frame = int(parts[idx_frame])
+            except Exception:
+                continue
+        else:
+            if idx_chapter is not None and local_title:
+                row_chapter = str(parts[idx_chapter]).strip().lower()
+                if row_chapter != local_title:
+                    continue
+            try:
+                frame = local_start + int(parts[idx_local_frame])
+            except Exception:
+                continue
+        bad_frames.append(frame)
     bad_frames = sorted(set(bad_frames))
     if not bad_frames:
         return []
@@ -372,8 +426,15 @@ def load_badframe_repairs(tsv_path):
     out_exact.append((start, prev, None))
     return _merge_badframe_repairs(out_exact)
 
-def load_badframe_ranges(tsv_path):
-    return [(a, b) for (a, b, _src) in load_badframe_repairs(tsv_path)]
+def load_badframe_ranges(tsv_path, chapter_title=None, chapter_start_frame=None):
+    return [
+        (a, b)
+        for (a, b, _src) in load_badframe_repairs(
+            tsv_path,
+            chapter_title=chapter_title,
+            chapter_start_frame=chapter_start_frame,
+        )
+    ]
 
 def chapter_global_frame_bounds(chapter):
     # Chapters are parsed to seconds in common.parse_chapters; convert back to
@@ -554,9 +615,8 @@ def make_create_avs(
         resolved_bad_repair_ranges,
         frame_multiplier=BADFRAME_POST_QTGMC_MULTIPLIER,
     )
-    no_bob_text = ""
-    if no_bob:
-        no_bob_text = "c = last\nc = c.SelectEven()\nc\n"
+    # Bob output has been removed; always keep one output frame per source frame.
+    no_bob_text = "c = last\nc = c.SelectEven()\nc\n"
     filter_import_path = Path(avs_filter_path).resolve().as_posix()
     return f'''
 LoadPlugin("{QTGMC_DIR}/ffms2.dll") 
@@ -726,8 +786,8 @@ def make_deinterlace(temp_avs, temp_extracted, temp_qtgmc):
 
 def make_deinterlace_ffmpeg_fallback(temp_extracted, temp_qtgmc, no_bob=False):
     # Cross-platform fallback when AviSynth/QTGMC is unavailable.
-    # no_bob=True approximates SelectEven() behavior by emitting one frame per input frame.
-    bwdif_mode = "send_frame" if no_bob else "send_field"
+    # Bob output has been removed; always emit one frame per input frame.
+    bwdif_mode = "send_frame"
     return [FFMPEG_BIN,
         "-nostdin",
         "-v", "error",
@@ -758,6 +818,7 @@ def _run_with_args(args):
     quality_override = None
     quality_override_archive = str(getattr(args, "frame_quality_archive", "") or "").strip()
     quality_override_applied = False
+    quality_schema = None
     quality_arg = str(getattr(args, "frame_quality_tsv", "") or "").strip()
     if quality_arg:
         quality_override = Path(quality_arg).expanduser()
@@ -797,17 +858,23 @@ def _run_with_args(args):
         )
         if quality_override and quality_tsv == quality_override:
             quality_override_applied = True
-        archive_badframe_repairs = load_badframe_repairs(quality_tsv) if quality_tsv else []
+        archive_badframe_repairs = []
         archive_badframe_ranges = [(a, b) for (a, b, _src) in archive_badframe_repairs]
         if quality_tsv:
-            if archive_badframe_repairs:
-                explicit_count = sum(1 for (_a, _b, src) in archive_badframe_repairs if src is not None)
-                print(
-                    f"Loaded frame quality sidecar: {quality_tsv} ({len(archive_badframe_repairs)} range(s), "
-                    f"{explicit_count} with source override)"
-                )
+            quality_schema = frame_quality_schema(quality_tsv)
+            if quality_schema == "global":
+                archive_badframe_repairs = load_badframe_repairs(quality_tsv)
+                archive_badframe_ranges = [(a, b) for (a, b, _src) in archive_badframe_repairs]
+                if archive_badframe_repairs:
+                    explicit_count = sum(1 for (_a, _b, src) in archive_badframe_repairs if src is not None)
+                    print(
+                        f"Loaded frame quality sidecar: {quality_tsv} ({len(archive_badframe_repairs)} range(s), "
+                        f"{explicit_count} with source override)"
+                    )
+                else:
+                    print(f"Frame quality sidecar is present but empty: {quality_tsv}")
             else:
-                print(f"Frame quality sidecar is present but empty: {quality_tsv}")
+                print(f"Loaded chapter-local frame quality sidecar: {quality_tsv}")
         else:
             print(f"WARNING: no archive-level frame_quality.tsv found for {archive_name}; proceeding without it.")
 
@@ -842,12 +909,22 @@ def _run_with_args(args):
             if not transcribe_dialogue:
                 cleanup_stale_dialogue_files(final_srt, final_vtt, final_ass)
 
-            if chapter_done(final_file) and not rebuild_selected:
+            sidecar_forces_rebuild = False
+            if chapter_done(final_file) and quality_tsv:
+                try:
+                    sidecar_forces_rebuild = Path(quality_tsv).stat().st_mtime > final_file.stat().st_mtime
+                except Exception:
+                    sidecar_forces_rebuild = False
+            if chapter_done(final_file) and quality_override:
+                sidecar_forces_rebuild = True
+
+            if chapter_done(final_file) and not rebuild_selected and not sidecar_forces_rebuild:
                 print(f"Skipping existing chapter: {title}")
                 cur_count += 1
                 continue
-            if chapter_done(final_file) and rebuild_selected:
-                print(f"Rebuilding matched chapter: {title}")
+            if chapter_done(final_file) and (rebuild_selected or sidecar_forces_rebuild):
+                why = "matched chapter filter" if rebuild_selected else "updated frame-quality sidecar"
+                print(f"Rebuilding chapter ({why}): {title}")
 
             # inline temp path creation
             temp_dir = final_dir / f"{safe(title)}_temp"
@@ -880,9 +957,15 @@ def _run_with_args(args):
                 print(f"Applying video filters...")
                 if sys.platform == "win32":
                     if filter_script.exists():
-                        # Archive-level frame_quality.tsv is the canonical source.
                         source_repairs = archive_badframe_repairs
                         source_ranges = archive_badframe_ranges
+                        if quality_tsv and quality_schema == "local":
+                            source_repairs = load_badframe_repairs(
+                                quality_tsv,
+                                chapter_title=title,
+                                chapter_start_frame=chapter_start_frame,
+                            )
+                            source_ranges = [(a, b) for (a, b, _src) in source_repairs]
                         manual_repairs = map_bad_repairs_to_chapter_local_ranges(source_repairs, ch)
                         manual_source_frames = map_bad_ranges_to_chapter_local_frames(source_ranges, ch)
                         if manual_source_frames:

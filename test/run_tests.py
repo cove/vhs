@@ -278,6 +278,37 @@ def test_step_6_badframe_sidecar_mapping():
     finally:
         tmp_repairs_tsv.unlink(missing_ok=True)
 
+    # Local sidecar schema is supported when chapter context is provided.
+    tmp_local_tsv = test_meta_dir / "_frame_quality_local.tsv"
+    tmp_local_tsv.write_text(
+        "chapter\tlocal_frame\tscore\tbad_frame\tmanual_override\n"
+        "Chapter A\t10\t0.1\t1\t1\n"
+        "Chapter A\t11\t0.1\t1\t1\n"
+        "Chapter B\t8\t0.1\t1\t1\n",
+        encoding="utf-8",
+    )
+    try:
+        local_repairs = step_6_make_videos.load_badframe_repairs(
+            tmp_local_tsv,
+            chapter_title="Chapter A",
+            chapter_start_frame=1000,
+        )
+        assert local_repairs == [(1010, 1011, None)]
+        local_ranges = step_6_make_videos.load_badframe_ranges(
+            tmp_local_tsv,
+            chapter_title="Chapter A",
+            chapter_start_frame=1000,
+        )
+        assert local_ranges == [(1010, 1011)]
+        no_match = step_6_make_videos.load_badframe_repairs(
+            tmp_local_tsv,
+            chapter_title="Chapter C",
+            chapter_start_frame=1000,
+        )
+        assert no_match == []
+    finally:
+        tmp_local_tsv.unlink(missing_ok=True)
+
     print("Test step_6_make_videos badframe sidecar mapping: PASSED.")
     del sys.modules['step_6_make_videos']
     sys.modules.pop("whisper", None)
