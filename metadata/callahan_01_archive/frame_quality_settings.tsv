@@ -1,3 +1,0 @@
-chapter	start_frame	end_frame	weight_chroma	weight_noise	weight_tear	weight_wave	iqr_mult	frame_step	threshold_window_size
-1995 - Jim & Linda Wedding - 05 Bride Processional (March 18, 1995)	6478	6568	0.490000	0.250000	0.530000	0.250000	3.500000	1	1000
-1995 - Jim & Linda Wedding - 12 Reception Ring Close-Ups (March 18, 1995)	35743	36052	0.250000	0.250000	0.250000	0.250000	2.500000	1	1000
