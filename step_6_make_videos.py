@@ -150,8 +150,8 @@ def _resolve_badframe_repair_ranges(
 
     max_allowed_src = None if max_source_frame is None else int(max_source_frame)
 
-    def choose_repair_source_at_or_after(floor_frame, b):
-        src = max(int(floor_frame), b + 1)
+    def choose_repair_source_after(b):
+        src = b + 1
         while src in bad_set:
             src += 1
         if max_allowed_src is not None and src > max_allowed_src:
@@ -169,40 +169,53 @@ def _resolve_badframe_repair_ranges(
         return src
 
     resolved_ranges = []
-    # Keep replacement sources strictly forward in source time:
-    # - never use a frame that has already played in output ([0..b])
-    # - never move backward once a later source frame has been used
-    last_used_src = -1
     for a, b, src_override in sorted(ranges, key=lambda x: (x[0], x[1])):
-        min_src = max(last_used_src, b + 1)
         src = src_override
         src_out_of_bounds = (
             max_allowed_src is not None and src is not None and src > max_allowed_src
         )
-        if src is None or src < min_src or src in bad_set or src_out_of_bounds:
-            if src is not None and (src < min_src or src in bad_set or src_out_of_bounds):
-                print(
-                    f"Badframe source override {src} is invalid for range {a}-{b}; "
-                    f"using forward source >= {min_src}."
-                )
-            src = choose_repair_source_at_or_after(min_src, b)
-            if src is None:
-                # Chapter/timeline-bound fallback: if no forward clean frame exists,
-                # use the nearest previous clean frame rather than risking a bad-frame clamp.
-                src = choose_repair_source_before(a)
-                if src is None:
-                    print(
-                        f"Unable to find any clean source frame for bad range {a}-{b}; "
-                        "leaving this range unrepaired."
-                    )
-                    continue
-                print(
-                    f"No forward clean source within bounds for bad range {a}-{b}; "
-                    f"falling back to previous clean frame {src}."
-                )
-        last_used_src = max(last_used_src, src)
-        resolved_ranges.append((a, b, src))
-    return resolved_ranges
+        if src is not None and src not in bad_set and not src_out_of_bounds:
+            resolved_ranges.append((a, b, src))
+            continue
+
+        if src is not None and (src in bad_set or src_out_of_bounds):
+            print(
+                f"Badframe source override {src} is invalid for range {a}-{b}; "
+                "falling back to auto neighbor source selection."
+            )
+
+        prev_src = choose_repair_source_before(a)
+        next_src = choose_repair_source_after(b)
+        span = int(b) - int(a) + 1
+
+        # Smarter split for bad bursts: if we have clean neighbors on both sides
+        # and at least two bad frames, freeze the first half from previous-good
+        # and the latter half from next-good to reduce visible stillness.
+        if span >= 2 and prev_src is not None and next_src is not None:
+            first_half_len = span // 2
+            if first_half_len > 0:
+                left_end = int(a) + first_half_len - 1
+                resolved_ranges.append((int(a), left_end, int(prev_src)))
+            right_start = int(a) + first_half_len
+            resolved_ranges.append((right_start, int(b), int(next_src)))
+            continue
+
+        # Single-frame ranges or edge-bound bursts fall back to one side.
+        src = next_src if next_src is not None else prev_src
+        if src is None:
+            print(
+                f"Unable to find any clean source frame for bad range {a}-{b}; "
+                "leaving this range unrepaired."
+            )
+            continue
+        if next_src is None and prev_src is not None:
+            print(
+                f"No forward clean source within bounds for bad range {a}-{b}; "
+                f"falling back to previous clean frame {src}."
+            )
+        resolved_ranges.append((int(a), int(b), int(src)))
+
+    return _merge_badframe_repairs(resolved_ranges)
 
 def _build_badframe_freezeframe_lines(resolved_ranges, frame_multiplier=1):
     if not resolved_ranges:
@@ -364,6 +377,103 @@ def map_bad_repairs_to_chapter_local_ranges(global_repairs, chapter):
                 )
         out.append((lo - start, hi - start, local_source))
     return _merge_badframe_repairs(out)
+
+
+def _parse_sidecar_rows(tsv_path):
+    rows = []
+    for raw in Path(tsv_path).read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = str(raw or "").strip()
+        if not line or line.startswith("#"):
+            continue
+        if "\t" in line:
+            parts = [p.strip() for p in line.split("\t")]
+        else:
+            parts = [p.strip() for p in line.split(",")]
+        rows.append(parts)
+    return rows
+
+
+def _frame_list_to_ranges(frames):
+    ints = sorted({int(f) for f in (frames or []) if int(f) >= 0})
+    if not ints:
+        return []
+    out = []
+    start = prev = ints[0]
+    for f in ints[1:]:
+        if f == prev + 1:
+            prev = f
+            continue
+        out.append((start, prev))
+        start = prev = f
+    out.append((start, prev))
+    return out
+
+
+def load_badframe_repairs(tsv_path, chapter_title=None, chapter_start_frame=None):
+    rows = _parse_sidecar_rows(tsv_path)
+    if not rows:
+        return []
+
+    header = [str(x).strip().lower() for x in rows[0]]
+    data_rows = rows[1:]
+    has_global_schema = ("frame" in header and "bad_frame" in header)
+    has_local_schema = ("chapter" in header and "local_frame" in header and "bad_frame" in header)
+    if not has_global_schema and not has_local_schema:
+        raise ValueError(
+            "Invalid frame_quality sidecar schema. "
+            "Expected either: frame,bad_frame or chapter,local_frame,bad_frame."
+        )
+
+    if has_global_schema:
+        idx_frame = header.index("frame")
+        idx_bad = header.index("bad_frame")
+        bad_frames = []
+        for row in data_rows:
+            if max(idx_frame, idx_bad) >= len(row):
+                continue
+            try:
+                frame = int(row[idx_frame])
+                bad = int(row[idx_bad])
+            except Exception:
+                continue
+            if bad == 1 and frame >= 0:
+                bad_frames.append(frame)
+        return [(a, b, None) for a, b in _frame_list_to_ranges(bad_frames)]
+
+    if chapter_title is None or chapter_start_frame is None:
+        raise ValueError(
+            "Local frame_quality sidecar requires chapter_title and chapter_start_frame."
+        )
+
+    idx_chapter = header.index("chapter")
+    idx_local = header.index("local_frame")
+    idx_bad = header.index("bad_frame")
+    chapter_title_s = str(chapter_title).strip()
+    ch_start = int(chapter_start_frame)
+    bad_frames = []
+    for row in data_rows:
+        if max(idx_chapter, idx_local, idx_bad) >= len(row):
+            continue
+        try:
+            ch = str(row[idx_chapter]).strip()
+            local_f = int(row[idx_local])
+            bad = int(row[idx_bad])
+        except Exception:
+            continue
+        if ch != chapter_title_s:
+            continue
+        if bad == 1 and local_f >= 0:
+            bad_frames.append(ch_start + local_f)
+    return [(a, b, None) for a, b in _frame_list_to_ranges(bad_frames)]
+
+
+def load_badframe_ranges(tsv_path, chapter_title=None, chapter_start_frame=None):
+    repairs = load_badframe_repairs(
+        tsv_path,
+        chapter_title=chapter_title,
+        chapter_start_frame=chapter_start_frame,
+    )
+    return [(int(a), int(b)) for a, b, _src in repairs]
 
 def tsv_people_to_ass(tsv_path, ass_path, font="Calibri", fontsize=36, clip_start=None, clip_end=None):
     tsv_path = Path(tsv_path)
