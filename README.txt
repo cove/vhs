@@ -57,6 +57,15 @@ step_6_make_videos.py
     - Chapter extraction uses frame-derived exact timestamps to keep chapter-local frame indices aligned with archive frames.
     - Manual bad-frame repair sidecar: metadata/<archive>/badframes.tsv (archive-global start/end frame ranges, applied automatically before QTGMC; optional source_frame column can force a specific replacement frame per range; optional no_pad boolean column (true/false) disables automatic pad per row; very long ranges are skipped unless note includes allow_long; adaptive pre-pad defaults to 0 for single-frame, 1 for 2-3 frame bursts, 2 for 4+ frame bursts; note supports no_pad or pad= / pad_before= / pad_after= as fallback).
 
+vhs_label_studio.py
+    - Label Studio-native bridge for archive annotation sessions.
+    - Running `python vhs_label_studio.py` launches Label Studio itself (default `0.0.0.0:8080`).
+    - `start-label-studio` starts the Label Studio runtime; `serve-hooks` exposes webhook and prediction endpoints for live sync/pre-annotation.
+    - `emit-project-bundle` writes config XML + seeded task JSON for one-time import; `setup-project` can create/import via Label Studio API (with automatic fallback to per-task `/api/tasks/` creation if `/import` hits a request-stream bug).
+    - Label config uses `$video` for media binding, and task builders populate both `data.video` and `data.video_url`.
+    - Task builders/importers default local-files URLs (`/data/local-files/?d=`) using archive-root-relative paths, which avoids uploading large MP4 files through the UI.
+    - `build-task`, `apply-export`, and `regenerate` remain available as setup/backfill utilities for metadata integration.
+
 step_15_train_badframe_classifier_ultralytics.py
     - Builds a frame classification dataset from `<archive>_proxy.mp4` + `metadata/<archive>/badframes.tsv`.
     - Uses `badframes.tsv` ranges as `bad` labels; all other frames are treated as `good`.
