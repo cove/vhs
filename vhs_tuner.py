@@ -753,7 +753,6 @@ def build_gallery_items(
 ) -> list[tuple[Image.Image, str]]:
     items: list[tuple[Image.Image, str]] = []
     for b64, fid, sc in zip(frames_b64, fids, scores):
-        local_fid = int(fid) - int(chapter_start_frame)
         # Gradio Gallery.select in v6 rejects data: URIs in event payload.
         # Convert to in-memory PIL images so selected items are cache-safe.
         try:
@@ -772,7 +771,7 @@ def build_gallery_items(
 
         # Restore fast visual scanning: colored border per frame state.
         styled = ImageOps.expand(img, border=BORDER, fill=color)
-        items.append((styled, f"#{local_fid}  s={sc:.2f}  {state_short}"))
+        items.append((styled, f"#{int(fid)}  s={sc:.2f}  {state_short}"))
     return items
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1301,10 +1300,9 @@ with gr.Blocks(
     var txt = String((box.textContent || '')).replace(/\\s+/g, ' ').trim();
     var m = txt.match(/#\\s*(\\d+)/);
     if (!m) return;
-    var localFid = parseInt(m[1], 10);
-    if (!Number.isFinite(localFid)) return;
-    var chapterStart = _getNumber('vhs-start-frame', 0);
-    _emit(localFid + chapterStart, 'gallery-click');
+    var globalFid = parseInt(m[1], 10);
+    if (!Number.isFinite(globalFid)) return;
+    _emit(globalFid, 'gallery-click');
   }, true);
   document.addEventListener('mouseleave', _hideHover, true);
   document.addEventListener('scroll', _hideHover, true);
