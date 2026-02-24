@@ -1168,6 +1168,31 @@ def test_update_chapter_bad_frames_preserves_untouched_chapters():
     print("Test BAD_FRAMES update preserves untouched chapter blocks: PASSED.")
 
 
+def test_update_chapter_bad_frames_omits_empty_line():
+    print("Testing BAD_FRAMES empty updates remove BAD_FRAMES line...")
+    import tempfile
+    from common import update_chapter_bad_frames_in_ffmetadata
+
+    with tempfile.TemporaryDirectory() as td:
+        cf = Path(td) / "chapters.ffmetadata"
+        cf.write_text(
+            ";FFMETADATA1\n"
+            "[CHAPTER]\n"
+            "TIMEBASE=1001/30000\n"
+            "START=0\n"
+            "END=100\n"
+            "TITLE=Chap A\n"
+            "BAD_FRAMES=1,2\n",
+            encoding="utf-8",
+        )
+        touched = update_chapter_bad_frames_in_ffmetadata(cf, {"Chap A": []})
+        assert touched == 1
+        text = cf.read_text(encoding="utf-8")
+        assert "BAD_FRAMES=" not in text
+
+    print("Test BAD_FRAMES empty updates remove BAD_FRAMES line: PASSED.")
+
+
 def test_vhs_tuner_ui_defaults_and_controls():
     print("Testing vhs_tuner UI defaults and control layout...")
     src = (ROOT / "vhs_tuner.py").read_text(encoding="utf-8", errors="ignore")
@@ -1207,6 +1232,7 @@ def main():
     test_vhs_tuner_click_dedupe_prevents_double_toggle()
     test_vhs_tuner_auto_and_manual_persist_to_bad_frames()
     test_update_chapter_bad_frames_preserves_untouched_chapters()
+    test_update_chapter_bad_frames_omits_empty_line()
     test_vhs_tuner_ui_defaults_and_controls()
 
 if __name__ == "__main__":

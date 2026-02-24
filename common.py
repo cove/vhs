@@ -338,8 +338,9 @@ def update_chapter_bad_frames_in_ffmetadata(path, chapter_bad_frames):
 
         if should_update:
             csv = format_bad_frames_csv(pending[nk])
-            insert_at = title_idx + 1 if title_idx >= 0 else len(cleaned)
-            cleaned.insert(insert_at, f"BAD_FRAMES={csv}")
+            if csv:
+                insert_at = title_idx + 1 if title_idx >= 0 else len(cleaned)
+                cleaned.insert(insert_at, f"BAD_FRAMES={csv}")
             touched += 1
         out.extend(cleaned)
 
