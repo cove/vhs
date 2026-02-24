@@ -716,7 +716,7 @@ def build_grid_html(
         label = f"#{local_fid} {sc:.2f}{badge}"
         cells.append(
             f'<div class="vhs-cell" data-fid="{fid}" onclick="if(window.vhsToggleFrame){{window.vhsToggleFrame({fid});}} return false;"'
-            f' title="local {local_fid} · global {fid} · score {sc:.4f} · click to toggle">'
+            f' title="local {local_fid} | global {fid} | score {sc:.4f} | click to toggle">'
             f'<div class="vhs-wrap" style="border-color:{color}">'
             f'<img src="{b64}" class="vhs-thumb"/></div>'
             f'<div class="vhs-lbl" style="color:{color}">{label}</div>'
@@ -1045,7 +1045,7 @@ input[type=range] { accent-color:#27a85a; }
 #vhs-main-panel {
   display: flex !important;
   flex-direction: column !important;
-  height: 100vh !important;
+  height: 100dvh !important;
   overflow: hidden !important;
   margin-bottom: 0 !important;
   padding-bottom: 0 !important;
@@ -1055,6 +1055,8 @@ input[type=range] { accent-color:#27a85a; }
   display: flex !important;
   flex-direction: column !important;
   flex: 1 1 auto !important;
+  align-self: stretch !important;
+  height: 100% !important;
   min-height: 0 !important;
   width: 100% !important;
   overflow: hidden !important;
@@ -1067,18 +1069,108 @@ input[type=range] { accent-color:#27a85a; }
   margin-bottom: 0 !important;
   padding-bottom: 0 !important;
 }
-#vhs-grid-gallery {
+#vhs-main-tabs {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  height: 100% !important;
+  min-height: 0 !important;
+}
+#vhs-main-tabs > div {
+  min-height: 0 !important;
+}
+#vhs-main-tabs > .tab-wrapper {
+  flex: 0 0 auto !important;
+}
+#vhs-main-tabs [role="tablist"] {
+  flex: 0 0 auto !important;
+}
+#vhs-main-tabs > .tabitem[style*="display: none"],
+#vhs-main-tabs > [role="tabpanel"][style*="display: none"] {
+  display: none !important;
+}
+#vhs-main-tabs > .tabitem:not([style*="display: none"]),
+#vhs-main-tabs > [role="tabpanel"]:not([style*="display: none"]) {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+#vhs-main-tabs [role="tabpanel"] {
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+/* Gradio inserts one or two nested .column wrappers inside the active tab panel. */
+#vhs-main-tabs > .tabitem:not([style*="display: none"]) > .column,
+#vhs-main-tabs > [role="tabpanel"]:not([style*="display: none"]) > .column {
+  flex-direction: column !important;
+  display: flex !important;
+  flex: 1 1 auto !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+#vhs-main-tabs > .tabitem:not([style*="display: none"]) > .column > .column,
+#vhs-main-tabs > [role="tabpanel"]:not([style*="display: none"]) > .column > .column {
+  display: flex !important;
+  flex-direction: column !important;
   flex: 1 1 auto !important;
   min-height: 0 !important;
+}
+#vhs-main-tabs [role="tabpanel"] > .column {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  height: 100% !important;
+  min-height: 0 !important;
+}
+#vhs-stats {
+  flex: 0 0 auto !important;
+}
+#vhs-grid-gallery {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  min-height: 0 !important;
   max-height: none !important;
-  height: auto !important;
-  overflow: auto !important;
+  height: 100% !important;
+  overflow: hidden !important;
 }
 #vhs-grid-gallery > div {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+#vhs-grid-gallery .gallery-container {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+#vhs-grid-gallery .grid-wrap,
+#vhs-grid-gallery .grid-wrap.fixed-height {
+  display: block !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
   height: 100% !important;
+  max-height: none !important;
+  overflow: auto !important;
+}
+#vhs-grid-gallery .grid-container {
+  min-height: 0 !important;
+  align-content: start !important;
+}
+#vhs-grid-gallery [class*="gallery"] {
+  min-height: 0 !important;
 }
 #vhs-grid-gallery [class*="grid"] {
-  min-height: 100% !important;
+  min-height: 0 !important;
 }
 /* Reduce distracting gallery redraw effects on click. */
 #vhs-grid-gallery,
@@ -1093,6 +1185,13 @@ input[type=range] { accent-color:#27a85a; }
   padding: 1px 6px !important;
   font-size: 10px !important;
 }
+#vhs-runtime-js {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
 """
 
 def _get_archives() -> list[str]:
@@ -1100,14 +1199,17 @@ def _get_archives() -> list[str]:
         return []
     return sorted(p.stem for p in ARCHIVE_DIR.glob("*.mkv"))
 
+CHAPTER_SELECT_LABEL = "-- select chapter --"
+CHAPTER_MISSING_LABEL = "-- no chapters file found --"
+
 def _get_chapter_titles(archive: str) -> list[str]:
     if not archive:
-        return ["— select chapter —"]
+        return [CHAPTER_SELECT_LABEL]
     cf = METADATA_DIR / archive / "chapters.ffmetadata"
     if not cf.exists():
-        return ["— no chapters file found —"]
+        return [CHAPTER_MISSING_LABEL]
     chapters = parse_ffmetadata_chapters(cf)
-    return ["— select chapter —"] + [ch["title"] for ch in chapters]
+    return [CHAPTER_SELECT_LABEL] + [ch["title"] for ch in chapters]
 
 def _find_chapter(chapters: list[dict], title: str) -> dict | None:
     return next((c for c in chapters if c["title"] == title), None)
@@ -1135,7 +1237,7 @@ with gr.Blocks(
             label="Archive", scale=1, interactive=True,
         )
         chapter_dd = gr.Dropdown(
-            choices=["— select chapter —"], value="— select chapter —",
+            choices=[CHAPTER_SELECT_LABEL], value=CHAPTER_SELECT_LABEL,
             label="Chapter", scale=3, interactive=True,
         )
         load_btn = gr.Button("🔄  Load Chapter", variant="primary", scale=1)
@@ -1147,180 +1249,76 @@ with gr.Blocks(
     # ── Main panel ────────────────────────────────────────────────────────────
     with gr.Column(visible=False, elem_id="vhs-main-panel") as main_panel:
 
-        # ── LEFT column ───────────────────────────────────────────────────────
-        with gr.Column(scale=1, min_width=210, elem_id="vhs-left-col"):
+        with gr.Tabs(elem_id="vhs-main-tabs", selected="frames-tab"):
+            with gr.Tab("Frames", id="frames-tab"):
+                with gr.Column(scale=4, elem_id="vhs-right-col"):
+                    stats_md  = gr.Markdown("", elem_id="vhs-stats")
+                    grid_gallery = gr.Gallery(
+                        value=[],
+                        label="Frames (click a tile to toggle good/bad)",
+                        show_label=True,
+                        columns=7,
+                        object_fit="contain",
+                        height="auto",
+                        allow_preview=False,
+                        elem_id="vhs-grid-gallery",
+                    )
 
-            with gr.Accordion("Range & Sample", open=False):
-                with gr.Row():
-                    start_n = gr.Number(label="Start", value=0, precision=0, elem_id="vhs-start-frame")
-                    end_n   = gr.Number(label="End", value=10000, precision=0)
-                    n_sl = gr.Slider(20, 10000, value=400, step=10, label="n")
-                with gr.Row():
-                    strict_sampling_cb = gr.Checkbox(label="Strict Sampling", value=True)
-                    apply_range_btn = gr.Button("Apply Range", variant="secondary")
-                    reload_btn = gr.Button("Reload", variant="secondary")
+            with gr.Tab("Chapters", id="chapters-tab"):
+                chapter_list = gr.Radio(
+                    choices=[],
+                    value=None,
+                    label="Chapters",
+                    interactive=True,
+                    elem_id="vhs-chapter-list",
+                )
+                chapters_load_btn = gr.Button("Load Selected Chapter", variant="primary")
 
-            with gr.Accordion("Signal Weights", open=False):
-                wc_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="chroma")
-                spark_chroma = gr.HTML(_E_SIG)
-                wn_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="noise")
-                spark_noise  = gr.HTML(_E_SIG)
-                wt_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="tear")
-                spark_tear   = gr.HTML(_E_SIG)
-                ww_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="wave")
-                spark_wave   = gr.HTML(_E_SIG)
+            with gr.Tab("Tuning", id="tuning-tab"):
+                with gr.Column(scale=1, min_width=210, elem_id="vhs-left-col"):
+                    with gr.Accordion("Range & Sample", open=False):
+                        with gr.Row():
+                            start_n = gr.Number(label="Start", value=0, precision=0, elem_id="vhs-start-frame")
+                            end_n   = gr.Number(label="End", value=10000, precision=0)
+                            n_sl = gr.Slider(20, 10000, value=400, step=10, label="n")
+                        with gr.Row():
+                            strict_sampling_cb = gr.Checkbox(label="Strict Sampling", value=True)
+                            apply_range_btn = gr.Button("Apply Range", variant="secondary")
+                            reload_btn = gr.Button("Reload", variant="secondary")
 
-            with gr.Accordion("Threshold", open=False):
-                t_mode  = gr.Radio(["iqr", "value", "quantile"], value="iqr",
-                                    label="Mode", interactive=True)
-                iqr_sl  = gr.Slider(1.0, 8.0, value=3.5, step=0.05, label="k")
-                tval_sl = gr.Slider(-5.0, 15.0, value=1.0, step=0.05,
-                                     label="Hard value", visible=False)
-                bpct_sl = gr.Slider(1, 60, value=10, step=1,
-                                     label="Bad %", visible=False)
-                spark_score = gr.HTML(_E_SCORE)
+                    with gr.Accordion("Signal Weights", open=False):
+                        wc_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="chroma")
+                        spark_chroma = gr.HTML(_E_SIG)
+                        wn_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="noise")
+                        spark_noise  = gr.HTML(_E_SIG)
+                        wt_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="tear")
+                        spark_tear   = gr.HTML(_E_SIG)
+                        ww_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="wave")
+                        spark_wave   = gr.HTML(_E_SIG)
 
-            with gr.Accordion("Grid", open=False):
-                with gr.Row():
-                    cols_sl   = gr.Slider(4, 16, value=7, step=1, label="Cols")
-                    twidth_sl = gr.Slider(64, 220, value=120, step=8, label="Width")
+                    with gr.Accordion("Threshold", open=False):
+                        t_mode  = gr.Radio(["iqr", "value", "quantile"], value="iqr",
+                                            label="Mode", interactive=True)
+                        iqr_sl  = gr.Slider(1.0, 8.0, value=3.5, step=0.05, label="k")
+                        tval_sl = gr.Slider(-5.0, 15.0, value=1.0, step=0.05,
+                                             label="Hard value", visible=False)
+                        bpct_sl = gr.Slider(1, 60, value=10, step=1,
+                                             label="Bad %", visible=False)
+                        spark_score = gr.HTML(_E_SCORE)
 
-        # ── RIGHT column ──────────────────────────────────────────────────────
-        with gr.Column(scale=4, elem_id="vhs-right-col"):
-            with gr.Row():
-                gr.Markdown("")
-                next_chapter_btn = gr.Button("Next Chapter", variant="secondary", elem_id="vhs-next-chapter")
+                    with gr.Accordion("Grid", open=False):
+                        with gr.Row():
+                            cols_sl   = gr.Slider(4, 16, value=7, step=1, label="Cols")
+                            twidth_sl = gr.Slider(64, 220, value=120, step=8, label="Width")
 
-            stats_md  = gr.Markdown("", elem_id="vhs-stats")
-            grid_gallery = gr.Gallery(
-                value=[],
-                label="Frames (click a tile to toggle good/bad)",
-                show_label=True,
-                columns=7,
-                object_fit="contain",
-                height="auto",
-                allow_preview=False,
-                elem_id="vhs-grid-gallery",
-            )
+        # Keep the runtime JS component out of layout flow to avoid panel overlap.
+        gr.HTML("", elem_id="vhs-runtime-js", visible=False)
 
-            # ── Static JS — never included in event outputs, so it persists
-            #    across grid rebuilds. We keep inline + delegated click paths
-            #    with dedupe so clicks still register if one path is filtered.
-            gr.HTML("""
-<script>
-(function() {
-  function _ensureHoverPreview() {
-    var root = document.getElementById('vhs-hover-preview');
-    if (root) return root;
-    root = document.createElement('div');
-    root.id = 'vhs-hover-preview';
-    var img = document.createElement('img');
-    img.alt = 'hover preview';
-    root.appendChild(img);
-    document.body.appendChild(root);
-    return root;
-  }
-
-  var _hover = _ensureHoverPreview();
-  var _hoverImg = _hover.querySelector('img');
-  var _hoverSrc = '';
-  function _hideHover() {
-    _hover.style.display = 'none';
-  }
-  function _showHover(src, x, y) {
-    if (!src) return;
-    if (_hoverSrc !== src) {
-      _hoverImg.src = src;
-      _hoverSrc = src;
-    }
-    _hover.style.display = 'block';
-    var pad = 18;
-    var left = x + pad;
-    var top = y + pad;
-    var rect = _hover.getBoundingClientRect();
-    var maxLeft = Math.max(0, window.innerWidth - rect.width - 6);
-    var maxTop = Math.max(0, window.innerHeight - rect.height - 6);
-    if (left > maxLeft) left = Math.max(0, x - rect.width - pad);
-    if (top > maxTop) top = Math.max(0, y - rect.height - pad);
-    _hover.style.left = left + 'px';
-    _hover.style.top = top + 'px';
-  }
-
-  function _setGradio(elemId, val) {
-    var c = document.getElementById(elemId);
-    if (!c) return;
-    var inp = c.querySelector('textarea') || c.querySelector('input');
-    if (!inp) return;
-    var proto = (inp.tagName === 'TEXTAREA')
-      ? window.HTMLTextAreaElement.prototype
-      : window.HTMLInputElement.prototype;
-    var desc = Object.getOwnPropertyDescriptor(proto, 'value');
-    if (desc && desc.set) desc.set.call(inp, val);
-    else inp.value = val;
-    inp.dispatchEvent(new Event('input', {bubbles: true}));
-  }
-
-  function _getNumber(elemId, fallbackVal) {
-    var c = document.getElementById(elemId);
-    if (!c) return fallbackVal;
-    var inp = c.querySelector('textarea') || c.querySelector('input');
-    if (!inp) return fallbackVal;
-    var n = parseInt(String(inp.value || '').trim(), 10);
-    return Number.isFinite(n) ? n : fallbackVal;
-  }
-
-  var _lastFid = null;
-  var _lastTs = 0;
-  function _emit(fid, source) {
-    var sid = String(fid || '');
-    if (!sid) return;
-    var now = Date.now();
-    if (_lastFid === sid && (now - _lastTs) < 120) {
-      return;
-    }
-    _lastFid = sid;
-    _lastTs = now;
-    var payload = sid + ':' + now;
-    _setGradio('vhs-click-recv', payload);
-  }
-
-  window.vhsToggleFrame = function(fid) { _emit(fid, 'inline'); };
-  document.addEventListener('mousemove', function(e) {
-    var img = e.target.closest('#vhs-grid-gallery img');
-    if (!img) { _hideHover(); return; }
-    _showHover(img.currentSrc || img.src, e.clientX, e.clientY);
-  }, true);
-  // Direct click handling for Gallery tiles so repeated clicks on the same
-  // frame still emit toggle events reliably.
-  document.addEventListener('click', function(e) {
-    var inGallery = e.target.closest('#vhs-grid-gallery');
-    if (!inGallery) return;
-    var box = e.target.closest('[class*="gallery"], [class*="item"], [class*="thumbnail"], figure, li, div');
-    if (!box) return;
-    var txt = String((box.textContent || '')).replace(/\\s+/g, ' ').trim();
-    var m = txt.match(/#\\s*(\\d+)/);
-    if (!m) return;
-    var globalFid = parseInt(m[1], 10);
-    if (!Number.isFinite(globalFid)) return;
-    _emit(globalFid, 'gallery-click');
-  }, true);
-  document.addEventListener('mouseleave', _hideHover, true);
-  document.addEventListener('scroll', _hideHover, true);
-  document.addEventListener('click', function(e) {
-    var cell = e.target.closest('.vhs-cell[data-fid]');
-    if (!cell) return;
-    _emit(cell.getAttribute('data-fid'), 'delegate');
-  }, true);
-
-})();
-</script>
-""")
-
-            click_recv = gr.Textbox(
-                value="", label="",
-                interactive=True, max_lines=1, visible=False,
-                elem_id="vhs-click-recv",
-            )
+        click_recv = gr.Textbox(
+            value="", label="",
+            interactive=True, max_lines=1, visible=False,
+            elem_id="vhs-click-recv",
+        )
 
     # =========================================================================
     # Rebuild helper — grid + stats + 5 sparklines
@@ -1343,10 +1341,10 @@ with gr.Blocks(
         )
         n_ov   = sum(1 for f in fids if int(f) in overrides)
         stats  = (
-            f"🔴 **Bad:** {n_bad} ({100*n_bad/max(1,len(fids)):.0f}%)  ·  "
-            f"🟢 **Good:** {len(fids)-n_bad}  ·  "
-            f"**Threshold:** {thr:.3f}  ·  "
-            f"✏ **Overrides:** {n_ov}  ·  n={len(fids)}"
+            f"🔴 **Bad:** {n_bad} ({100*n_bad/max(1,len(fids)):.0f}%) | "
+            f"🟢 **Good:** {len(fids)-n_bad} | "
+            f"**Threshold:** {thr:.3f} | "
+            f"✏ **Overrides:** {n_ov} | n={len(fids)}"
         )
         sc_ch, sc_no, sc_te, sc_wa, sc_sc = build_sparklines_html(
             sigs, sc, thr, wc, wn, wt, ww
@@ -1361,10 +1359,16 @@ with gr.Blocks(
         titles   = _get_chapter_titles(archive)
         cf       = METADATA_DIR / archive / "chapters.ffmetadata" if archive else None
         chapters = parse_ffmetadata_chapters(cf) if cf and cf.exists() else []
-        return gr.update(choices=titles, value=titles[0]), chapters
+        chapter_titles = [str(ch.get("title", "")) for ch in chapters if str(ch.get("title", ""))]
+        chapter_value = chapter_titles[0] if chapter_titles else None
+        return (
+            gr.update(choices=titles, value=(chapter_value or titles[0])),
+            chapters,
+            gr.update(choices=chapter_titles, value=chapter_value),
+        )
 
-    archive_dd.change(on_archive, [archive_dd], [chapter_dd, st_chapters])
-    demo.load(on_archive, [archive_dd], [chapter_dd, st_chapters])
+    archive_dd.change(on_archive, [archive_dd], [chapter_dd, st_chapters, chapter_list])
+    demo.load(on_archive, [archive_dd], [chapter_dd, st_chapters, chapter_list])
 
     # ── Chapter change → frame range ───────────────────────────────────────
     def on_chapter(title, chapters):
@@ -1375,26 +1379,14 @@ with gr.Blocks(
 
     chapter_dd.change(on_chapter, [chapter_dd, st_chapters], [start_n, end_n])
 
-    def on_next_chapter(current_title, chapters):
-        if not chapters:
-            return gr.update(), gr.update(), gr.update()
-        titles = [str(ch.get("title", "")) for ch in chapters if str(ch.get("title", ""))]
-        if not titles:
-            return gr.update(), gr.update(), gr.update()
-        try:
-            idx = titles.index(str(current_title))
-        except Exception:
-            idx = -1
-        next_idx = min(len(titles) - 1, idx + 1)
-        next_title = titles[next_idx]
-        ch = _find_chapter(chapters, next_title)
-        if not ch:
-            return gr.update(), gr.update(), gr.update()
-        return (
-            gr.update(value=next_title),
-            gr.update(value=ch["start_frame"]),
-            gr.update(value=ch["end_frame"]),
-        )
+    def on_chapter_list_pick(title):
+        if not title:
+            return gr.update()
+        return gr.update(value=title)
+
+    chapter_list.change(on_chapter_list_pick, [chapter_list], [chapter_dd]).then(
+        on_chapter, [chapter_dd, st_chapters], [start_n, end_n]
+    )
 
     def on_show_loader():
         return gr.update(visible=True), gr.update(visible=True), gr.update(visible=False)
@@ -1417,7 +1409,7 @@ with gr.Blocks(
                 [], [], {}, {}, {"fid": -1, "ts": -1}, gr.update(value=[]), "",
                 _E_SIG, _E_SIG, _E_SIG, _E_SIG, _E_SCORE,
                 gr.update(visible=True), gr.update(visible=True), gr.update(visible=False))
-        if not archive or not ch_title or ch_title.startswith("—"):
+        if not archive or not ch_title or ch_title in {CHAPTER_SELECT_LABEL, CHAPTER_MISSING_LABEL}:
             return FAIL
         proxy = ARCHIVE_DIR / f"{archive}_proxy.mp4"
         mkv   = ARCHIVE_DIR / f"{archive}.mkv"
@@ -1493,17 +1485,9 @@ with gr.Blocks(
                   wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
                   cols_sl, twidth_sl]
     load_btn.click(on_load,       _LOAD_INS, _LOAD_OUTS)
+    chapters_load_btn.click(on_load, _LOAD_INS, _LOAD_OUTS)
     reload_btn.click(on_load,     _LOAD_INS, _LOAD_OUTS)
     apply_range_btn.click(on_load, _LOAD_INS, _LOAD_OUTS)
-    next_chapter_btn.click(
-        on_next_chapter,
-        [chapter_dd, st_chapters],
-        [chapter_dd, start_n, end_n],
-    ).then(
-        on_load,
-        _LOAD_INS,
-        _LOAD_OUTS,
-    )
 
     # ── Live slider updates ────────────────────────────────────────────────
     def on_sliders(archive, ch_title, ch_start, ch_end, fids, b64, sigs, ovr,
