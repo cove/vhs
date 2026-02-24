@@ -585,6 +585,8 @@ def make_create_avs(
     no_bob=False,
 ):
     chapter_len_frames = int(chapter_end_frame) - int(chapter_start_frame)
+    if chapter_len_frames <= 0:
+        chapter_len_frames = 1
     max_source_frame = chapter_len_frames - 1
     resolved_bad_repair_ranges = _resolve_badframe_repair_ranges(
         bad_source_frames=bad_source_frames or [],
@@ -599,8 +601,14 @@ def make_create_avs(
         resolved_bad_repair_ranges,
         frame_multiplier=BADFRAME_POST_QTGMC_MULTIPLIER,
     )
-    # QTGMC now runs single-rate (FPSDivisor=2 in filter scripts), so keep
-    # passthrough output cadence and avoid any extra SelectEven decimation.
+    # Guard against chapter filter scripts that still output bob cadence.
+    # If filter output is approximately 2x chapter length, decimate to single-rate.
+    cadence_guard_text = f"""c = last
+expected_frames = {int(chapter_len_frames)}
+if (c.FrameCount >= (expected_frames * 2 - 2) && c.FrameCount <= (expected_frames * 2 + 2)) {{
+    c = c.SelectEven()
+}}
+"""
     no_bob_text = "c = last\nc\n"
     filter_import_path = Path(avs_filter_path).resolve().as_posix()
     return f'''
@@ -623,6 +631,7 @@ chapter_start_frame = {int(chapter_start_frame)}
 chapter_end_frame = {int(chapter_end_frame)}
 {prefilter_text}
 Import("{filter_import_path}")
+{cadence_guard_text}
 {postfilter_text}
 {no_bob_text}
 '''
@@ -657,11 +666,59 @@ def make_extract_chapter(src, start, end, dest, start_frame=None, end_frame=None
         "-vf", vf_select,
         "-af", af_trim,
         "-map", "0:v:0", "-map", "0:a:0?",
+        "-fps_mode:v:0", "passthrough",
         "-c:v", "ffv1",
         "-level", "3", "-coder", "1", "-context", "1",
         "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "1",
         "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
         "-y", str(dest)]
+
+def probe_video_frame_count(path):
+    p = Path(path)
+    if not p.exists():
+        return 0
+    cmd = [
+        FFPROBE_BIN,
+        "-v", "error",
+        "-count_frames",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=nb_read_frames,nb_frames",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(p),
+    ]
+    try:
+        out = subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
+    except Exception:
+        return 0
+    for raw in str(out or "").splitlines():
+        token = str(raw or "").strip()
+        if not token or token.upper() == "N/A":
+            continue
+        try:
+            v = int(token)
+        except Exception:
+            continue
+        if v > 0:
+            return int(v)
+    return 0
+
+def assert_expected_frame_count(path, expected_frames, context_label):
+    exp = max(0, int(expected_frames))
+    if exp <= 0:
+        return
+    actual = probe_video_frame_count(path)
+    if actual <= 0:
+        print(f"WARNING: Unable to probe frame count for {context_label}: {path}")
+        return
+    # Allow tiny tolerance for muxer boundary effects.
+    if abs(int(actual) - int(exp)) <= 1:
+        return
+    hint = ""
+    if abs(int(actual) - int(exp * 2)) <= 2:
+        hint = " (looks like accidental bob/double-rate output)"
+    raise RuntimeError(
+        f"Frame-count drift detected for {context_label}: expected {exp}, got {actual}.{hint}"
+    )
 
 def _subtitle_io(subtitle_tracks):
     input_args = []
@@ -706,6 +763,7 @@ def make_encode_final_x265(temp_qtgmc, subtitle_tracks, final_file, author, titl
         "-map_metadata", "-1",
         "-map_chapters", "-1",
         "-pix_fmt", "yuv420p",
+        "-fps_mode:v:0", "passthrough",
         "-c:v", "libx265", "-crf", "20", "-preset", "slow",
         "-profile:v", "main", "-level", "4.0",
         "-x265-params", "log-level=0",
@@ -746,6 +804,7 @@ def make_encode_final_x264(temp_qtgmc, subtitle_tracks, final_file, author, titl
         "-map_metadata", "-1",
         "-map_chapters", "-1",
         "-pix_fmt", "yuv420p",
+        "-fps_mode:v:0", "passthrough",
         "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-profile:v", "high", "-level", "4.0", "-tune", "grain",
         "-map", "0:v:0",
     ]
@@ -778,6 +837,7 @@ def make_deinterlace(temp_avs, temp_extracted, temp_qtgmc):
         "-i", str(temp_avs),
         "-i", str(temp_extracted),
         "-pix_fmt", "yuv422p",
+        "-fps_mode:v:0", "passthrough",
         "-map", "0:v:0", "-c:v", "ffv1",
         "-level", "3", "-coder", "1", "-context", "1",
         "-map", "1:a:0?", "-c:a", "copy",
@@ -794,6 +854,7 @@ def make_deinterlace_ffmpeg_fallback(temp_extracted, temp_qtgmc, no_bob=False):
         "-i", str(temp_extracted),
         "-vf", f"bwdif=mode={bwdif_mode}:parity=auto:deint=interlaced",
         "-pix_fmt", "yuv422p",
+        "-fps_mode:v:0", "passthrough",
         "-map", "0:v:0", "-c:v", "ffv1",
         "-level", "3", "-coder", "1", "-context", "1",
         "-map", "0:a:0?", "-c:a", "copy",
@@ -894,6 +955,7 @@ def _run_with_args(args):
                 f"{extract_start_sec:.3f}s-{extract_end_sec:.3f}s "
                 f"(frames {chapter_start_frame}-{max(chapter_start_frame, chapter_end_frame - 1)})"
             )
+            chapter_len = max(0, int(chapter_end_frame) - int(chapter_start_frame))
 
             try:
                 print(f"Extracting chapter...")
@@ -907,11 +969,15 @@ def _run_with_args(args):
                         end_frame=chapter_end_frame,
                     )
                 )
+                assert_expected_frame_count(
+                    extracted,
+                    chapter_len,
+                    f"extracted chapter '{title}'",
+                )
 
                 print(f"Applying video filters...")
                 if sys.platform == "win32":
                     if filter_script.exists():
-                        chapter_len = max(0, int(chapter_end_frame) - int(chapter_start_frame))
                         if "bad_frames" not in ch:
                             print(
                                 f"WARNING: chapter '{title}' has no BAD_FRAMES metadata; "
@@ -945,6 +1011,11 @@ def _run_with_args(args):
                         )
                         avs.write_text(script, encoding="ascii")
                         run(make_deinterlace(avs, extracted, qtgmc))
+                        assert_expected_frame_count(
+                            qtgmc,
+                            chapter_len,
+                            f"qtgmc chapter '{title}'",
+                        )
                     else:
                         print("Skipping since there's no filter script for this archive...")
                         shutil.copy(extracted, qtgmc)
@@ -961,6 +1032,11 @@ def _run_with_args(args):
                             f"Skipping AviSynth filter script on this platform: {filter_script.name}"
                         )
                     run(make_deinterlace_ffmpeg_fallback(extracted, qtgmc, no_bob=args.no_bob))
+                    assert_expected_frame_count(
+                        qtgmc,
+                        chapter_len,
+                        f"fallback chapter '{title}'",
+                    )
 
                 subtitle_tracks = []
 
