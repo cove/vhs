@@ -17,7 +17,7 @@ ASS_NEWLINE = "\\N"
 BADFRAME_MAX_SPAN_DEFAULT = 1200
 BADFRAME_PAD_BEFORE_DEFAULT = 2
 BADFRAME_PAD_AFTER_DEFAULT = 0
-BADFRAME_POST_QTGMC_MULTIPLIER = 2
+BADFRAME_POST_QTGMC_MULTIPLIER = 1
 
 def auto_badframe_pad(span):
     # Minimize repaired-frame count while still protecting QTGMC temporal context.
@@ -599,8 +599,9 @@ def make_create_avs(
         resolved_bad_repair_ranges,
         frame_multiplier=BADFRAME_POST_QTGMC_MULTIPLIER,
     )
-    # Bob output has been removed; always keep one output frame per source frame.
-    no_bob_text = "c = last\nc = c.SelectEven()\nc\n"
+    # QTGMC now runs single-rate (FPSDivisor=2 in filter scripts), so keep
+    # passthrough output cadence and avoid any extra SelectEven decimation.
+    no_bob_text = "c = last\nc\n"
     filter_import_path = Path(avs_filter_path).resolve().as_posix()
     return f'''
 LoadPlugin("{QTGMC_DIR}/ffms2.dll") 
@@ -636,14 +637,29 @@ def make_extract_audio(temp_extracted, temp_transcript):
         "-ac", "1",
         "-y", str(temp_transcript)]
 
-def make_extract_chapter(src, start, end, dest):
+def make_extract_chapter(src, start, end, dest, start_frame=None, end_frame=None):
+    # Keep extraction frame-exact to preserve global->local mapping for BAD_FRAMES.
+    if start_frame is None or end_frame is None:
+        raise ValueError("make_extract_chapter requires start_frame and end_frame.")
+    s_frame = int(start_frame)
+    e_frame = int(end_frame)
+    if e_frame <= s_frame:
+        e_frame = s_frame + 1
+    vf_select = (
+        f"select='between(n\\,{s_frame}\\,{e_frame - 1})',"
+        "setpts=N/FRAME_RATE/TB"
+    )
+    af_trim = f"atrim=start={float(start):.6f}:end={float(end):.6f},asetpts=PTS-STARTPTS"
     return [FFMPEG_BIN,
         "-nostdin",
         "-v", "error",
         "-i", str(src),
-        "-ss", f"{start}", "-to", f"{end}",
-        "-force_key_frames", "0",
-        "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy",
+        "-vf", vf_select,
+        "-af", af_trim,
+        "-map", "0:v:0", "-map", "0:a:0?",
+        "-c:v", "ffv1",
+        "-level", "3", "-coder", "1", "-context", "1",
+        "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "1",
         "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
         "-y", str(dest)]
 
@@ -764,7 +780,7 @@ def make_deinterlace(temp_avs, temp_extracted, temp_qtgmc):
         "-pix_fmt", "yuv422p",
         "-map", "0:v:0", "-c:v", "ffv1",
         "-level", "3", "-coder", "1", "-context", "1",
-        "-map", "0:a", "-c:a", "copy",
+        "-map", "1:a:0?", "-c:a", "copy",
         "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
         "-y", str(temp_qtgmc)]
 
@@ -881,7 +897,16 @@ def _run_with_args(args):
 
             try:
                 print(f"Extracting chapter...")
-                run(make_extract_chapter(src, extract_start_sec, extract_end_sec, extracted))
+                run(
+                    make_extract_chapter(
+                        src,
+                        extract_start_sec,
+                        extract_end_sec,
+                        extracted,
+                        start_frame=chapter_start_frame,
+                        end_frame=chapter_end_frame,
+                    )
+                )
 
                 print(f"Applying video filters...")
                 if sys.platform == "win32":

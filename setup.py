@@ -46,11 +46,11 @@ def get_python_bin():
 
 def install_requirements():
     if not REQ_FILE.exists():
-        print("No requirements.txt found — skipping install.")
+        print("No requirements.txt found - skipping install.")
         return
 
     python_bin = get_python_bin()
-    print("Installing requirements from requirements.txt …")
+    print("Installing requirements from requirements.txt ...")
     subprocess.check_call([str(python_bin), "-m", "pip", "install", "-r", str(REQ_FILE)])
     print("Python requirements installed.")
     print("All requirements installed.")

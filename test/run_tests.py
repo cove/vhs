@@ -359,10 +359,10 @@ def test_step_6_badframe_repair_injection_and_comment():
     assert "FreezeFrame(100,100,99)" not in out_monotonic
 
     out_post = step_6_make_videos.build_badframe_postfilter_lines([6, 7, 8, 20])
-    # Post-QTGMC stabilization: map source-frame repairs to doubled-rate output.
-    assert "FreezeFrame(40,41,42)" in out_post
-    assert "FreezeFrame(14,17,18)" in out_post
-    assert "FreezeFrame(12,13,10)" in out_post
+    # Post-QTGMC stabilization is single-rate when QTGMC uses FPSDivisor=2.
+    assert "FreezeFrame(20,20,21)" in out_post
+    assert "FreezeFrame(7,8,9)" in out_post
+    assert "FreezeFrame(6,6,5)" in out_post
 
     c_none = step_6_make_videos.build_filmed_comment(
         None, "1995-03-18T19:25:00-08:00", "Altadena", "Tape 01", "00:01:00", "00:02:00"
@@ -462,10 +462,10 @@ def test_step_6_make_create_avs_includes_chapter_bounds():
         assert "chapter_end_frame = 200" in script
         assert "FreezeFrame(5,5,6)" in script
         assert "FreezeFrame(4,4,3)" in script
-        assert "FreezeFrame(10,11,12)" in script
-        assert "FreezeFrame(8,9,6)" in script
+        assert script.count("FreezeFrame(5,5,6)") == 2
+        assert script.count("FreezeFrame(4,4,3)") == 2
         assert "_tmp_filter.avs" in script
-        assert "SelectEven()" in script
+        assert "SelectEven()" not in script
     finally:
         tmp_filter.unlink(missing_ok=True)
 
@@ -473,6 +473,7 @@ def test_step_6_make_create_avs_includes_chapter_bounds():
     del sys.modules['step_6_make_videos']
     sys.modules.pop("whisper", None)
     sys.modules.pop("whisper.utils", None)
+
 
 def test_step_6_real_badframes_do_not_pick_bad_sources():
     print("Testing step_6_make_videos against real frame_quality.tsv source picking...")
@@ -834,6 +835,246 @@ def test_step_6_proxy_badframes_overlay_e2e():
         sys.modules.pop("whisper", None)
         sys.modules.pop("whisper.utils", None)
 
+def test_step_6_qtgmc_freezeframe_long_e2e():
+    print("Testing step_6_make_videos QTGMC + FreezeFrame long-range drift safety...")
+    if os.getenv("RUN_QTGMC_FREEZE_E2E", "0").strip() != "1":
+        print("Skipping QTGMC FreezeFrame E2E test. Set RUN_QTGMC_FREEZE_E2E=1 to enable.")
+        return
+    if sys.platform != "win32":
+        print("Skipping QTGMC FreezeFrame E2E test: AviSynth/QTGMC path is Windows-only.")
+        return
+
+    keep_outputs = os.getenv("RUN_QTGMC_FREEZE_E2E_KEEP", "1").strip() not in {"0", "false", "False"}
+
+    try:
+        import cv2  # noqa: F401
+    except Exception:
+        print("Skipping QTGMC FreezeFrame E2E test: OpenCV (cv2) is unavailable in this Python.")
+        return
+
+    step_6_make_videos = import_step_6_module()
+    try:
+        proxy_path = ROOT.parent / "Archive" / "callahan_01_archive_proxy.mp4"
+        if not proxy_path.exists():
+            print("Skipping QTGMC FreezeFrame E2E test: callahan_01 proxy not found.")
+            return
+
+        frame_start = int(os.getenv("RUN_QTGMC_FREEZE_E2E_START", "12000"))
+        frame_end = int(os.getenv("RUN_QTGMC_FREEZE_E2E_END", str(frame_start + 6999)))
+        if frame_end < frame_start:
+            raise AssertionError("RUN_QTGMC_FREEZE_E2E_END must be >= RUN_QTGMC_FREEZE_E2E_START.")
+        frame_count = frame_end - frame_start + 1
+        if frame_count < 6000:
+            raise AssertionError(
+                "QTGMC FreezeFrame E2E requires at least 6000 frames; "
+                f"got {frame_count} ({frame_start}-{frame_end})."
+            )
+
+        work_dir = ROOT / "test" / "_qtgmc_freeze_e2e"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        stem = f"qtgmc_freeze_{frame_start}_{frame_end}"
+        clip_path = work_dir / f"{stem}_clip.mkv"
+        numbered_video_only_path = work_dir / f"{stem}_numbered_video_only.mp4"
+        numbered_path = work_dir / f"{stem}_numbered.mp4"
+        filtered_path = work_dir / f"{stem}_filtered.mp4"
+        avs_path = work_dir / f"{stem}_script.avs"
+        filter_path = work_dir / f"{stem}_qtgmc_filter.avs"
+        src_md5 = work_dir / f"{stem}_src.md5"
+        clip_md5 = work_dir / f"{stem}_clip.md5"
+
+        vf_select = f"select='between(n\\,{frame_start}\\,{frame_end})',setpts=N/FRAME_RATE/TB"
+        extract_start_sec = frame_start * 1001.0 / 30000.0
+        extract_end_sec = (frame_end + 1) * 1001.0 / 30000.0
+        subprocess.run(
+            step_6_make_videos.make_extract_chapter(
+                proxy_path,
+                extract_start_sec,
+                extract_end_sec,
+                clip_path,
+                start_frame=frame_start,
+                end_frame=frame_end + 1,
+            ),
+            check=True,
+        )
+
+        subprocess.run(
+            [
+                str(FFMPEG_BIN), "-nostdin", "-v", "error",
+                "-i", str(proxy_path),
+                "-vf", vf_select,
+                "-an",
+                "-f", "framemd5",
+                "-y", str(src_md5),
+            ],
+            check=True,
+        )
+        subprocess.run(
+            [
+                str(FFMPEG_BIN), "-nostdin", "-v", "error",
+                "-i", str(clip_path),
+                "-an",
+                "-f", "framemd5",
+                "-y", str(clip_md5),
+            ],
+            check=True,
+        )
+        src_hashes = _framemd5_hashes(src_md5)
+        clip_hashes = _framemd5_hashes(clip_md5)
+        assert len(src_hashes) == frame_count
+        assert len(clip_hashes) == frame_count
+        assert src_hashes == clip_hashes, "Extracted long clip frame order/content mismatch."
+
+        import cv2
+        cap = cv2.VideoCapture(str(clip_path))
+        assert cap.isOpened(), f"Unable to open extracted clip: {clip_path}"
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        if fps <= 0:
+            fps = 30000.0 / 1001.0
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        assert width == 720 and height == 480, f"Unexpected proxy frame size: {width}x{height}"
+
+        bits = 24
+        cell_w = 20
+        cell_h = 30
+        draw_x = 170
+        draw_y = 320
+
+        writer = cv2.VideoWriter(
+            str(numbered_video_only_path),
+            cv2.VideoWriter_fourcc(*"mp4v"),
+            float(fps),
+            (width, height),
+        )
+        assert writer.isOpened(), f"Unable to open numbered writer: {numbered_path}"
+
+        for idx in range(frame_count):
+            ok, frame = cap.read()
+            assert ok, f"Extracted clip ended early at frame {idx}."
+            frame_id = frame_start + idx
+            _draw_frame_id_overlay(frame, frame_id, draw_x, draw_y, bits=bits, cell_w=cell_w, cell_h=cell_h)
+            writer.write(frame)
+        extra_ok, _extra = cap.read()
+        cap.release()
+        writer.release()
+        assert not extra_ok, "Extracted clip had more frames than expected selection."
+
+        subprocess.run(
+            [
+                str(FFMPEG_BIN), "-nostdin", "-v", "error",
+                "-i", str(numbered_video_only_path),
+                "-f", "lavfi", "-i", "anullsrc=r=48000:cl=mono",
+                "-shortest",
+                "-map", "0:v:0", "-map", "1:a:0",
+                "-c:v", "copy", "-c:a", "aac", "-b:a", "64k",
+                "-y", str(numbered_path),
+            ],
+            check=True,
+        )
+
+        # Synthetic bad ranges across the long clip to catch drift at boundaries and deep timeline positions.
+        bad_ranges_local = [
+            (0, 2),
+            (47, 55),
+            (1024, 1041),
+            (3072, 3099),
+            (frame_count // 2 - 12, frame_count // 2 + 17),
+            (frame_count - 140, frame_count - 121),
+            (frame_count - 6, frame_count - 1),
+        ]
+        bad_ranges_local = [
+            (max(0, int(a)), min(frame_count - 1, int(b)))
+            for a, b in bad_ranges_local
+            if int(a) <= int(b)
+        ]
+        bad_ranges_local = [r for r in bad_ranges_local if r[0] <= r[1]]
+        assert bad_ranges_local, "No valid bad ranges for QTGMC FreezeFrame E2E."
+
+        resolved_local_repairs = step_6_make_videos._resolve_badframe_repair_ranges(
+            bad_repair_ranges=[(a, b, None) for a, b in bad_ranges_local],
+            max_source_frame=frame_count - 1,
+        )
+        assert resolved_local_repairs, "No resolved badframe repairs generated for long-range E2E."
+
+        expected_local_shown = list(range(frame_count))
+        for a, b, src in resolved_local_repairs:
+            assert src is not None
+            for fi in range(max(0, int(a)), min(frame_count - 1, int(b)) + 1):
+                expected_local_shown[fi] = int(src)
+
+        filter_path.write_text(
+            "c = last\n"
+            "c = c.AssumeTFF()\n"
+            "c = QTGMC(Preset=\"Very Fast\", FPSDivisor=2)\n"
+            "c\n",
+            encoding="ascii",
+        )
+
+        script_text = step_6_make_videos.make_create_avs(
+            str(numbered_path),
+            filter_path,
+            bad_repair_ranges=resolved_local_repairs,
+            chapter_start_frame=0,
+            chapter_end_frame=frame_count,
+            no_bob=True,
+        )
+        assert "FreezeFrame(" in script_text, "AVS script is missing FreezeFrame repair lines."
+        assert filter_path.name in script_text, "AVS script does not import the QTGMC filter script."
+        avs_path.write_text(script_text, encoding="ascii")
+
+        subprocess.run(
+            [
+                str(FFMPEG_BIN), "-nostdin", "-v", "error",
+                "-i", str(avs_path),
+                "-an",
+                "-c:v", "libx264", "-crf", "0", "-preset", "ultrafast",
+                "-pix_fmt", "yuv420p",
+                "-y", str(filtered_path),
+            ],
+            check=True,
+        )
+
+        cap_out = cv2.VideoCapture(str(filtered_path))
+        assert cap_out.isOpened(), f"Unable to open filtered clip: {filtered_path}"
+        mismatches = []
+        decode_failures = []
+        for idx in range(frame_count):
+            ok, frame = cap_out.read()
+            if not ok:
+                mismatches.append((idx, "missing_frame"))
+                break
+            shown_id, valid = _decode_frame_id_overlay(
+                frame, draw_x, draw_y, bits=bits, cell_w=cell_w, cell_h=cell_h
+            )
+            if not valid:
+                decode_failures.append((idx, shown_id))
+                if len(decode_failures) >= 20:
+                    break
+                continue
+            expected_global = frame_start + expected_local_shown[idx]
+            if int(shown_id) != int(expected_global):
+                mismatches.append((idx, int(shown_id), int(expected_global)))
+                if len(mismatches) >= 20:
+                    break
+        cap_out.release()
+
+        assert not decode_failures, (
+            "Failed to decode frame-id overlay in QTGMC filtered long clip: "
+            + repr(decode_failures[:20])
+        )
+        assert not mismatches, (
+            "QTGMC+FreezeFrame long-range drift/mapping mismatch: "
+            + repr(mismatches[:20])
+        )
+        print("Test step_6_make_videos QTGMC + FreezeFrame long-range drift safety: PASSED.")
+
+        if not keep_outputs:
+            shutil.rmtree(work_dir, ignore_errors=True)
+    finally:
+        del sys.modules['step_6_make_videos']
+        sys.modules.pop("whisper", None)
+        sys.modules.pop("whisper.utils", None)
+
 def test_step_drive_checksums():
     print("Testing step_7_generate_drive_checksum.py...")
     import step_7_generate_drive_checksum
@@ -987,6 +1228,10 @@ def test_vhs_tuner_manual_click_persists_bad_frames():
                 last_click_event={"fid": -1, "ts": -1},
             )
             assert overrides.get(1000) == "bad", dbg
+            chapters = vhs_tuner.parse_ffmetadata_chapters(cf)
+            ch = vhs_tuner._find_chapter(chapters, "Unit Chapter")
+            assert ch is not None
+            assert ch.get("bad_frames", []) == []
 
             _p, _n = vhs_tuner._persist_visible_bad_frames(
                 archive="unit_archive",
@@ -1092,6 +1337,128 @@ def test_vhs_tuner_click_dedupe_prevents_double_toggle():
     print("Test vhs_tuner click dedupe for duplicate events: PASSED.")
 
 
+def test_vhs_tuner_manual_click_modes_bad_and_good():
+    print("Testing vhs_tuner manual click mark modes (bad/good/clear)...")
+    import tempfile
+    import time
+    import vhs_tuner
+
+    fids = [1000]
+    sigs = {
+        "chroma": np.array([0.0], dtype=np.float64),
+        "noise": np.array([0.0], dtype=np.float64),
+        "tear": np.array([0.0], dtype=np.float64),
+        "wave": np.array([0.0], dtype=np.float64),
+    }
+
+    old_meta = vhs_tuner.METADATA_DIR
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        vhs_tuner.METADATA_DIR = root
+        try:
+            cf = _write_unit_chapters_ffmetadata(root, bad_csv="")
+            ov_bad, last_bad, dbg_bad = vhs_tuner.apply_manual_click_override(
+                raw_click="1000:1000",
+                fids=fids,
+                sigs=sigs,
+                overrides={},
+                archive="unit_archive",
+                chapter_title="Unit Chapter",
+                ch_start=1000,
+                ch_end=1100,
+                wc=1.0, wn=0.0, wt=0.0, ww=0.0,
+                tm="value", ik=3.5, tv=1.0, bp=10.0,
+                mark_mode="bad",
+                last_click_event={"fid": -1, "ts": -1},
+            )
+            assert ov_bad.get(1000) == "bad", dbg_bad
+            _p, _n = vhs_tuner._persist_visible_bad_frames(
+                archive="unit_archive",
+                chapter_title="Unit Chapter",
+                ch_start=1000,
+                ch_end=1100,
+                fids=fids,
+                sigs=sigs,
+                overrides=ov_bad,
+                wc=1.0, wn=0.0, wt=0.0, ww=0.0,
+                tm="value", ik=3.5, tv=1.0, bp=10.0,
+            )
+            ch = vhs_tuner._find_chapter(vhs_tuner.parse_ffmetadata_chapters(cf), "Unit Chapter")
+            assert ch is not None
+            assert ch.get("bad_frames", []) == [1000]
+            text = cf.read_text(encoding="utf-8")
+            assert "BAD_FRAME_OVERRIDE=" not in text
+            assert "GOOD_FRAME_OVERRIDE=" not in text
+
+            time.sleep(0.30)
+            ov_good, last_good, dbg_good = vhs_tuner.apply_manual_click_override(
+                raw_click="1000:1300",
+                fids=fids,
+                sigs=sigs,
+                overrides=ov_bad,
+                archive="unit_archive",
+                chapter_title="Unit Chapter",
+                ch_start=1000,
+                ch_end=1100,
+                wc=1.0, wn=0.0, wt=0.0, ww=0.0,
+                tm="value", ik=3.5, tv=1.0, bp=10.0,
+                mark_mode="good",
+                last_click_event=last_bad,
+            )
+            assert ov_good.get(1000) == "good", dbg_good
+            _p, _n = vhs_tuner._persist_visible_bad_frames(
+                archive="unit_archive",
+                chapter_title="Unit Chapter",
+                ch_start=1000,
+                ch_end=1100,
+                fids=fids,
+                sigs=sigs,
+                overrides=ov_good,
+                wc=1.0, wn=0.0, wt=0.0, ww=0.0,
+                tm="value", ik=3.5, tv=1.0, bp=10.0,
+            )
+            ch = vhs_tuner._find_chapter(vhs_tuner.parse_ffmetadata_chapters(cf), "Unit Chapter")
+            assert ch is not None
+            assert ch.get("bad_frames", []) == []
+            text = cf.read_text(encoding="utf-8")
+            assert "BAD_FRAME_OVERRIDE=" not in text
+            assert "GOOD_FRAME_OVERRIDE=" not in text
+
+            time.sleep(0.30)
+            ov_clear, _last_clear, dbg_clear = vhs_tuner.apply_manual_click_override(
+                raw_click="1000:1600",
+                fids=fids,
+                sigs=sigs,
+                overrides=ov_good,
+                archive="unit_archive",
+                chapter_title="Unit Chapter",
+                ch_start=1000,
+                ch_end=1100,
+                wc=1.0, wn=0.0, wt=0.0, ww=0.0,
+                tm="value", ik=3.5, tv=1.0, bp=10.0,
+                mark_mode="clear",
+                last_click_event=last_good,
+            )
+            assert 1000 not in ov_clear, dbg_clear
+            _p, _n = vhs_tuner._persist_visible_bad_frames(
+                archive="unit_archive",
+                chapter_title="Unit Chapter",
+                ch_start=1000,
+                ch_end=1100,
+                fids=fids,
+                sigs=sigs,
+                overrides=ov_clear,
+                wc=1.0, wn=0.0, wt=0.0, ww=0.0,
+                tm="value", ik=3.5, tv=1.0, bp=10.0,
+            )
+            text = cf.read_text(encoding="utf-8")
+            assert "BAD_FRAME_OVERRIDE=" not in text
+            assert "GOOD_FRAME_OVERRIDE=" not in text
+        finally:
+            vhs_tuner.METADATA_DIR = old_meta
+    print("Test vhs_tuner manual click mark modes (bad/good/clear): PASSED.")
+
+
 def test_vhs_tuner_auto_and_manual_persist_to_bad_frames():
     print("Testing vhs_tuner auto + manual persistence to chapters BAD_FRAMES...")
     import tempfile
@@ -1134,6 +1501,91 @@ def test_vhs_tuner_auto_and_manual_persist_to_bad_frames():
             vhs_tuner.METADATA_DIR = old_meta
 
     print("Test vhs_tuner auto + manual persistence to chapters BAD_FRAMES: PASSED.")
+
+
+def test_vhs_tuner_persist_loaded_frame_set_mode():
+    print("Testing vhs_tuner BAD_FRAMES persistence from loaded frame set only...")
+    import tempfile
+    import vhs_tuner
+
+    old_meta = vhs_tuner.METADATA_DIR
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        vhs_tuner.METADATA_DIR = root
+        try:
+            cf = _write_unit_chapters_ffmetadata(root, bad_csv="")
+
+            path, count, analyzed, err = vhs_tuner.persist_bad_frames_for_chapter(
+                archive="unit_archive",
+                chapter_title="Unit Chapter",
+                ch_start=1000,
+                ch_end=1100,
+                fids=[1000, 1001],
+                sigs={
+                    "chroma": np.array([0.0, 10.0], dtype=np.float64),
+                    "noise": np.array([0.0, 0.0], dtype=np.float64),
+                    "tear": np.array([0.0, 0.0], dtype=np.float64),
+                    "wave": np.array([0.0, 0.0], dtype=np.float64),
+                },
+                overrides={1000: "bad"},
+                wc=1.0,
+                wn=0.0,
+                wt=0.0,
+                ww=0.0,
+                tm="value",
+                ik=3.5,
+                tv=0.0,
+                bp=10.0,
+                progress=None,
+            )
+            assert not err, err
+            assert path == cf
+            assert analyzed == 2
+            assert count == 2
+
+            chapters = vhs_tuner.parse_ffmetadata_chapters(cf)
+            ch = vhs_tuner._find_chapter(chapters, "Unit Chapter")
+            assert ch is not None
+            assert ch.get("bad_frames", []) == [1000, 1001]
+        finally:
+            vhs_tuner.METADATA_DIR = old_meta
+
+    print("Test vhs_tuner BAD_FRAMES persistence from loaded frame set only: PASSED.")
+
+
+def test_vhs_tuner_chapter_bad_overrides_half_open_range():
+    print("Testing vhs_tuner ignores persisted override metadata lines...")
+    import tempfile
+    import vhs_tuner
+
+    old_meta = vhs_tuner.METADATA_DIR
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        vhs_tuner.METADATA_DIR = root
+        try:
+            cf = root / "unit_archive" / "chapters.ffmetadata"
+            cf.parent.mkdir(parents=True, exist_ok=True)
+            cf.write_text(
+                ";FFMETADATA1\n"
+                "[CHAPTER]\n"
+                "TIMEBASE=1001/30000\n"
+                "START=1000\n"
+                "END=1100\n"
+                "TITLE=Unit Chapter\n"
+                "BAD_FRAME_OVERRIDE=1099,1100\n",
+                encoding="utf-8",
+            )
+            out = vhs_tuner._chapter_bad_overrides(
+                archive="unit_archive",
+                chapter_title="Unit Chapter",
+                ch_start=1000,
+                ch_end=1100,
+            )
+            assert out == {}
+        finally:
+            vhs_tuner.METADATA_DIR = old_meta
+
+    print("Test vhs_tuner ignores persisted override metadata lines: PASSED.")
 
 
 def test_update_chapter_bad_frames_preserves_untouched_chapters():
@@ -1200,16 +1652,20 @@ def test_vhs_tuner_ui_defaults_and_controls():
     src = (ROOT / "vhs_tuner.py").read_text(encoding="utf-8", errors="ignore")
 
     assert 'n_sl = gr.Slider(20, 10000, value=400, step=10, label="n")' in src
+    assert 'context_sl = gr.Slider(0, 200, value=10, step=1, label="Frames Around Bad")' in src
     assert 'strict_sampling_cb = gr.Checkbox(label="Strict Sampling", value=True)' in src
-    assert "video = mkv if mkv.exists() else proxy if proxy.exists() else None" in src
+    assert 'with gr.Tab("Frames", id="frames-tab"):' in src
+    assert 'apply_btn = gr.Button("Apply", variant="primary")' in src
+    assert "apply_btn.click(on_save_bad_frames, _SAVE_INS, [status_md])" in src
+    assert 'choices=["toggle", "bad", "good", "clear"]' in src
     assert "if not bool(strict_sampling):" in src
     assert 'with gr.Accordion("Range & Sample", open=False):' in src
+    assert 'with gr.Accordion("Manual Marking", open=False):' in src
     assert 'with gr.Accordion("Signal Weights", open=False):' in src
     assert 'with gr.Accordion("Threshold", open=False):' in src
     assert 'with gr.Accordion("Grid", open=False):' in src
 
     assert "Apply & Regenerate" not in src
-    assert "apply_btn.click(" not in src
     assert "fstep_sl  =" not in src
 
     print("Test vhs_tuner UI defaults and control layout: PASSED.")
@@ -1226,13 +1682,17 @@ def main():
     test_step_6_real_badframes_do_not_pick_bad_sources()
     test_step_6_frame_quality_ingest_exact_archive01()
     test_step_6_proxy_badframes_overlay_e2e()
+    test_step_6_qtgmc_freezeframe_long_e2e()
     test_step_drive_checksums()
     test_sha3_generate_and_verify()
     test_blake3_verify_only()
     test_vhs_tuner_toggle_override_cycle()
     test_vhs_tuner_manual_click_persists_bad_frames()
     test_vhs_tuner_click_dedupe_prevents_double_toggle()
+    test_vhs_tuner_manual_click_modes_bad_and_good()
     test_vhs_tuner_auto_and_manual_persist_to_bad_frames()
+    test_vhs_tuner_persist_loaded_frame_set_mode()
+    test_vhs_tuner_chapter_bad_overrides_half_open_range()
     test_update_chapter_bad_frames_preserves_untouched_chapters()
     test_update_chapter_bad_frames_omits_empty_line()
     test_vhs_tuner_ui_defaults_and_controls()

@@ -35,7 +35,7 @@ def main():
 
     output_file = input_file.with_name(f"{input_file.stem}_trunc{input_file.suffix}")
 
-    print(f"Trimming {input_file.name} → {output_file.name} (duration: {duration})")
+    print(f"Trimming {input_file.name} -> {output_file.name} (duration: {duration})")
 
     import subprocess
     subprocess.run([

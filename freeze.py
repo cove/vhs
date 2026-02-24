@@ -49,7 +49,7 @@ def freeze_packages():
 
         # For each OS target
         for platform, pyver, abi in TARGETS:
-            print(f"  Trying wheel for {platform}…")
+            print(f"  Trying wheel for {platform}...")
 
             cmd = [
                 sys.executable, "-m", "pip", "download",
@@ -63,10 +63,10 @@ def freeze_packages():
             ]
 
             if run(cmd):
-                print(f"  ✓ wheel downloaded for {platform}")
+                print(f"  [ok] wheel downloaded for {platform}")
                 continue
 
-            print(f"  ✗ no wheel for {platform}, falling back to source…")
+            print(f"  [x] no wheel for {platform}, falling back to source...")
 
         # Download source distribution (universal)
         src_cmd = [
@@ -76,9 +76,9 @@ def freeze_packages():
         ]
 
         if run(src_cmd):
-            print("  ✓ source downloaded")
+            print("  [ok] source downloaded")
         else:
-            print("  ✗ could not download ANY distribution for", name_only)
+            print("  [x] could not download ANY distribution for", name_only)
 
     print("\nAll packages archived.")
 

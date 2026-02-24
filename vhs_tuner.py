@@ -1,13 +1,13 @@
 #!/usr/bin/env python3.11
 """
-VHS Bad Frame Tuner — Gradio edition
+VHS Bad Frame Tuner - Gradio edition
 =====================================
 Run:  python vhs_tuner.py
 
 Requires:  pip install gradio opencv-python-headless numpy pillow pandas
 
 Metadata layout (all under metadata/<archive>/)
-────────────────────────────────────────────────
+------------------------------------------------
   chapters.ffmetadata           per-chapter BAD_FRAMES=<csv global frame ids>
 
 step_6_make_videos.py reads chapter BAD_FRAMES lists directly from chapters.ffmetadata.
@@ -29,7 +29,7 @@ import gradio as gr
 import numpy as np
 from PIL import Image, ImageOps
 
-# ── Project paths ─────────────────────────────────────────────────────────────
+# -- Project paths -------------------------------------------------------------
 _HERE        = Path(__file__).resolve().parent
 PROJECT_ROOT = _HERE.parent if _HERE.name == "scripts" else _HERE
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -48,56 +48,49 @@ except ImportError:
     run_tracking_loss_classification = None  # type: ignore
     _HAS_TRACKING = False
 
-from common import parse_bad_frames_csv, update_chapter_bad_frames_in_ffmetadata
+from common import (
+    parse_bad_frames_csv,
+    parse_chapters,
+    update_chapter_bad_frames_in_ffmetadata,
+)
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # Chapter / metadata helpers
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 def parse_ffmetadata_chapters(path: Path) -> list[dict]:
-    chapters, current = [], {}
-    default_tb = 1.0 / 1_000_000_000
-    for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = raw.strip()
-        if line == "[CHAPTER]":
-            if "start_raw" in current:
-                chapters.append(current)
-            current = {"_tb": default_tb}
-            continue
-        if "=" not in line or line.startswith(";"):
-            continue
-        key, _, val = line.partition("=")
-        key, val = key.strip().upper(), val.strip()
-        if key == "TIMEBASE":
-            try:
-                n, d = val.split("/"); current["_tb"] = float(n) / float(d)
-            except Exception:
-                pass
-        elif key == "START":
-            try: current["start_raw"] = int(val)
-            except Exception: pass
-        elif key == "END":
-            try: current["end_raw"] = int(val)
-            except Exception: pass
-        elif key == "TITLE":
-            current["title"] = val
-        elif key == "BAD_FRAMES":
-            current["bad_frames"] = parse_bad_frames_csv(val)
-    if "start_raw" in current:
-        chapters.append(current)
+    # Keep chapter frame mapping identical to step_6_make_videos/common.py.
+    _ffm, chapters = parse_chapters(Path(path))
     result = []
     for ch in chapters:
-        tb    = ch.get("_tb", default_tb)
-        s_sec = ch.get("start_raw", 0) * tb
-        e_sec = ch.get("end_raw",   0) * tb
-        result.append({
-            "title":       ch.get("title", "Untitled"),
-            "start_sec":   s_sec,  "end_sec":   e_sec,
-            "start_frame": int(round(s_sec * FPS)),
-            "end_frame":   int(round(e_sec * FPS)),
-            "bad_frames":  list(ch.get("bad_frames", [])),
-        })
+        start_sec = float(ch.get("start", 0.0))
+        end_sec = float(ch.get("end", 0.0))
+        start_frame = int(round(start_sec * FPS))
+        end_frame = int(round(end_sec * FPS))
+        if end_frame < start_frame:
+            end_frame = start_frame
+        result.append(
+            {
+                "title": str(ch.get("title", "Untitled")),
+                "start_sec": start_sec,
+                "end_sec": end_sec,
+                "start_frame": start_frame,
+                "end_frame": end_frame,
+                "bad_frames": parse_bad_frames_csv(ch.get("bad_frames", "")),
+            }
+        )
     return result
+
+
+def _normalize_frame_span(ch_start: int, ch_end: int) -> tuple[int, int]:
+    # Half-open chapter range: [start, end)
+    start = int(ch_start)
+    end = int(ch_end)
+    if end < start:
+        start, end = end, start
+    if end == start:
+        end = start + 1
+    return start, end
 
 def slugify(title: str) -> str:
     return re.sub(r"[^\w]+", "_", str(title).strip()).strip("_").lower()
@@ -111,40 +104,8 @@ def _chapter_bad_overrides(
     ch_start: int,
     ch_end: int,
 ) -> dict[int, str]:
-    out: dict[int, str] = {}
-    cf = _chapters_file_path(archive)
-    if not cf.exists():
-        return out
-    chapters = parse_ffmetadata_chapters(cf)
-    ch = _find_chapter(chapters, chapter_title)
-    if not ch:
-        return out
-    start = int(ch_start)
-    end = int(ch_end)
-    for fid in [int(x) for x in ch.get("bad_frames", [])]:
-        if start <= int(fid) <= end:
-            out[int(fid)] = "bad"
-    return out
-
-def _write_chapter_bad_overrides(
-    archive: str,
-    chapter_title: str,
-    ch_start: int,
-    ch_end: int,
-    overrides: dict[int, str],
-) -> Path:
-    cf = _chapters_file_path(archive)
-    start = int(ch_start)
-    end = int(ch_end)
-    global_bad = sorted(
-        {
-            int(fid)
-            for fid, label in (overrides or {}).items()
-            if str(label) == "bad" and start <= int(fid) <= end
-        }
-    )
-    update_chapter_bad_frames_in_ffmetadata(cf, {str(chapter_title): global_bad})
-    return cf
+    # Manual overrides are session-only; chapter metadata stores only BAD_FRAMES.
+    return {}
 
 
 def _persist_visible_bad_frames(
@@ -175,12 +136,11 @@ def _persist_visible_bad_frames(
     if not ch:
         return None, 0
 
-    start = int(ch_start)
-    end = int(ch_end)
+    start, end = _normalize_frame_span(ch_start, ch_end)
     existing_global_bad = {
         int(x)
         for x in ch.get("bad_frames", [])
-        if start <= int(x) <= end
+        if start <= int(x) < end
     }
 
     scores = combined_score(sigs, wc, wn, wt, ww)
@@ -188,7 +148,7 @@ def _persist_visible_bad_frames(
 
     for fid, sc in zip(fids, scores):
         fid_i = int(fid)
-        if not (start <= fid_i <= end):
+        if not (start <= fid_i < end):
             continue
         ov = overrides.get(fid_i)
         if ov == "bad":
@@ -205,6 +165,53 @@ def _persist_visible_bad_frames(
     out_global = sorted(existing_global_bad)
     update_chapter_bad_frames_in_ffmetadata(cf, {str(chapter_title): out_global})
     return cf, len(out_global)
+
+
+def persist_bad_frames_for_chapter(
+    *,
+    archive: str,
+    chapter_title: str,
+    ch_start: int,
+    ch_end: int,
+    fids: list[int],
+    sigs: dict[str, np.ndarray],
+    overrides: dict[int, str],
+    wc: float,
+    wn: float,
+    wt: float,
+    ww: float,
+    tm: str,
+    ik: float,
+    tv: float,
+    bp: float,
+    progress=None,
+) -> tuple[Path | None, int, int, str]:
+    _ = progress
+    start, end = _normalize_frame_span(ch_start, ch_end)
+    sampled_fids = [int(x) for x in (fids or [])]
+    sampled_sigs = sigs or {}
+    analyzed = len(sampled_fids)
+    if analyzed == 0 or not sampled_sigs:
+        return None, 0, analyzed, "No sampled frames loaded."
+
+    path, count = _persist_visible_bad_frames(
+        archive=str(archive or ""),
+        chapter_title=str(chapter_title or ""),
+        ch_start=start,
+        ch_end=end,
+        fids=sampled_fids,
+        sigs=sampled_sigs,
+        overrides=overrides or {},
+        wc=wc,
+        wn=wn,
+        wt=wt,
+        ww=ww,
+        tm=tm,
+        ik=ik,
+        tv=tv,
+        bp=bp,
+    )
+    return path, int(count), analyzed, ""
 
 def load_cached_signals(archive: str, ch_title: str) -> tuple[list[int] | None, dict | None]:
     return None, None
@@ -253,15 +260,19 @@ def extract_frames(
     start: int, end: int, n: int,
     archive: str, ch_title: str,
     frame_ids: list[int] | None = None,
+    include_thumbs: bool = True,
     progress=None,
 ) -> tuple[list[int] | None, list[str] | None, dict | None, str]:
+    start_i, end_i = _normalize_frame_span(start, end)
     if frame_ids is None:
-        frame_ids = np.linspace(int(start), int(end), int(n), dtype=int).tolist()
+        target_n = max(1, min(int(n), max(1, end_i - start_i)))
+        frame_ids = np.linspace(start_i, end_i - 1, target_n, dtype=int).tolist()
     else:
-        frame_ids = [int(x) for x in frame_ids if int(start) <= int(x) <= int(end)]
+        frame_ids = [int(x) for x in frame_ids if start_i <= int(x) < end_i]
         frame_ids = sorted(set(frame_ids))
         if not frame_ids:
-            frame_ids = np.linspace(int(start), int(end), int(n), dtype=int).tolist()
+            target_n = max(1, min(int(n), max(1, end_i - start_i)))
+            frame_ids = np.linspace(start_i, end_i - 1, target_n, dtype=int).tolist()
     frame_set             = set(frame_ids)
 
     cached_fids, cached_sigs = load_cached_signals(archive, ch_title)
@@ -279,12 +290,13 @@ def extract_frames(
 
     for idx, fid in enumerate(frame_ids):
         if progress is not None:
-            progress(idx / len(frame_ids), desc=f"Frame {fid}…")
+            progress(idx / len(frame_ids), desc=f"Frame {fid}...")
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(fid))
         ok, bgr = cap.read()
         if not ok or bgr is None:
             bgr = np.zeros((240, 320, 3), dtype=np.uint8)
-        frames_b64.append(_bgr_to_jpeg_b64(bgr))
+        if include_thumbs:
+            frames_b64.append(_bgr_to_jpeg_b64(bgr))
 
         if fid in cached_lookup:
             c = cached_lookup[fid]
@@ -320,9 +332,9 @@ def extract_frames(
 
     return frame_ids, frames_b64, sigs, ""
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # Scoring / thresholding
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 def _robust_z(v: np.ndarray) -> np.ndarray:
     v   = np.asarray(v, dtype=np.float64)
@@ -388,6 +400,47 @@ def toggle_frame_override(
         del out[int(fid)]
     return out
 
+def set_frame_override_mode(
+    fid: int,
+    fids: list[int],
+    sigs: dict[str, np.ndarray],
+    overrides: dict[int, str],
+    wc: float,
+    wn: float,
+    wt: float,
+    ww: float,
+    tm: str,
+    ik: float,
+    tv: float,
+    bp: float,
+    mode: str = "toggle",
+) -> dict[int, str]:
+    out = dict(overrides or {})
+    mode_n = str(mode or "toggle").strip().lower()
+    if mode_n == "bad":
+        out[int(fid)] = "bad"
+        return out
+    if mode_n == "good":
+        out[int(fid)] = "good"
+        return out
+    if mode_n in {"clear", "auto"}:
+        out.pop(int(fid), None)
+        return out
+    return toggle_frame_override(
+        fid=fid,
+        fids=fids,
+        sigs=sigs,
+        overrides=out,
+        wc=wc,
+        wn=wn,
+        wt=wt,
+        ww=ww,
+        tm=tm,
+        ik=ik,
+        tv=tv,
+        bp=bp,
+    )
+
 
 def _parse_click_payload(raw_click: str) -> tuple[int, int]:
     text = str(raw_click or "").strip()
@@ -438,6 +491,7 @@ def apply_manual_click_override(
     ik: float,
     tv: float,
     bp: float,
+    mark_mode: str = "toggle",
     last_click_event: dict | None = None,
 ) -> tuple[dict[int, str], dict[str, int], str]:
     current = dict(overrides or {})
@@ -455,7 +509,7 @@ def apply_manual_click_override(
         )
 
     before = current.get(fid)
-    new_ov = toggle_frame_override(
+    new_ov = set_frame_override_mode(
         fid=fid,
         fids=fids,
         sigs=sigs,
@@ -468,33 +522,13 @@ def apply_manual_click_override(
         ik=ik,
         tv=tv,
         bp=bp,
+        mode=mark_mode,
     )
 
     after = new_ov.get(fid)
-    p, n = _persist_visible_bad_frames(
-        archive=str(archive or ""),
-        chapter_title=str(chapter_title or ""),
-        ch_start=int(ch_start),
-        ch_end=int(ch_end),
-        fids=[int(x) for x in (fids or [])],
-        sigs=sigs or {},
-        overrides=new_ov,
-        wc=wc,
-        wn=wn,
-        wt=wt,
-        ww=ww,
-        tm=tm,
-        ik=ik,
-        tv=tv,
-        bp=bp,
-    )
-    persisted = p is not None
-    persisted_count = int(n)
-    persisted_path = str(p) if p is not None else ""
-
     srv_dbg = (
-        f"payload={raw_click} fid={fid} ts={ts} before={before} after={after} "
-        f"persisted={persisted} count={persisted_count} path={persisted_path}"
+        f"payload={raw_click} fid={fid} ts={ts} mode={mark_mode} before={before} after={after} "
+        "persisted=False (explicit save required)"
     )
     print(f"[vhs_tuner] {srv_dbg}")
     return new_ov, {"fid": int(fid), "ts": int(ts)}, srv_dbg
@@ -515,8 +549,7 @@ def select_focus_frame_ids(
     detected bad frames while keeping total count <= max_frames.
     """
     budget = max(1, int(max_frames))
-    s = int(start)
-    e = int(end)
+    s, e = _normalize_frame_span(start, end)
     radius = max(1, int(burst_radius))
 
     bad_candidates: list[tuple[int, float]] = []
@@ -529,7 +562,7 @@ def select_focus_frame_ids(
     # Add full contiguous neighborhoods (no sampling in chosen windows).
     for fid, _sc in bad_candidates:
         lo = max(s, fid - radius)
-        hi = min(e, fid + radius)
+        hi = min(e - 1, fid + radius)
         needed = [f for f in range(lo, hi + 1) if f not in selected]
         if len(selected) + len(needed) > budget:
             continue
@@ -540,7 +573,7 @@ def select_focus_frame_ids(
     # Fill remaining budget with uniform samples across the full range.
     if len(selected) < budget:
         fill_n = budget - len(selected)
-        baseline = np.linspace(s, e, fill_n, dtype=int).tolist()
+        baseline = np.linspace(s, e - 1, fill_n, dtype=int).tolist()
         for f in baseline:
             selected.add(int(f))
             if len(selected) >= budget:
@@ -552,9 +585,9 @@ def select_focus_frame_ids(
         ordered = ordered[:budget]
     return ordered
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# SVG Sparklines  — timeline charts with horizontal red cut line
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
+# SVG Sparklines  - timeline charts with horizontal red cut line
+# ===============================================================================
 
 def _sparkline_svg(
     values: np.ndarray,
@@ -570,7 +603,7 @@ def _sparkline_svg(
     """
     v = np.asarray(values, dtype=np.float64)
     v = v[np.isfinite(v)]
-    SVG_W = 200  # viewBox width — browser scales to container
+    SVG_W = 200  # viewBox width - browser scales to container
 
     if v.size == 0:
         return (
@@ -680,9 +713,9 @@ def build_sparklines_html(
 
     return sc_chroma, sc_noise, sc_tear, sc_wave, sc_score
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # Frame grid HTML
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 # NOTE: _GRID_JS is intentionally empty - the actual JS lives in a static
 # gr.HTML component that is never included in event outputs, so it survives
@@ -707,10 +740,12 @@ def build_grid_html(
         local_fid = int(fid) - int(chapter_start_frame)
         ov    = overrides.get(int(fid))
         auto_bad = bool(float(sc) >= float(threshold))
-        bad = (ov == "bad") or auto_bad
+        bad = (ov == "bad") or (ov != "good" and auto_bad)
         color = "#e03030" if bad else "#30c870"
         if ov == "bad":
-            badge = " LISTED_BAD"
+            badge = " MANUAL_BAD"
+        elif ov == "good":
+            badge = " MANUAL_GOOD"
         else:
             badge = " AUTO_BAD" if auto_bad else " AUTO_GOOD"
         label = f"#{local_fid} {sc:.2f}{badge}"
@@ -762,9 +797,11 @@ def build_gallery_items(
             img = Image.new("RGB", (160, 90), (20, 20, 20))
         ov = overrides.get(int(fid))
         auto_bad = bool(float(sc) >= float(threshold))
-        is_bad = (ov == "bad") or auto_bad
+        is_bad = (ov == "bad") or (ov != "good" and auto_bad)
         if ov == "bad":
-            state_short = "LB"   # listed bad in chapter metadata
+            state_short = "MB"   # manual bad override
+        elif ov == "good":
+            state_short = "MG"   # manual good override
         else:
             state_short = "AB" if auto_bad else "AG"
         color = "#e03030" if is_bad else "#30c870"
@@ -774,9 +811,9 @@ def build_gallery_items(
         items.append((styled, f"#{int(fid)}  s={sc:.2f}  {state_short}"))
     return items
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # Preview video: ffmpeg burn-in  G/L/S  (global frame, local frame, score)
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 def _write_score_ass(path: Path, fids: list[int], scores: np.ndarray,
                      chapter_start_frame: int, fps: float,
@@ -860,9 +897,9 @@ def make_preview_video(input_path: str | Path, output_path: str | Path,
     except Exception: pass
     return output_path
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # Apply: run tracking_loss and write BAD_FRAMES into chapters.ffmetadata
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 def apply_and_regenerate(
     archive: str, ch_title: str,
@@ -913,9 +950,9 @@ def apply_and_regenerate(
     logs.append("step_6_make_videos will read BAD_FRAMES from chapters.ffmetadata")
     return "\n".join(logs)
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 # Gradio layout
-# ═══════════════════════════════════════════════════════════════════════════════
+# ===============================================================================
 
 _DARK_CSS = """
 html, body {
@@ -1199,6 +1236,12 @@ def _get_archives() -> list[str]:
         return []
     return sorted(p.stem for p in ARCHIVE_DIR.glob("*.mkv"))
 
+
+def _resolve_archive_video(archive: str) -> Path | None:
+    proxy = ARCHIVE_DIR / f"{archive}_proxy.mp4"
+    mkv = ARCHIVE_DIR / f"{archive}.mkv"
+    return mkv if mkv.exists() else proxy if proxy.exists() else None
+
 CHAPTER_SELECT_LABEL = "-- select chapter --"
 CHAPTER_MISSING_LABEL = "-- no chapters file found --"
 
@@ -1218,18 +1261,19 @@ _E_SIG   = _sparkline_svg(np.array([]), None,  "", height=24)
 _E_SCORE = _sparkline_svg(np.array([]), None,  "", height=32)
 
 with gr.Blocks(
-    title="📼  VHS Frame Tuner",
+    title="  VHS Frame Tuner",
 ) as demo:
 
-    # ── Persistent state ──────────────────────────────────────────────────────
+    # -- Persistent state ------------------------------------------------------
     st_fids      = gr.State([])
     st_b64       = gr.State([])
     st_sigs      = gr.State({})
     st_overrides = gr.State({})
+    st_visible_fids = gr.State([])
     st_last_click = gr.State({"fid": -1, "ts": -1})
     st_chapters  = gr.State([])
 
-    # ── Archive + Chapter ─────────────────────────────────────────────────────
+    # -- Archive + Chapter -----------------------------------------------------
     with gr.Row() as load_row:
         _archives  = _get_archives()
         archive_dd = gr.Dropdown(
@@ -1240,19 +1284,21 @@ with gr.Blocks(
             choices=[CHAPTER_SELECT_LABEL], value=CHAPTER_SELECT_LABEL,
             label="Chapter", scale=3, interactive=True,
         )
-        load_btn = gr.Button("🔄  Load Chapter", variant="primary", scale=1)
+        load_btn = gr.Button("  Load Chapter", variant="primary", scale=1)
 
     with gr.Row() as load_status_row:
         status_md = gr.Markdown("`Select archive/chapter and load.`")
         show_loader_btn = gr.Button("Loader", variant="secondary", visible=False, elem_id="vhs-loader-toggle")
 
-    # ── Main panel ────────────────────────────────────────────────────────────
+    # -- Main panel ------------------------------------------------------------
     with gr.Column(visible=False, elem_id="vhs-main-panel") as main_panel:
 
         with gr.Tabs(elem_id="vhs-main-tabs", selected="frames-tab"):
             with gr.Tab("Frames", id="frames-tab"):
                 with gr.Column(scale=4, elem_id="vhs-right-col"):
                     stats_md  = gr.Markdown("", elem_id="vhs-stats")
+                    with gr.Row():
+                        apply_btn = gr.Button("Apply", variant="primary")
                     grid_gallery = gr.Gallery(
                         value=[],
                         label="Frames (click a tile to toggle good/bad)",
@@ -1279,12 +1325,20 @@ with gr.Blocks(
                     with gr.Accordion("Range & Sample", open=False):
                         with gr.Row():
                             start_n = gr.Number(label="Start", value=0, precision=0, elem_id="vhs-start-frame")
-                            end_n   = gr.Number(label="End", value=10000, precision=0)
+                            end_n   = gr.Number(label="End (exclusive)", value=10000, precision=0)
                             n_sl = gr.Slider(20, 10000, value=400, step=10, label="n")
+                            context_sl = gr.Slider(0, 200, value=10, step=1, label="Frames Around Bad")
                         with gr.Row():
                             strict_sampling_cb = gr.Checkbox(label="Strict Sampling", value=True)
                             apply_range_btn = gr.Button("Apply Range", variant="secondary")
                             reload_btn = gr.Button("Reload", variant="secondary")
+                    with gr.Accordion("Manual Marking", open=False):
+                        mark_mode_dd = gr.Dropdown(
+                            choices=["toggle", "bad", "good", "clear"],
+                            value="toggle",
+                            label="Click Action",
+                            interactive=True,
+                        )
 
                     with gr.Accordion("Signal Weights", open=False):
                         wc_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="chroma")
@@ -1321,40 +1375,80 @@ with gr.Blocks(
         )
 
     # =========================================================================
-    # Rebuild helper — grid + stats + 5 sparklines
+    # Rebuild helper - grid + stats + 5 sparklines
     # =========================================================================
 
+    def _frame_is_bad(fid, score, threshold, overrides):
+        ov = (overrides or {}).get(int(fid))
+        if ov == "bad":
+            return True
+        if ov == "good":
+            return False
+        return bool(float(score) >= float(threshold))
+
+    def _select_visible_indices(fids, bad_fids, context):
+        if not fids or not bad_fids:
+            return []
+        ctx = max(0, int(context))
+        if ctx <= 0:
+            bad_set = {int(f) for f in bad_fids}
+            return [i for i, fid in enumerate(fids) if int(fid) in bad_set]
+        spans = sorted((int(fid) - ctx, int(fid) + ctx) for fid in bad_fids)
+        merged = []
+        for lo, hi in spans:
+            if not merged or lo > merged[-1][1] + 1:
+                merged.append([lo, hi])
+            else:
+                merged[-1][1] = max(merged[-1][1], hi)
+        vis = []
+        j = 0
+        for i, fid in enumerate(fids):
+            x = int(fid)
+            while j < len(merged) and x > merged[j][1]:
+                j += 1
+            if j >= len(merged):
+                break
+            if merged[j][0] <= x <= merged[j][1]:
+                vis.append(i)
+        return vis
+
     def _rebuild(fids, b64, sigs, overrides, wc, wn, wt, ww,
-                 t_mode, iqr_k, tval, bpct, cols, twidth, ch_start):
+                 t_mode, iqr_k, tval, bpct, cols, twidth, context, ch_start):
         if not fids or not b64:
             return (gr.update(value=[]), "*(no frames loaded)*",
-                    _E_SIG, _E_SIG, _E_SIG, _E_SIG, _E_SCORE)
-        sc   = combined_score(sigs, wc, wn, wt, ww)
-        thr  = compute_threshold(sc, t_mode, iqr_k, tval, bpct)
+                    _E_SIG, _E_SIG, _E_SIG, _E_SIG, _E_SCORE, [])
+        sc = combined_score(sigs, wc, wn, wt, ww)
+        thr = compute_threshold(sc, t_mode, iqr_k, tval, bpct)
+        bad_fids = [
+            int(fid)
+            for fid, s in zip(fids, sc)
+            if _frame_is_bad(fid, s, thr, overrides)
+        ]
+        vis_idx = _select_visible_indices(fids, bad_fids, context)
+        vis_fids = [int(fids[i]) for i in vis_idx]
+        vis_b64 = [b64[i] for i in vis_idx]
+        vis_sc = np.array([sc[i] for i in vis_idx], dtype=np.float64)
         gallery_items = build_gallery_items(
-            b64, fids, sc, overrides, thr, chapter_start_frame=int(ch_start)
+            vis_b64, vis_fids, vis_sc, overrides, thr, chapter_start_frame=int(ch_start)
         )
         gallery_update = gr.update(value=gallery_items, columns=int(cols))
-        n_bad  = sum(
-            (overrides.get(int(f), "bad" if s >= thr else "good") == "bad")
-            for f, s in zip(fids, sc)
-        )
-        n_ov   = sum(1 for f in fids if int(f) in overrides)
-        stats  = (
-            f"🔴 **Bad:** {n_bad} ({100*n_bad/max(1,len(fids)):.0f}%) | "
-            f"🟢 **Good:** {len(fids)-n_bad} | "
+        n_bad = sum(_frame_is_bad(f, s, thr, overrides) for f, s in zip(fids, sc))
+        n_ov = sum(1 for f in fids if int(f) in (overrides or {}))
+        stats = (
+            f" **Bad:** {n_bad} ({100*n_bad/max(1,len(fids)):.0f}%) | "
+            f" **Good:** {len(fids)-n_bad} | "
             f"**Threshold:** {thr:.3f} | "
-            f"✏ **Overrides:** {n_ov} | n={len(fids)}"
+            f" **Overrides:** {n_ov} | n={len(fids)} | shown={len(vis_fids)}"
         )
         sc_ch, sc_no, sc_te, sc_wa, sc_sc = build_sparklines_html(
             sigs, sc, thr, wc, wn, wt, ww
         )
-        return gallery_update, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc
+        return gallery_update, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, vis_fids
 
     _RB_OUTS = [grid_gallery, stats_md,
-                spark_chroma, spark_noise, spark_tear, spark_wave, spark_score]
+                spark_chroma, spark_noise, spark_tear, spark_wave, spark_score, st_visible_fids]
 
-    # ── Archive change ─────────────────────────────────────────────────────
+    # -- Archive change -----------------------------------------------------
     def on_archive(archive):
         titles   = _get_chapter_titles(archive)
         cf       = METADATA_DIR / archive / "chapters.ffmetadata" if archive else None
@@ -1370,7 +1464,7 @@ with gr.Blocks(
     archive_dd.change(on_archive, [archive_dd], [chapter_dd, st_chapters, chapter_list])
     demo.load(on_archive, [archive_dd], [chapter_dd, st_chapters, chapter_list])
 
-    # ── Chapter change → frame range ───────────────────────────────────────
+    # -- Chapter change -> frame range ---------------------------------------
     def on_chapter(title, chapters):
         ch = _find_chapter(chapters, title)
         if not ch:
@@ -1393,7 +1487,7 @@ with gr.Blocks(
 
     show_loader_btn.click(on_show_loader, outputs=[load_row, load_status_row, show_loader_btn])
 
-    # ── Threshold mode ─────────────────────────────────────────────────────
+    # -- Threshold mode -----------------------------------------------------
     def on_tmode(mode):
         return (gr.update(visible=(mode=="iqr")),
                 gr.update(visible=(mode=="value")),
@@ -1401,19 +1495,17 @@ with gr.Blocks(
 
     t_mode.change(on_tmode, [t_mode], [iqr_sl, tval_sl, bpct_sl])
 
-    # ── Load chapter ───────────────────────────────────────────────────────
+    # -- Load chapter -------------------------------------------------------
     def on_load(archive, ch_title, chapters, start, end, n_samp, strict_sampling,
-                wc, wn, wt, ww, tmode, iqrk, tv, bp, cols, tw,
+                wc, wn, wt, ww, tmode, iqrk, tv, bp, cols, tw, context,
                 progress=gr.Progress()):
-        FAIL = (gr.update(visible=False), "❌  No chapter/video found.",
+        FAIL = (gr.update(visible=False), "ERROR:  No chapter/video found.",
                 [], [], {}, {}, {"fid": -1, "ts": -1}, gr.update(value=[]), "",
-                _E_SIG, _E_SIG, _E_SIG, _E_SIG, _E_SCORE,
+                _E_SIG, _E_SIG, _E_SIG, _E_SIG, _E_SCORE, [],
                 gr.update(visible=True), gr.update(visible=True), gr.update(visible=False))
         if not archive or not ch_title or ch_title in {CHAPTER_SELECT_LABEL, CHAPTER_MISSING_LABEL}:
             return FAIL
-        proxy = ARCHIVE_DIR / f"{archive}_proxy.mp4"
-        mkv   = ARCHIVE_DIR / f"{archive}.mkv"
-        video = mkv if mkv.exists() else proxy if proxy.exists() else None
+        video = _resolve_archive_video(str(archive or ""))
         if not video:
             return FAIL
         # Pass 1: uniform sample for coarse bad-frame detection.
@@ -1422,7 +1514,7 @@ with gr.Blocks(
             archive, ch_title, progress=progress,
         )
         if err or fids is None:
-            F2 = list(FAIL); F2[1] = f"❌  {err or 'Extraction failed'}"; return tuple(F2)
+            F2 = list(FAIL); F2[1] = f"ERROR:  {err or 'Extraction failed'}"; return tuple(F2)
 
         if not bool(strict_sampling):
             # Pass 2: if coarse sample detects bad frames, prioritize contiguous
@@ -1444,7 +1536,7 @@ with gr.Blocks(
                     archive, ch_title, frame_ids=focus_fids, progress=progress,
                 )
                 if err or fids is None:
-                    F2 = list(FAIL); F2[1] = f"❌  {err or 'Extraction failed'}"; return tuple(F2)
+                    F2 = list(FAIL); F2[1] = f"ERROR:  {err or 'Extraction failed'}"; return tuple(F2)
         # Seed overrides from chapter BAD_FRAMES in chapters.ffmetadata.
         overrides = _chapter_bad_overrides(
             archive=archive,
@@ -1452,30 +1544,13 @@ with gr.Blocks(
             ch_start=int(start),
             ch_end=int(end),
         )
-        html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc = _rebuild(
-            fids, b64, sigs, overrides, wc, wn, wt, ww, tmode, iqrk, tv, bp, cols, tw, int(start)
-        )
-        _persist_visible_bad_frames(
-            archive=str(archive or ""),
-            chapter_title=str(ch_title or ""),
-            ch_start=int(start),
-            ch_end=int(end),
-            fids=[int(x) for x in fids],
-            sigs=sigs,
-            overrides=overrides,
-            wc=wc,
-            wn=wn,
-            wt=wt,
-            ww=ww,
-            tm=tmode,
-            ik=iqrk,
-            tv=tv,
-            bp=bp,
+        html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, vis_fids = _rebuild(
+            fids, b64, sigs, overrides, wc, wn, wt, ww, tmode, iqrk, tv, bp, cols, tw, context, int(start)
         )
         return (gr.update(visible=True),
-                f"✅  Loaded **{len(fids)}** frames for **{ch_title}**",
+                f"OK:  Loaded **{len(fids)}** sampled frames for **{ch_title}**. Click `Apply` to write chapter metadata.",
                 fids, b64, sigs, overrides, {"fid": -1, "ts": -1},
-                html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc,
+                html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, vis_fids,
                 gr.update(visible=False), gr.update(visible=False), gr.update(visible=True))
 
     _LOAD_OUTS = [main_panel, status_md,
@@ -1483,26 +1558,43 @@ with gr.Blocks(
     _LOAD_INS  = [archive_dd, chapter_dd, st_chapters,
                   start_n, end_n, n_sl, strict_sampling_cb,
                   wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
-                  cols_sl, twidth_sl]
+                  cols_sl, twidth_sl, context_sl]
     load_btn.click(on_load,       _LOAD_INS, _LOAD_OUTS)
     chapters_load_btn.click(on_load, _LOAD_INS, _LOAD_OUTS)
     reload_btn.click(on_load,     _LOAD_INS, _LOAD_OUTS)
     apply_range_btn.click(on_load, _LOAD_INS, _LOAD_OUTS)
 
-    # ── Live slider updates ────────────────────────────────────────────────
-    def on_sliders(archive, ch_title, ch_start, ch_end, fids, b64, sigs, ovr,
-                   wc, wn, wt, ww, tm, ik, tv, bp, cols, tw):
-        out = _rebuild(
-            fids, b64, sigs, ovr, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, int(ch_start)
-        )
-        _persist_visible_bad_frames(
+    def on_save_bad_frames(
+        archive,
+        ch_title,
+        ch_start,
+        ch_end,
+        fids,
+        sigs,
+        overrides,
+        wc,
+        wn,
+        wt,
+        ww,
+        tm,
+        ik,
+        tv,
+        bp,
+        progress=gr.Progress(),
+    ):
+        ch_text = str(ch_title or "").strip().lower()
+        if (not archive or not ch_title
+                or "select chapter" in ch_text
+                or "no chapters" in ch_text):
+            return "ERROR:  No chapter selected."
+        path, count, analyzed, err = persist_bad_frames_for_chapter(
             archive=str(archive or ""),
             chapter_title=str(ch_title or ""),
             ch_start=int(ch_start),
             ch_end=int(ch_end),
             fids=[int(x) for x in (fids or [])],
             sigs=sigs or {},
-            overrides=ovr or {},
+            overrides=overrides or {},
             wc=wc,
             wn=wn,
             wt=wt,
@@ -1511,22 +1603,54 @@ with gr.Blocks(
             ik=ik,
             tv=tv,
             bp=bp,
+            progress=progress,
+        )
+        if err:
+            return f"ERROR:  {err}"
+        return (
+            f"Saved:  Saved BAD_FRAMES for **{ch_title}** from loaded frame set "
+            f"({analyzed} frame(s) analyzed, {count} marked bad)."
+        )
+
+    _SAVE_INS = [
+        archive_dd,
+        chapter_dd,
+        start_n,
+        end_n,
+        st_fids,
+        st_sigs,
+        st_overrides,
+        wc_sl,
+        wn_sl,
+        wt_sl,
+        ww_sl,
+        t_mode,
+        iqr_sl,
+        tval_sl,
+        bpct_sl,
+    ]
+    apply_btn.click(on_save_bad_frames, _SAVE_INS, [status_md])
+
+    # -- Live slider updates ------------------------------------------------
+    def on_sliders(ch_start, fids, b64, sigs, ovr,
+                   wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context):
+        out = _rebuild(
+            fids, b64, sigs, ovr, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, int(ch_start)
         )
         return out
 
-    _SL_INS = [archive_dd, chapter_dd, start_n, end_n,
-               st_fids, st_b64, st_sigs, st_overrides,
+    _SL_INS = [start_n, st_fids, st_b64, st_sigs, st_overrides,
                wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
-               cols_sl, twidth_sl]
-    for _s in [wc_sl, wn_sl, wt_sl, ww_sl, iqr_sl, tval_sl, bpct_sl, cols_sl, twidth_sl]:
+               cols_sl, twidth_sl, context_sl]
+    for _s in [wc_sl, wn_sl, wt_sl, ww_sl, iqr_sl, tval_sl, bpct_sl, cols_sl, twidth_sl, context_sl]:
         _s.change(on_sliders, _SL_INS, _RB_OUTS)
     t_mode.change(on_sliders, _SL_INS, _RB_OUTS)
 
-    # ── Frame click toggle ─────────────────────────────────────────────────
+    # -- Frame click toggle -------------------------------------------------
     def on_click(raw_click, fids, b64, sigs, overrides, last_click_event, archive, ch_title, ch_start, ch_end,
-                 wc, wn, wt, ww, tm, ik, tv, bp, cols, tw):
+                 wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, mark_mode):
         if not raw_click or not raw_click.strip() or not fids:
-            return (*[gr.update()] * 7, overrides, "", last_click_event)
+            return (*[gr.update()] * len(_RB_OUTS), overrides, "", last_click_event)
 
         new_ov, new_last_click, srv_dbg = apply_manual_click_override(
             raw_click=raw_click,
@@ -1545,51 +1669,52 @@ with gr.Blocks(
             ik=ik,
             tv=tv,
             bp=bp,
+            mark_mode=mark_mode,
             last_click_event=last_click_event,
         )
         if str(srv_dbg).startswith("ignored:"):
-            return (*[gr.update()] * 7, overrides, "", new_last_click)
+            return (*[gr.update()] * len(_RB_OUTS), overrides, "", new_last_click)
 
-        html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc = _rebuild(
-            fids, b64, sigs, new_ov, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, int(ch_start)
+        html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, vis_fids = _rebuild(
+            fids, b64, sigs, new_ov, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, int(ch_start)
         )
-        return html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, new_ov, "", new_last_click
+        return html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, vis_fids, new_ov, "", new_last_click
 
     click_recv.input(
         on_click,
         [click_recv, st_fids, st_b64, st_sigs, st_overrides, st_last_click,
          archive_dd, chapter_dd, start_n, end_n,
          wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
-         cols_sl, twidth_sl],
+         cols_sl, twidth_sl, context_sl, mark_mode_dd],
         [*_RB_OUTS, st_overrides, click_recv, st_last_click],
         show_progress="minimal",
     )
 
-    def on_gallery_select(fids, b64, sigs, overrides, last_click_event, archive, ch_title, ch_start, ch_end,
-                          wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, evt: gr.SelectData):
+    def on_gallery_select(vis_fids, fids, b64, sigs, overrides, last_click_event, archive, ch_title, ch_start, ch_end,
+                          wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, mark_mode, evt: gr.SelectData):
         if evt is None or getattr(evt, "index", None) is None:
-            return (*[gr.update()] * 7, overrides, "", last_click_event)
+            return (*[gr.update()] * len(_RB_OUTS), overrides, "", last_click_event)
         idx = int(evt.index)
-        if idx < 0 or idx >= len(fids):
-            return (*[gr.update()] * 7, overrides, "", last_click_event)
-        fid = int(fids[idx])
+        if idx < 0 or idx >= len(vis_fids):
+            return (*[gr.update()] * len(_RB_OUTS), overrides, "", last_click_event)
+        fid = int(vis_fids[idx])
         payload = f"{fid}:{int(time.time() * 1000)}"
         return on_click(
             payload, fids, b64, sigs, overrides, last_click_event, archive, ch_title, ch_start, ch_end,
-            wc, wn, wt, ww, tm, ik, tv, bp, cols, tw
+            wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, mark_mode
         )
 
     grid_gallery.select(
         on_gallery_select,
-        [st_fids, st_b64, st_sigs, st_overrides, st_last_click,
+        [st_visible_fids, st_fids, st_b64, st_sigs, st_overrides, st_last_click,
          archive_dd, chapter_dd, start_n, end_n,
          wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
-         cols_sl, twidth_sl],
+         cols_sl, twidth_sl, context_sl, mark_mode_dd],
         [*_RB_OUTS, st_overrides, click_recv, st_last_click],
         show_progress="minimal",
     )
 
-# ── Launch ────────────────────────────────────────────────────────────────────
+# -- Launch --------------------------------------------------------------------
 if __name__ == "__main__":
     demo.launch(
         theme=gr.themes.Base(primary_hue="emerald", neutral_hue="slate"),
@@ -1600,5 +1725,8 @@ if __name__ == "__main__":
         share=False,
         show_error=True,
     )
+
+
+
 
 

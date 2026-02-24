@@ -39,7 +39,7 @@ def generate_mkv_chapters_xml(ffmetadata_path, out_path):
     ffmeta, chapters = parse_chapters(ffmetadata_path)
 
     def fmt(t):
-        # seconds → HH:MM:SS.mmm
+        # seconds -> HH:MM:SS.mmm
         h = int(t // 3600)
         m = int((t % 3600) // 60)
         s = t % 60
