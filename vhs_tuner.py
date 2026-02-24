@@ -1159,8 +1159,8 @@ with gr.Blocks(
             with gr.Accordion("Range & Sample", open=False):
                 with gr.Row():
                     start_n = gr.Number(label="Start", value=0, precision=0, elem_id="vhs-start-frame")
-                    end_n   = gr.Number(label="End", value=1000, precision=0)
-                    n_sl = gr.Slider(20, 1000, value=400, step=10, label="n")
+                    end_n   = gr.Number(label="End", value=10000, precision=0)
+                    n_sl = gr.Slider(20, 10000, value=400, step=10, label="n")
                 with gr.Row():
                     strict_sampling_cb = gr.Checkbox(label="Strict Sampling", value=True)
                     apply_range_btn = gr.Button("Apply Range", variant="secondary")
@@ -1193,6 +1193,9 @@ with gr.Blocks(
 
         # ── RIGHT column ──────────────────────────────────────────────────────
         with gr.Column(scale=4, elem_id="vhs-right-col"):
+            with gr.Row():
+                gr.Markdown("")
+                next_chapter_btn = gr.Button("Next Chapter", variant="secondary", elem_id="vhs-next-chapter")
 
             stats_md  = gr.Markdown("", elem_id="vhs-stats")
             grid_gallery = gr.Gallery(
@@ -1379,6 +1382,27 @@ with gr.Blocks(
 
     chapter_dd.change(on_chapter, [chapter_dd, st_chapters], [start_n, end_n])
 
+    def on_next_chapter(current_title, chapters):
+        if not chapters:
+            return gr.update(), gr.update(), gr.update()
+        titles = [str(ch.get("title", "")) for ch in chapters if str(ch.get("title", ""))]
+        if not titles:
+            return gr.update(), gr.update(), gr.update()
+        try:
+            idx = titles.index(str(current_title))
+        except Exception:
+            idx = -1
+        next_idx = min(len(titles) - 1, idx + 1)
+        next_title = titles[next_idx]
+        ch = _find_chapter(chapters, next_title)
+        if not ch:
+            return gr.update(), gr.update(), gr.update()
+        return (
+            gr.update(value=next_title),
+            gr.update(value=ch["start_frame"]),
+            gr.update(value=ch["end_frame"]),
+        )
+
     def on_show_loader():
         return gr.update(visible=True), gr.update(visible=True), gr.update(visible=False)
 
@@ -1478,6 +1502,15 @@ with gr.Blocks(
     load_btn.click(on_load,       _LOAD_INS, _LOAD_OUTS)
     reload_btn.click(on_load,     _LOAD_INS, _LOAD_OUTS)
     apply_range_btn.click(on_load, _LOAD_INS, _LOAD_OUTS)
+    next_chapter_btn.click(
+        on_next_chapter,
+        [chapter_dd, st_chapters],
+        [chapter_dd, start_n, end_n],
+    ).then(
+        on_load,
+        _LOAD_INS,
+        _LOAD_OUTS,
+    )
 
     # ── Live slider updates ────────────────────────────────────────────────
     def on_sliders(archive, ch_title, ch_start, ch_end, fids, b64, sigs, ovr,
