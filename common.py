@@ -279,7 +279,7 @@ def load_bad_frames_by_chapter(path):
 def update_chapter_bad_frames_in_ffmetadata(path, chapter_bad_frames):
     """
     Update BAD_FRAMES lines in chapters.ffmetadata in-place.
-    chapter_bad_frames: {chapter_title: [local_frame_ids]}.
+    chapter_bad_frames: {chapter_title: [global_frame_ids]}.
     """
     p = Path(path)
     if not p.exists():

@@ -1002,7 +1002,7 @@ def test_vhs_tuner_manual_click_persists_bad_frames():
             chapters = vhs_tuner.parse_ffmetadata_chapters(cf)
             ch = vhs_tuner._find_chapter(chapters, "Unit Chapter")
             assert ch is not None
-            assert ch.get("bad_frames", []) == [0]
+            assert ch.get("bad_frames", []) == [1000]
 
             time.sleep(0.30)
             overrides2, _last2, dbg2 = vhs_tuner.apply_manual_click_override(
@@ -1102,7 +1102,7 @@ def test_vhs_tuner_auto_and_manual_persist_to_bad_frames():
         root = Path(td)
         vhs_tuner.METADATA_DIR = root
         try:
-            cf = _write_unit_chapters_ffmetadata(root, bad_csv="5,7")
+            cf = _write_unit_chapters_ffmetadata(root, bad_csv="1005,1007")
             fids = [1000, 1001, 1002]
             sigs = {
                 "chroma": np.array([0.0, 10.0, 0.0], dtype=np.float64),
@@ -1126,8 +1126,10 @@ def test_vhs_tuner_auto_and_manual_persist_to_bad_frames():
             ch = vhs_tuner._find_chapter(chapters, "Unit Chapter")
             assert ch is not None
             out = set(int(x) for x in ch.get("bad_frames", []))
-            # Existing unsampled values preserved + manual + auto.
-            assert {0, 1, 5, 7}.issubset(out), f"persisted BAD_FRAMES missing expected values: {sorted(out)}"
+            # Existing unsampled values preserved + manual + auto (global IDs).
+            assert {1000, 1001, 1005, 1007}.issubset(out), (
+                f"persisted BAD_FRAMES missing expected values: {sorted(out)}"
+            )
         finally:
             vhs_tuner.METADATA_DIR = old_meta
 

@@ -415,11 +415,10 @@ def parse_existing_bad_frames_from_chapters(chapters):
             continue
         if end <= start:
             continue
-        local_bad = parse_bad_frames_csv(ch.get("bad_frames", ""))
-        max_local = max(0, (end - start) - 1)
-        for lf in local_bad:
-            if 0 <= int(lf) <= max_local:
-                bad.add(start + int(lf))
+        global_bad = parse_bad_frames_csv(ch.get("bad_frames", ""))
+        for fi in global_bad:
+            if start <= int(fi) < end:
+                bad.add(int(fi))
     return bad
 
 
@@ -535,8 +534,8 @@ def build_chapter_bad_frame_updates(chapters, evaluated_indices, bad_frames):
         evaluated_here = any(start <= fi < end for fi in evaluated_set)
         if not evaluated_here:
             continue
-        local_bad = sorted(fi - start for fi in bad_set if start <= fi < end)
-        updates[title] = local_bad
+        global_bad = sorted(fi for fi in bad_set if start <= fi < end)
+        updates[title] = global_bad
     return updates
 
 

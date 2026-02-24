@@ -8,7 +8,7 @@ Requires:  pip install gradio opencv-python-headless numpy pillow pandas
 
 Metadata layout (all under metadata/<archive>/)
 ────────────────────────────────────────────────
-  chapters.ffmetadata           per-chapter BAD_FRAMES=<csv local frame ids>
+  chapters.ffmetadata           per-chapter BAD_FRAMES=<csv global frame ids>
 
 step_6_make_videos.py reads chapter BAD_FRAMES lists directly from chapters.ffmetadata.
 """
@@ -121,10 +121,9 @@ def _chapter_bad_overrides(
         return out
     start = int(ch_start)
     end = int(ch_end)
-    chapter_span = max(0, end - start + 1)
-    for lf in [int(x) for x in ch.get("bad_frames", [])]:
-        if 0 <= int(lf) < chapter_span:
-            out[start + int(lf)] = "bad"
+    for fid in [int(x) for x in ch.get("bad_frames", [])]:
+        if start <= int(fid) <= end:
+            out[int(fid)] = "bad"
     return out
 
 def _write_chapter_bad_overrides(
@@ -137,16 +136,14 @@ def _write_chapter_bad_overrides(
     cf = _chapters_file_path(archive)
     start = int(ch_start)
     end = int(ch_end)
-    chapter_span = max(0, end - start + 1)
-    local_bad = sorted(
+    global_bad = sorted(
         {
-            int(fid) - start
+            int(fid)
             for fid, label in (overrides or {}).items()
             if str(label) == "bad" and start <= int(fid) <= end
         }
     )
-    local_bad = [lf for lf in local_bad if 0 <= int(lf) < chapter_span]
-    update_chapter_bad_frames_in_ffmetadata(cf, {str(chapter_title): local_bad})
+    update_chapter_bad_frames_in_ffmetadata(cf, {str(chapter_title): global_bad})
     return cf
 
 
@@ -180,11 +177,10 @@ def _persist_visible_bad_frames(
 
     start = int(ch_start)
     end = int(ch_end)
-    span = max(0, end - start + 1)
-    existing_local_bad = {
+    existing_global_bad = {
         int(x)
         for x in ch.get("bad_frames", [])
-        if 0 <= int(x) < span
+        if start <= int(x) <= end
     }
 
     scores = combined_score(sigs, wc, wn, wt, ww)
@@ -194,7 +190,6 @@ def _persist_visible_bad_frames(
         fid_i = int(fid)
         if not (start <= fid_i <= end):
             continue
-        lf = fid_i - start
         ov = overrides.get(fid_i)
         if ov == "bad":
             is_bad = True
@@ -203,13 +198,13 @@ def _persist_visible_bad_frames(
         else:
             is_bad = bool(float(sc) >= float(thr))
         if is_bad:
-            existing_local_bad.add(int(lf))
+            existing_global_bad.add(int(fid_i))
         else:
-            existing_local_bad.discard(int(lf))
+            existing_global_bad.discard(int(fid_i))
 
-    out_local = sorted(existing_local_bad)
-    update_chapter_bad_frames_in_ffmetadata(cf, {str(chapter_title): out_local})
-    return cf, len(out_local)
+    out_global = sorted(existing_global_bad)
+    update_chapter_bad_frames_in_ffmetadata(cf, {str(chapter_title): out_global})
+    return cf, len(out_global)
 
 def load_cached_signals(archive: str, ch_title: str) -> tuple[list[int] | None, dict | None]:
     return None, None

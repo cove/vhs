@@ -892,12 +892,15 @@ def _run_with_args(args):
                                 f"WARNING: chapter '{title}' has no BAD_FRAMES metadata; "
                                 "rendering without freeze-frame repair for this chapter."
                             )
-                        local_bad = parse_bad_frames_csv(ch.get("bad_frames", ""))
+                        global_bad = parse_bad_frames_csv(ch.get("bad_frames", ""))
+                        manual_source_frames_global = [
+                            f for f in global_bad if chapter_start_frame <= int(f) < chapter_end_frame
+                        ]
                         manual_source_frames = [
-                            f for f in local_bad if 0 <= int(f) < max(1, chapter_len)
+                            int(f) - int(chapter_start_frame) for f in manual_source_frames_global
                         ]
                         manual_repairs = local_bad_frames_to_repairs(manual_source_frames)
-                        if manual_source_frames:
+                        if manual_source_frames_global:
                             print(
                                 f"Chapter metadata bad frame(s): {len(manual_source_frames)} -> "
                                 + ",".join(str(f) for f in manual_source_frames[:12])
