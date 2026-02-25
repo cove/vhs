@@ -18,6 +18,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -39,6 +40,9 @@ METADATA_DIR = PROJECT_ROOT / "metadata"
 STEP6        = PROJECT_ROOT / "step_6_make_videos.py"
 FPS          = 30000 / 1001
 BORDER       = 3
+TUNER_EXTRACT_DIR = PROJECT_ROOT / "tmp" / "vhs_tuner_extracts"
+TUNER_DEBUG_EXTRACT_ENV = "VHS_TUNER_DEBUG_EXTRACT_FRAMES"
+STEP6_DEBUG_EXTRACT_FRAME_NUMBERS_ENV = "STEP6_DEBUG_EXTRACT_FRAME_NUMBERS"
 
 try:
     from tracking_loss import TrackingLossConfig, run_tracking_loss_classification
@@ -50,6 +54,7 @@ except ImportError:
 
 from common import (
     chapter_frame_bounds,
+    make_extract_chapter,
     parse_bad_frames_csv,
     parse_chapters,
     update_chapter_bad_frames_in_ffmetadata,
@@ -89,6 +94,79 @@ def _normalize_frame_span(ch_start: int, ch_end: int) -> tuple[int, int]:
     if end == start:
         end = start + 1
     return start, end
+
+def _env_truthy(name: str) -> bool:
+    raw = str(os.environ.get(name, "")).strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+def _chapter_extract_cache_path(
+    archive: str,
+    chapter_title: str,
+    ch_start: int,
+    ch_end: int,
+    debug_overlay: bool,
+) -> Path:
+    start_i, end_i = _normalize_frame_span(ch_start, ch_end)
+    mode = "debug" if bool(debug_overlay) else "clean"
+    stem = f"{archive}__{slugify(chapter_title)}__{start_i}_{end_i}__{mode}"
+    return TUNER_EXTRACT_DIR / stem / "extracted.mkv"
+
+def _video_frame_count(path: Path) -> int:
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        return 0
+    try:
+        return max(0, int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))
+    finally:
+        cap.release()
+
+def _ensure_step6_chapter_extract(
+    *,
+    source_video: Path,
+    archive: str,
+    chapter_title: str,
+    ch_start: int,
+    ch_end: int,
+    debug_overlay: bool,
+) -> tuple[Path | None, str]:
+    start_i, end_i = _normalize_frame_span(ch_start, ch_end)
+    expected_frames = max(1, end_i - start_i)
+    out_path = _chapter_extract_cache_path(
+        archive=archive,
+        chapter_title=chapter_title,
+        ch_start=start_i,
+        ch_end=end_i,
+        debug_overlay=debug_overlay,
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if out_path.exists() and _video_frame_count(out_path) == expected_frames:
+        return out_path, ""
+
+    start_sec = float(start_i) * 1001.0 / 30000.0
+    end_sec = float(end_i) * 1001.0 / 30000.0
+    cmd = make_extract_chapter(
+        source_video,
+        start_sec,
+        end_sec,
+        out_path,
+        start_frame=start_i,
+        end_frame=end_i,
+        debug_frame_numbers=bool(debug_overlay),
+    )
+    proc = subprocess.run(
+        [str(x) for x in cmd],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return None, (proc.stderr or proc.stdout or "ffmpeg extraction failed").strip()
+    if _video_frame_count(out_path) != expected_frames:
+        return None, (
+            f"Extracted chapter frame count mismatch for {out_path.name}: "
+            f"expected {expected_frames}"
+        )
+    return out_path, ""
 
 def slugify(title: str) -> str:
     return re.sub(r"[^\w]+", "_", str(title).strip()).strip("_").lower()
@@ -259,6 +337,7 @@ def extract_frames(
     archive: str, ch_title: str,
     frame_ids: list[int] | None = None,
     include_thumbs: bool = True,
+    frame_read_offset: int = 0,
     progress=None,
 ) -> tuple[list[int] | None, list[str] | None, dict | None, str]:
     start_i, end_i = _normalize_frame_span(start, end)
@@ -286,13 +365,18 @@ def extract_frames(
     frames_b64: list[str] = []
     chroma_s, noise_s, tear_s, wave_s = [], [], [], []
 
+    read_offset = int(frame_read_offset)
     for idx, fid in enumerate(frame_ids):
+        read_fid = int(fid) - read_offset
         if progress is not None:
             progress(idx / len(frame_ids), desc=f"Frame {fid}...")
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(fid))
-        ok, bgr = cap.read()
-        if not ok or bgr is None:
+        if read_fid < 0:
             bgr = np.zeros((240, 320, 3), dtype=np.uint8)
+        else:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(read_fid))
+            ok, bgr = cap.read()
+            if not ok or bgr is None:
+                bgr = np.zeros((240, 320, 3), dtype=np.uint8)
         if include_thumbs:
             frames_b64.append(_bgr_to_jpeg_b64(bgr))
 
@@ -597,7 +681,7 @@ def _sparkline_svg(
     """
     Timeline sparkline: X axis = frame index, Y axis = signal value.
     An optional horizontal red line marks the threshold cut.
-    Uses width:100% so it fills whatever column it sits in.
+    Keeps a compact sparkline width while still shrinking to fit narrow layouts.
     """
     v = np.asarray(values, dtype=np.float64)
     v = v[np.isfinite(v)]
@@ -606,7 +690,7 @@ def _sparkline_svg(
     if v.size == 0:
         return (
             f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {SVG_W} {height}" '
-            f'style="background:#0a0a0a;display:block;width:100%;border-radius:2px;margin-bottom:3px">'
+            f'style="background:#0a0a0a;display:block;width:220px;max-width:100%;border-radius:2px;margin-bottom:3px">'
             f'<text x="4" y="14" font-family="Courier New" font-size="9" fill="#444">{label}</text>'
             f'</svg>'
         )
@@ -647,7 +731,7 @@ def _sparkline_svg(
 
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {SVG_W} {height}" '
-        f'style="background:#0a0a0a;display:block;width:100%;border-radius:2px;margin-bottom:3px">'
+        f'style="background:#0a0a0a;display:block;width:220px;max-width:100%;border-radius:2px;margin-bottom:3px">'
         f'<polygon points="{area_pts}" fill="{line_color}" opacity="0.12"/>'
         f'<polyline points="{pts}" fill="none" stroke="{line_color}" stroke-width="1.3" opacity="0.85"/>'
         f'{tline}{lbl}'
@@ -686,28 +770,32 @@ def build_sparklines_html(
         _unit(sigs.get("chroma", np.array([]))),
         wc,
         f"chroma  w={wc:.2f}",
+        height=24,
         line_color=_col(wc),
     )
     sc_noise = _sparkline_svg(
         _unit(sigs.get("noise", np.array([]))),
         wn,
         f"noise   w={wn:.2f}",
+        height=24,
         line_color=_col(wn),
     )
     sc_tear = _sparkline_svg(
         _unit(sigs.get("tear", np.array([]))),
         wt,
         f"tear    w={wt:.2f}",
+        height=24,
         line_color=_col(wt),
     )
     sc_wave = _sparkline_svg(
         _unit(sigs.get("wave", np.array([]))),
         ww,
         f"wave    w={ww:.2f}",
+        height=24,
         line_color=_col(ww),
     )
     sc_score  = _sparkline_svg(scores, threshold, "composite score",
-                                height=52, line_color="#5599dd")
+                                height=32, line_color="#5599dd")
 
     return sc_chroma, sc_noise, sc_tear, sc_wave, sc_score
 
@@ -783,6 +871,7 @@ def build_gallery_items(
     overrides: dict[int, str],
     threshold: float,
     chapter_start_frame: int,
+    show_frame_labels: bool = False,
 ) -> list[tuple[Image.Image, str]]:
     items: list[tuple[Image.Image, str]] = []
     for b64, fid, sc in zip(frames_b64, fids, scores):
@@ -805,26 +894,27 @@ def build_gallery_items(
         color = "#e03030" if is_bad else "#30c870"
         local_fid = int(fid) - int(chapter_start_frame)
 
-        # Burn frame ids into the thumbnail for quick global/local inspection.
-        overlay_lines = [f"G:{int(fid)}", f"L:{local_fid}"]
-        draw = ImageDraw.Draw(img)
-        pad_x = 3
-        pad_y = 2
-        line_gap = 1
-        line_sizes = []
-        for line in overlay_lines:
-            if hasattr(draw, "textbbox"):
-                x0, y0, x1, y1 = draw.textbbox((0, 0), line)
-                line_sizes.append((x1 - x0, y1 - y0))
-            else:
-                line_sizes.append(draw.textsize(line))
-        box_w = max((w for w, _ in line_sizes), default=0) + (2 * pad_x)
-        box_h = sum((h for _, h in line_sizes)) + (line_gap * (len(overlay_lines) - 1)) + (2 * pad_y)
-        draw.rectangle((0, 0, box_w, box_h), fill=(0, 0, 0))
-        y = pad_y
-        for line, (_, h) in zip(overlay_lines, line_sizes):
-            draw.text((pad_x, y), line, fill=(255, 255, 255))
-            y += h + line_gap
+        if bool(show_frame_labels):
+            # Optional burn-in for quick global/local visual verification.
+            overlay_lines = [f"G:{int(fid)}", f"L:{local_fid}"]
+            draw = ImageDraw.Draw(img)
+            pad_x = 3
+            pad_y = 2
+            line_gap = 1
+            line_sizes = []
+            for line in overlay_lines:
+                if hasattr(draw, "textbbox"):
+                    x0, y0, x1, y1 = draw.textbbox((0, 0), line)
+                    line_sizes.append((x1 - x0, y1 - y0))
+                else:
+                    line_sizes.append(draw.textsize(line))
+            box_w = max((w for w, _ in line_sizes), default=0) + (2 * pad_x)
+            box_h = sum((h for _, h in line_sizes)) + (line_gap * (len(overlay_lines) - 1)) + (2 * pad_y)
+            draw.rectangle((0, 0, box_w, box_h), fill=(0, 0, 0))
+            y = pad_y
+            for line, (_, h) in zip(overlay_lines, line_sizes):
+                draw.text((pad_x, y), line, fill=(255, 255, 255))
+                y += h + line_gap
 
         # Restore fast visual scanning: colored border per frame state.
         styled = ImageOps.expand(img, border=BORDER, fill=color)
@@ -1237,6 +1327,31 @@ input[type=range] { accent-color:#27a85a; }
   transition: none !important;
   animation: none !important;
 }
+.vhs-spark svg {
+  width: 220px !important;
+  max-width: 100% !important;
+  height: 24px !important;
+}
+.vhs-spark-score svg {
+  height: 32px !important;
+}
+#vhs-chapter-table table {
+  table-layout: fixed !important;
+  width: 100% !important;
+}
+#vhs-chapter-table th,
+#vhs-chapter-table td {
+  font-family: "Courier New", monospace !important;
+  font-size: 11px !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+#vhs-chapter-table th:first-child,
+#vhs-chapter-table td:first-child {
+  width: 64px !important;
+  text-align: right !important;
+}
 #vhs-loader-toggle button {
   min-height: 20px !important;
   padding: 1px 6px !important;
@@ -1292,28 +1407,42 @@ with gr.Blocks(
     st_visible_fids = gr.State([])
     st_last_click = gr.State({"fid": -1, "ts": -1})
     st_chapters  = gr.State([])
-
-    # -- Archive + Chapter -----------------------------------------------------
-    with gr.Row() as load_row:
-        _archives  = _get_archives()
-        archive_dd = gr.Dropdown(
-            choices=_archives, value=_archives[0] if _archives else None,
-            label="Archive", scale=1, interactive=True,
-        )
-        chapter_dd = gr.Dropdown(
-            choices=[CHAPTER_SELECT_LABEL], value=CHAPTER_SELECT_LABEL,
-            label="Chapter", scale=3, interactive=True,
-        )
-        load_btn = gr.Button("  Load Chapter", variant="primary", scale=1)
-
-    with gr.Row() as load_status_row:
-        status_md = gr.Markdown("`Select archive/chapter and load.`")
-        show_loader_btn = gr.Button("Loader", variant="secondary", visible=False, elem_id="vhs-loader-toggle")
+    st_chapter_titles = gr.State([])
 
     # -- Main panel ------------------------------------------------------------
-    with gr.Column(visible=False, elem_id="vhs-main-panel") as main_panel:
+    with gr.Column(visible=True, elem_id="vhs-main-panel") as main_panel:
+        status_md = gr.Markdown("`Select a chapter and click Load Selected Chapter.`")
 
-        with gr.Tabs(elem_id="vhs-main-tabs", selected="frames-tab"):
+        with gr.Tabs(elem_id="vhs-main-tabs", selected="chapters-tab"):
+            with gr.Tab("Chapters", id="chapters-tab"):
+                _archives  = _get_archives()
+                with gr.Row():
+                    archive_dd = gr.Dropdown(
+                        choices=_archives,
+                        value=_archives[0] if _archives else None,
+                        label="Archive",
+                        scale=3,
+                        interactive=True,
+                    )
+                    chapters_load_btn = gr.Button("Load Selected Chapter", variant="primary", scale=1)
+                chapter_dd = gr.Dropdown(
+                    choices=[CHAPTER_SELECT_LABEL],
+                    value=CHAPTER_SELECT_LABEL,
+                    label="Chapter",
+                    interactive=True,
+                    visible=False,
+                )
+                chapter_table = gr.Dataframe(
+                    headers=["#", "Chapter Title"],
+                    datatype=["number", "str"],
+                    value=[],
+                    row_count=(0, "dynamic"),
+                    col_count=(2, "fixed"),
+                    interactive=False,
+                    wrap=False,
+                    elem_id="vhs-chapter-table",
+                )
+
             with gr.Tab("Frames", id="frames-tab"):
                 with gr.Column(scale=4, elem_id="vhs-right-col"):
                     stats_md  = gr.Markdown("", elem_id="vhs-stats")
@@ -1330,16 +1459,6 @@ with gr.Blocks(
                         elem_id="vhs-grid-gallery",
                     )
 
-            with gr.Tab("Chapters", id="chapters-tab"):
-                chapter_list = gr.Radio(
-                    choices=[],
-                    value=None,
-                    label="Chapters",
-                    interactive=True,
-                    elem_id="vhs-chapter-list",
-                )
-                chapters_load_btn = gr.Button("Load Selected Chapter", variant="primary")
-
             with gr.Tab("Tuning", id="tuning-tab"):
                 with gr.Column(scale=1, min_width=210, elem_id="vhs-left-col"):
                     with gr.Accordion("Range & Sample", open=False):
@@ -1350,6 +1469,8 @@ with gr.Blocks(
                             context_sl = gr.Slider(0, 200, value=10, step=1, label="Frames Around Bad")
                         with gr.Row():
                             strict_sampling_cb = gr.Checkbox(label="Strict Sampling", value=True)
+                            exact_extract_cb = gr.Checkbox(label="Use Step6 Extract", value=True)
+                            debug_extract_cb = gr.Checkbox(label="Debug Frame IDs", value=False)
                             apply_range_btn = gr.Button("Apply Range", variant="secondary")
                             reload_btn = gr.Button("Reload", variant="secondary")
                     with gr.Accordion("Manual Marking", open=False):
@@ -1362,13 +1483,13 @@ with gr.Blocks(
 
                     with gr.Accordion("Signal Weights", open=False):
                         wc_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="chroma")
-                        spark_chroma = gr.HTML(_E_SIG)
+                        spark_chroma = gr.HTML(_E_SIG, elem_classes=["vhs-spark"])
                         wn_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="noise")
-                        spark_noise  = gr.HTML(_E_SIG)
+                        spark_noise  = gr.HTML(_E_SIG, elem_classes=["vhs-spark"])
                         wt_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="tear")
-                        spark_tear   = gr.HTML(_E_SIG)
+                        spark_tear   = gr.HTML(_E_SIG, elem_classes=["vhs-spark"])
                         ww_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="wave")
-                        spark_wave   = gr.HTML(_E_SIG)
+                        spark_wave   = gr.HTML(_E_SIG, elem_classes=["vhs-spark"])
 
                     with gr.Accordion("Threshold", open=False):
                         t_mode  = gr.Radio(["iqr", "value", "quantile"], value="iqr",
@@ -1378,12 +1499,13 @@ with gr.Blocks(
                                              label="Hard value", visible=False)
                         bpct_sl = gr.Slider(1, 60, value=10, step=1,
                                              label="Bad %", visible=False)
-                        spark_score = gr.HTML(_E_SCORE)
+                        spark_score = gr.HTML(_E_SCORE, elem_classes=["vhs-spark", "vhs-spark-score"])
 
                     with gr.Accordion("Grid", open=False):
                         with gr.Row():
                             cols_sl   = gr.Slider(4, 16, value=7, step=1, label="Cols")
                             twidth_sl = gr.Slider(64, 220, value=120, step=8, label="Width")
+                        thumb_ids_cb = gr.Checkbox(label="Show IDs On Images", value=False)
 
         # Keep the runtime JS component out of layout flow to avoid panel overlap.
         gr.HTML("", elem_id="vhs-runtime-js", visible=False)
@@ -1433,7 +1555,7 @@ with gr.Blocks(
         return vis
 
     def _rebuild(fids, b64, sigs, overrides, wc, wn, wt, ww,
-                 t_mode, iqr_k, tval, bpct, cols, twidth, context, ch_start):
+                 t_mode, iqr_k, tval, bpct, cols, twidth, context, ch_start, show_image_ids):
         if not fids or not b64:
             return (gr.update(value=[]), "*(no frames loaded)*",
                     _E_SIG, _E_SIG, _E_SIG, _E_SIG, _E_SCORE, [])
@@ -1449,7 +1571,13 @@ with gr.Blocks(
         vis_b64 = [b64[i] for i in vis_idx]
         vis_sc = np.array([sc[i] for i in vis_idx], dtype=np.float64)
         gallery_items = build_gallery_items(
-            vis_b64, vis_fids, vis_sc, overrides, thr, chapter_start_frame=int(ch_start)
+            vis_b64,
+            vis_fids,
+            vis_sc,
+            overrides,
+            thr,
+            chapter_start_frame=int(ch_start),
+            show_frame_labels=bool(show_image_ids),
         )
         gallery_update = gr.update(value=gallery_items, columns=int(cols))
         n_bad = sum(_frame_is_bad(f, s, thr, overrides) for f, s in zip(fids, sc))
@@ -1474,15 +1602,24 @@ with gr.Blocks(
         cf       = METADATA_DIR / archive / "chapters.ffmetadata" if archive else None
         chapters = parse_ffmetadata_chapters(cf) if cf and cf.exists() else []
         chapter_titles = [str(ch.get("title", "")) for ch in chapters if str(ch.get("title", ""))]
-        chapter_value = chapter_titles[0] if chapter_titles else None
+        chapter_rows = [[idx + 1, title] for idx, title in enumerate(chapter_titles)]
+        chapter_value = chapter_titles[0] if chapter_titles else (titles[0] if titles else CHAPTER_SELECT_LABEL)
+        if chapter_titles:
+            status = (
+                f"`{len(chapter_titles)} chapter(s) found. "
+                "Select one and click Load Selected Chapter.`"
+            )
+        elif titles and titles[0] == CHAPTER_MISSING_LABEL:
+            status = "`No chapters.ffmetadata found for selected archive.`"
+        else:
+            status = "`No chapters available for selected archive.`"
         return (
-            gr.update(choices=titles, value=(chapter_value or titles[0])),
+            gr.update(choices=titles, value=chapter_value),
             chapters,
-            gr.update(choices=chapter_titles, value=chapter_value),
+            chapter_titles,
+            gr.update(value=chapter_rows),
+            status,
         )
-
-    archive_dd.change(on_archive, [archive_dd], [chapter_dd, st_chapters, chapter_list])
-    demo.load(on_archive, [archive_dd], [chapter_dd, st_chapters, chapter_list])
 
     # -- Chapter change -> frame range ---------------------------------------
     def on_chapter(title, chapters):
@@ -1493,19 +1630,36 @@ with gr.Blocks(
 
     chapter_dd.change(on_chapter, [chapter_dd, st_chapters], [start_n, end_n])
 
-    def on_chapter_list_pick(title):
-        if not title:
-            return gr.update()
-        return gr.update(value=title)
+    def on_chapter_table_pick(chapter_titles, evt: gr.SelectData):
+        if evt is None or getattr(evt, "index", None) is None:
+            return gr.update(), gr.update()
+        idx_raw = evt.index
+        try:
+            if isinstance(idx_raw, (list, tuple)):
+                row_idx = int(idx_raw[0]) if idx_raw else -1
+            else:
+                row_idx = int(idx_raw)
+        except Exception:
+            row_idx = -1
+        titles = [str(x) for x in (chapter_titles or []) if str(x)]
+        if row_idx < 0 or row_idx >= len(titles):
+            return gr.update(), gr.update()
+        picked = titles[row_idx]
+        return gr.update(value=picked), f"`Selected chapter:` **{picked}**"
 
-    chapter_list.change(on_chapter_list_pick, [chapter_list], [chapter_dd]).then(
+    chapter_table.select(on_chapter_table_pick, [st_chapter_titles], [chapter_dd, status_md]).then(
         on_chapter, [chapter_dd, st_chapters], [start_n, end_n]
     )
-
-    def on_show_loader():
-        return gr.update(visible=True), gr.update(visible=True), gr.update(visible=False)
-
-    show_loader_btn.click(on_show_loader, outputs=[load_row, load_status_row, show_loader_btn])
+    archive_dd.change(
+        on_archive,
+        [archive_dd],
+        [chapter_dd, st_chapters, st_chapter_titles, chapter_table, status_md],
+    ).then(on_chapter, [chapter_dd, st_chapters], [start_n, end_n])
+    demo.load(
+        on_archive,
+        [archive_dd],
+        [chapter_dd, st_chapters, st_chapter_titles, chapter_table, status_md],
+    ).then(on_chapter, [chapter_dd, st_chapters], [start_n, end_n])
 
     # -- Threshold mode -----------------------------------------------------
     def on_tmode(mode):
@@ -1517,24 +1671,63 @@ with gr.Blocks(
 
     # -- Load chapter -------------------------------------------------------
     def on_load(archive, ch_title, chapters, start, end, n_samp, strict_sampling,
-                wc, wn, wt, ww, tmode, iqrk, tv, bp, cols, tw, context,
+                exact_extract, debug_extract,
+                wc, wn, wt, ww, tmode, iqrk, tv, bp, cols, tw, context, show_image_ids,
                 progress=gr.Progress()):
-        FAIL = (gr.update(visible=False), "ERROR:  No chapter/video found.",
+        FAIL = (gr.update(visible=True), "ERROR:  No chapter/video found.",
                 [], [], {}, {}, {"fid": -1, "ts": -1}, gr.update(value=[]), "",
-                _E_SIG, _E_SIG, _E_SIG, _E_SIG, _E_SCORE, [],
-                gr.update(visible=True), gr.update(visible=True), gr.update(visible=False))
+                _E_SIG, _E_SIG, _E_SIG, _E_SIG, _E_SCORE, [])
+        def _status_only(msg: str):
+            return (gr.update(visible=True), msg, *[gr.update() for _ in range(len(_LOAD_OUTS) - 2)])
         if not archive or not ch_title or ch_title in {CHAPTER_SELECT_LABEL, CHAPTER_MISSING_LABEL}:
-            return FAIL
+            yield FAIL
+            return
         video = _resolve_archive_video(str(archive or ""))
         if not video:
-            return FAIL
+            yield FAIL
+            return
+        start_i, end_i = _normalize_frame_span(int(start), int(end))
+        read_video = video
+        frame_read_offset = 0
+        debug_overlay = bool(debug_extract) or _env_truthy(TUNER_DEBUG_EXTRACT_ENV) or _env_truthy(
+            STEP6_DEBUG_EXTRACT_FRAME_NUMBERS_ENV
+        )
+        if bool(exact_extract):
+            progress(0.0, desc="Preparing chapter extract...")
+            extract_target = _chapter_extract_cache_path(
+                archive=str(archive or ""),
+                chapter_title=str(ch_title or ""),
+                ch_start=start_i,
+                ch_end=end_i,
+                debug_overlay=debug_overlay,
+            )
+            yield _status_only(
+                f"Extracting chapter `{ch_title}` from `{Path(video).name}` "
+                f"to `{extract_target.parent.name}`..."
+            )
+            read_video_p, ex_err = _ensure_step6_chapter_extract(
+                source_video=video,
+                archive=str(archive or ""),
+                chapter_title=str(ch_title or ""),
+                ch_start=start_i,
+                ch_end=end_i,
+                debug_overlay=debug_overlay,
+            )
+            if ex_err or read_video_p is None:
+                F2 = list(FAIL); F2[1] = f"ERROR:  {ex_err or 'Step6-style extraction failed'}"; yield tuple(F2); return
+            read_video = read_video_p
+            frame_read_offset = start_i
+        progress(0.0, desc="Sampling frame signals...")
+        yield _status_only(f"Loading sample frames from `{Path(read_video).name}`...")
         # Pass 1: uniform sample for coarse bad-frame detection.
         fids, b64, sigs, err = extract_frames(
-            str(video), int(start), int(end), int(n_samp),
-            archive, ch_title, progress=progress,
+            str(read_video), start_i, end_i, int(n_samp),
+            archive, ch_title,
+            frame_read_offset=frame_read_offset,
+            progress=progress,
         )
         if err or fids is None:
-            F2 = list(FAIL); F2[1] = f"ERROR:  {err or 'Extraction failed'}"; return tuple(F2)
+            F2 = list(FAIL); F2[1] = f"ERROR:  {err or 'Extraction failed'}"; yield tuple(F2); return
 
         if not bool(strict_sampling):
             # Pass 2: if coarse sample detects bad frames, prioritize contiguous
@@ -1542,8 +1735,8 @@ with gr.Blocks(
             sc0 = combined_score(sigs, wc, wn, wt, ww)
             thr0 = compute_threshold(sc0, tmode, iqrk, tv, bp)
             focus_fids = select_focus_frame_ids(
-                start=int(start),
-                end=int(end),
+                start=start_i,
+                end=end_i,
                 max_frames=int(n_samp),
                 coarse_fids=fids,
                 coarse_scores=sc0,
@@ -1551,12 +1744,19 @@ with gr.Blocks(
                 burst_radius=4,
             )
             if focus_fids != fids:
+                progress(0.0, desc="Refining around likely bad ranges...")
+                yield _status_only(
+                    f"Refining sample around likely bad ranges in `{Path(read_video).name}`..."
+                )
                 fids, b64, sigs, err = extract_frames(
-                    str(video), int(start), int(end), int(n_samp),
-                    archive, ch_title, frame_ids=focus_fids, progress=progress,
+                    str(read_video), start_i, end_i, int(n_samp),
+                    archive, ch_title,
+                    frame_ids=focus_fids,
+                    frame_read_offset=frame_read_offset,
+                    progress=progress,
                 )
                 if err or fids is None:
-                    F2 = list(FAIL); F2[1] = f"ERROR:  {err or 'Extraction failed'}"; return tuple(F2)
+                    F2 = list(FAIL); F2[1] = f"ERROR:  {err or 'Extraction failed'}"; yield tuple(F2); return
         # Seed overrides from chapter BAD_FRAMES in chapters.ffmetadata.
         overrides = _chapter_bad_overrides(
             archive=archive,
@@ -1565,21 +1765,24 @@ with gr.Blocks(
             ch_end=int(end),
         )
         html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, vis_fids = _rebuild(
-            fids, b64, sigs, overrides, wc, wn, wt, ww, tmode, iqrk, tv, bp, cols, tw, context, int(start)
+            fids, b64, sigs, overrides, wc, wn, wt, ww, tmode, iqrk, tv, bp, cols, tw, context, int(start), bool(show_image_ids)
         )
-        return (gr.update(visible=True),
-                f"OK:  Loaded **{len(fids)}** sampled frames for **{ch_title}**. Click `Apply` to write chapter metadata.",
-                fids, b64, sigs, overrides, {"fid": -1, "ts": -1},
-                html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, vis_fids,
-                gr.update(visible=False), gr.update(visible=False), gr.update(visible=True))
+        source_tag = f"`{Path(read_video).name}`"
+        mode_tag = "step6-extract" if bool(exact_extract) else "direct-video"
+        debug_tag = " Debug overlay ON (scores may shift)." if debug_overlay else ""
+        yield (gr.update(visible=True),
+               f"OK:  Loaded **{len(fids)}** sampled frames for **{ch_title}** "
+               f"from {source_tag} ({mode_tag}).{debug_tag} "
+               "Click `Apply` to write chapter metadata.",
+               fids, b64, sigs, overrides, {"fid": -1, "ts": -1},
+               html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, vis_fids)
 
     _LOAD_OUTS = [main_panel, status_md,
-                  st_fids, st_b64, st_sigs, st_overrides, st_last_click] + _RB_OUTS + [load_row, load_status_row, show_loader_btn]
+                  st_fids, st_b64, st_sigs, st_overrides, st_last_click] + _RB_OUTS
     _LOAD_INS  = [archive_dd, chapter_dd, st_chapters,
-                  start_n, end_n, n_sl, strict_sampling_cb,
+                  start_n, end_n, n_sl, strict_sampling_cb, exact_extract_cb, debug_extract_cb,
                   wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
-                  cols_sl, twidth_sl, context_sl]
-    load_btn.click(on_load,       _LOAD_INS, _LOAD_OUTS)
+                  cols_sl, twidth_sl, context_sl, thumb_ids_cb]
     chapters_load_btn.click(on_load, _LOAD_INS, _LOAD_OUTS)
     reload_btn.click(on_load,     _LOAD_INS, _LOAD_OUTS)
     apply_range_btn.click(on_load, _LOAD_INS, _LOAD_OUTS)
@@ -1653,22 +1856,22 @@ with gr.Blocks(
 
     # -- Live slider updates ------------------------------------------------
     def on_sliders(ch_start, fids, b64, sigs, ovr,
-                   wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context):
+                   wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, show_image_ids):
         out = _rebuild(
-            fids, b64, sigs, ovr, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, int(ch_start)
+            fids, b64, sigs, ovr, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, int(ch_start), bool(show_image_ids)
         )
         return out
 
     _SL_INS = [start_n, st_fids, st_b64, st_sigs, st_overrides,
                wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
-               cols_sl, twidth_sl, context_sl]
-    for _s in [wc_sl, wn_sl, wt_sl, ww_sl, iqr_sl, tval_sl, bpct_sl, cols_sl, twidth_sl, context_sl]:
+               cols_sl, twidth_sl, context_sl, thumb_ids_cb]
+    for _s in [wc_sl, wn_sl, wt_sl, ww_sl, iqr_sl, tval_sl, bpct_sl, cols_sl, twidth_sl, context_sl, thumb_ids_cb]:
         _s.change(on_sliders, _SL_INS, _RB_OUTS)
     t_mode.change(on_sliders, _SL_INS, _RB_OUTS)
 
     # -- Frame click toggle -------------------------------------------------
     def on_click(raw_click, fids, b64, sigs, overrides, last_click_event, archive, ch_title, ch_start, ch_end,
-                 wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, mark_mode):
+                 wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, mark_mode, show_image_ids):
         if not raw_click or not raw_click.strip() or not fids:
             return (*[gr.update()] * len(_RB_OUTS), overrides, "", last_click_event)
 
@@ -1696,7 +1899,23 @@ with gr.Blocks(
             return (*[gr.update()] * len(_RB_OUTS), overrides, "", new_last_click)
 
         html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, vis_fids = _rebuild(
-            fids, b64, sigs, new_ov, wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, int(ch_start)
+            fids,
+            b64,
+            sigs,
+            new_ov,
+            wc,
+            wn,
+            wt,
+            ww,
+            tm,
+            ik,
+            tv,
+            bp,
+            cols,
+            tw,
+            context,
+            int(ch_start),
+            bool(show_image_ids),
         )
         return html, stats, sc_ch, sc_no, sc_te, sc_wa, sc_sc, vis_fids, new_ov, "", new_last_click
 
@@ -1705,13 +1924,13 @@ with gr.Blocks(
         [click_recv, st_fids, st_b64, st_sigs, st_overrides, st_last_click,
          archive_dd, chapter_dd, start_n, end_n,
          wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
-         cols_sl, twidth_sl, context_sl, mark_mode_dd],
+         cols_sl, twidth_sl, context_sl, mark_mode_dd, thumb_ids_cb],
         [*_RB_OUTS, st_overrides, click_recv, st_last_click],
         show_progress="minimal",
     )
 
     def on_gallery_select(vis_fids, fids, b64, sigs, overrides, last_click_event, archive, ch_title, ch_start, ch_end,
-                          wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, mark_mode, evt: gr.SelectData):
+                          wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, mark_mode, show_image_ids, evt: gr.SelectData):
         if evt is None or getattr(evt, "index", None) is None:
             return (*[gr.update()] * len(_RB_OUTS), overrides, "", last_click_event)
         idx = int(evt.index)
@@ -1721,7 +1940,7 @@ with gr.Blocks(
         payload = f"{fid}:{int(time.time() * 1000)}"
         return on_click(
             payload, fids, b64, sigs, overrides, last_click_event, archive, ch_title, ch_start, ch_end,
-            wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, mark_mode
+            wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, mark_mode, show_image_ids
         )
 
     grid_gallery.select(
@@ -1729,7 +1948,7 @@ with gr.Blocks(
         [st_visible_fids, st_fids, st_b64, st_sigs, st_overrides, st_last_click,
          archive_dd, chapter_dd, start_n, end_n,
          wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
-         cols_sl, twidth_sl, context_sl, mark_mode_dd],
+         cols_sl, twidth_sl, context_sl, mark_mode_dd, thumb_ids_cb],
         [*_RB_OUTS, st_overrides, click_recv, st_last_click],
         show_progress="minimal",
     )

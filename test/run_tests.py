@@ -317,6 +317,51 @@ def test_step_6_badframe_sidecar_mapping():
     sys.modules.pop("whisper", None)
     sys.modules.pop("whisper.utils", None)
 
+def test_common_make_extract_chapter_shared():
+    print("Testing common.make_extract_chapter shared extraction builder...")
+    step_6_make_videos = import_step_6_module()
+
+    cmd_common = make_extract_chapter(
+        "C:/tmp/in.mkv",
+        1.0,
+        2.0,
+        "C:/tmp/out.mkv",
+        start_frame=6205,
+        end_frame=6210,
+        debug_frame_numbers=False,
+    )
+    cmd_step6 = step_6_make_videos.make_extract_chapter(
+        "C:/tmp/in.mkv",
+        1.0,
+        2.0,
+        "C:/tmp/out.mkv",
+        start_frame=6205,
+        end_frame=6210,
+        debug_frame_numbers=False,
+    )
+    assert [str(x) for x in cmd_step6] == [str(x) for x in cmd_common]
+    vf = cmd_common[cmd_common.index("-vf") + 1]
+    assert "select='between(n\\,6205\\,6209)'" in vf
+    assert "drawtext=" not in vf
+
+    cmd_dbg = make_extract_chapter(
+        "C:/tmp/in.mkv",
+        1.0,
+        2.0,
+        "C:/tmp/out.mkv",
+        start_frame=6205,
+        end_frame=6210,
+        debug_frame_numbers=True,
+    )
+    vf_dbg = cmd_dbg[cmd_dbg.index("-vf") + 1]
+    assert "drawtext=" in vf_dbg
+    assert "global=%{eif\\:n+6205\\:d}" in vf_dbg
+
+    print("Test common.make_extract_chapter shared extraction builder: PASSED.")
+    del sys.modules['step_6_make_videos']
+    sys.modules.pop("whisper", None)
+    sys.modules.pop("whisper.utils", None)
+
 def test_step_6_badframe_repair_injection_and_comment():
     print("Testing step_6_make_videos badframe repair injection and filmed comment...")
     step_6_make_videos = import_step_6_module()
@@ -892,6 +937,68 @@ def test_step_6_make_freeze_only_avs_generation():
     assert "c = last" in empty_script
 
     print("Test step_6_make_videos freeze-only AVS generation: PASSED.")
+    del sys.modules['step_6_make_videos']
+    sys.modules.pop("whisper", None)
+    sys.modules.pop("whisper.utils", None)
+
+def test_step_6_make_extract_chapter_debug_overlay():
+    print("Testing step_6_make_videos extracted-frame debug overlay command generation...")
+    step_6_make_videos = import_step_6_module()
+
+    cmd = step_6_make_videos.make_extract_chapter(
+        "C:/tmp/in.mkv",
+        1.0,
+        2.0,
+        "C:/tmp/out.mkv",
+        start_frame=6205,
+        end_frame=6210,
+        debug_frame_numbers=False,
+    )
+    vf = cmd[cmd.index("-vf") + 1]
+    assert "select='between(n\\,6205\\,6209)'" in vf
+    assert "setpts=N/FRAME_RATE/TB" in vf
+    assert "drawtext=" not in vf
+
+    cmd_dbg = step_6_make_videos.make_extract_chapter(
+        "C:/tmp/in.mkv",
+        1.0,
+        2.0,
+        "C:/tmp/out.mkv",
+        start_frame=6205,
+        end_frame=6210,
+        debug_frame_numbers=True,
+    )
+    vf_dbg = cmd_dbg[cmd_dbg.index("-vf") + 1]
+    assert "drawtext=" in vf_dbg
+    assert "local=%{eif\\:n\\:d}" in vf_dbg
+    assert "global=%{eif\\:n+6205\\:d}" in vf_dbg
+
+    env_key = step_6_make_videos.STEP6_DEBUG_EXTRACT_FRAME_NUMBERS_ENV
+    old_env = os.environ.get(env_key)
+    try:
+        os.environ.pop(env_key, None)
+        assert not step_6_make_videos.debug_extracted_frames_enabled(
+            types.SimpleNamespace(debug_extracted_frames=False)
+        )
+        os.environ[env_key] = "1"
+        assert step_6_make_videos.debug_extracted_frames_enabled(
+            types.SimpleNamespace(debug_extracted_frames=False)
+        )
+        os.environ[env_key] = "true"
+        assert step_6_make_videos.debug_extracted_frames_enabled(
+            types.SimpleNamespace(debug_extracted_frames=False)
+        )
+        os.environ.pop(env_key, None)
+        assert step_6_make_videos.debug_extracted_frames_enabled(
+            types.SimpleNamespace(debug_extracted_frames=True)
+        )
+    finally:
+        if old_env is None:
+            os.environ.pop(env_key, None)
+        else:
+            os.environ[env_key] = old_env
+
+    print("Test step_6_make_videos extracted-frame debug overlay command generation: PASSED.")
     del sys.modules['step_6_make_videos']
     sys.modules.pop("whisper", None)
     sys.modules.pop("whisper.utils", None)
@@ -2076,11 +2183,24 @@ def test_vhs_tuner_ui_defaults_and_controls():
     assert 'n_sl = gr.Slider(20, 10000, value=400, step=10, label="n")' in src
     assert 'context_sl = gr.Slider(0, 200, value=10, step=1, label="Frames Around Bad")' in src
     assert 'strict_sampling_cb = gr.Checkbox(label="Strict Sampling", value=True)' in src
+    assert 'exact_extract_cb = gr.Checkbox(label="Use Step6 Extract", value=True)' in src
+    assert 'debug_extract_cb = gr.Checkbox(label="Debug Frame IDs", value=False)' in src
+    assert 'thumb_ids_cb = gr.Checkbox(label="Show IDs On Images", value=False)' in src
+    assert 'with gr.Tabs(elem_id="vhs-main-tabs", selected="chapters-tab"):' in src
+    assert 'status_md = gr.Markdown("`Select a chapter and click Load Selected Chapter.`")' in src
+    assert "chapter_table = gr.Dataframe(" in src
+    assert 'elem_id="vhs-chapter-table"' in src
     assert 'with gr.Tab("Frames", id="frames-tab"):' in src
     assert 'apply_btn = gr.Button("Apply", variant="primary")' in src
     assert "apply_btn.click(on_save_bad_frames, _SAVE_INS, [status_md])" in src
     assert 'choices=["toggle", "bad", "good", "clear"]' in src
     assert "if not bool(strict_sampling):" in src
+    assert "_ensure_step6_chapter_extract(" in src
+    assert "frame_read_offset=frame_read_offset" in src
+    assert "show_frame_labels=bool(show_image_ids)" in src
+    assert "yield _status_only(" in src
+    assert 'spark_chroma = gr.HTML(_E_SIG, elem_classes=["vhs-spark"])' in src
+    assert 'spark_score = gr.HTML(_E_SCORE, elem_classes=["vhs-spark", "vhs-spark-score"])' in src
     assert 'with gr.Accordion("Range & Sample", open=False):' in src
     assert 'with gr.Accordion("Manual Marking", open=False):' in src
     assert 'with gr.Accordion("Signal Weights", open=False):' in src
@@ -2094,6 +2214,7 @@ def test_vhs_tuner_ui_defaults_and_controls():
 
 def main():
     print("Running tests...")
+    test_common_make_extract_chapter_shared()
     test_step_4_generate_archive_metadata()
     test_step_6_make_videos()
     test_step_6_title_filter_and_rebuild()
@@ -2105,6 +2226,7 @@ def main():
     test_step_6_badframe_exhaustive_small_patterns_no_overlap()
     test_step_6_make_create_avs_includes_chapter_bounds()
     test_step_6_make_freeze_only_avs_generation()
+    test_step_6_make_extract_chapter_debug_overlay()
     test_step_6_real_badframes_do_not_pick_bad_sources()
     test_step_6_frame_quality_ingest_exact_archive01()
     test_step_6_proxy_badframes_overlay_e2e()

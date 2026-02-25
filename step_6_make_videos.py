@@ -17,6 +17,7 @@ ASS_NEWLINE = "\\N"
 BADFRAME_MAX_SPAN_DEFAULT = 1200
 BADFRAME_POST_QTGMC_MULTIPLIER = 1
 BADFRAME_SOURCE_CLEARANCE = 1
+STEP6_DEBUG_EXTRACT_FRAME_NUMBERS_ENV = "STEP6_DEBUG_EXTRACT_FRAME_NUMBERS"
 # Bridge small clean gaps in chapter BAD_FRAMES to avoid leaving short
 # unstable islands between bad bursts un-frozen.
 BADFRAME_BRIDGE_ALWAYS_GAP = 1
@@ -88,6 +89,14 @@ def parse_args(argv=None):
         "--no-bob",
         action="store_true",
         help="Deprecated: bob output has been removed; step_6 always renders non-bob output.",
+    )
+    p.add_argument(
+        "--debug-extracted-frames",
+        action="store_true",
+        help=(
+            "Burn local/global frame numbers into extracted.mkv for debugging. "
+            f"Can also be enabled via {STEP6_DEBUG_EXTRACT_FRAME_NUMBERS_ENV}=1."
+        ),
     )
     return p.parse_args(argv)
 
@@ -742,32 +751,10 @@ def make_extract_audio(temp_extracted, temp_transcript):
         "-ac", "1",
         "-y", str(temp_transcript)]
 
-def make_extract_chapter(src, start, end, dest, start_frame=None, end_frame=None):
-    # Keep extraction frame-exact to preserve global->local mapping for BAD_FRAMES.
-    if start_frame is None or end_frame is None:
-        raise ValueError("make_extract_chapter requires start_frame and end_frame.")
-    s_frame = int(start_frame)
-    e_frame = int(end_frame)
-    if e_frame <= s_frame:
-        e_frame = s_frame + 1
-    vf_select = (
-        f"select='between(n\\,{s_frame}\\,{e_frame - 1})',"
-        "setpts=N/FRAME_RATE/TB"
-    )
-    af_trim = f"atrim=start={float(start):.6f}:end={float(end):.6f},asetpts=PTS-STARTPTS"
-    return [FFMPEG_BIN,
-        "-nostdin",
-        "-v", "error",
-        "-i", str(src),
-        "-vf", vf_select,
-        "-af", af_trim,
-        "-map", "0:v:0", "-map", "0:a:0?",
-        "-fps_mode:v:0", "passthrough",
-        "-c:v", "ffv1",
-        "-level", "3", "-coder", "1", "-context", "1",
-        "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "1",
-        "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
-        "-y", str(dest)]
+def debug_extracted_frames_enabled(args):
+    env_raw = str(os.environ.get(STEP6_DEBUG_EXTRACT_FRAME_NUMBERS_ENV, "")).strip().lower()
+    env_on = env_raw in {"1", "true", "yes", "on"}
+    return bool(getattr(args, "debug_extracted_frames", False) or env_on)
 
 def probe_video_frame_count(path):
     p = Path(path)
@@ -975,6 +962,12 @@ def transcribe_audio(model, temp_transcript, final_srt, final_vtt, final_dir):
 def _run_with_args(args):
     model = None
     rebuild_selected = bool(args.title)
+    debug_extracted_frames = debug_extracted_frames_enabled(args)
+    if debug_extracted_frames:
+        print(
+            "Debug extracted-frame overlay enabled: "
+            f"{STEP6_DEBUG_EXTRACT_FRAME_NUMBERS_ENV}=1 or --debug-extracted-frames"
+        )
 
     archive_filters = [str(x or "").strip().lower() for x in (args.archive or []) if str(x or "").strip()]
     for src in ARCHIVE_DIR.glob("*.mkv"):
@@ -1068,6 +1061,7 @@ def _run_with_args(args):
                         extracted,
                         start_frame=chapter_start_frame,
                         end_frame=chapter_end_frame,
+                        debug_frame_numbers=debug_extracted_frames,
                     )
                 )
                 assert_expected_frame_count(

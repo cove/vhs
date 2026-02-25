@@ -154,6 +154,63 @@ def run(cmd, cwd=None):
     print("Command: " + " ".join(map(str, cmd)))
     subprocess.run([str(c) for c in cmd], check=True, cwd=cwd)
 
+def make_extract_chapter(
+    src,
+    start,
+    end,
+    dest,
+    start_frame=None,
+    end_frame=None,
+    debug_frame_numbers=False,
+):
+    """
+    Frame-exact chapter extraction command builder.
+    Uses select+setpts for exact frame slicing and optional drawtext overlay.
+    """
+    if start_frame is None or end_frame is None:
+        raise ValueError("make_extract_chapter requires start_frame and end_frame.")
+    s_frame = int(start_frame)
+    e_frame = int(end_frame)
+    if e_frame <= s_frame:
+        e_frame = s_frame + 1
+
+    vf_filters = [
+        f"select='between(n\\,{s_frame}\\,{e_frame - 1})'",
+        "setpts=N/FRAME_RATE/TB",
+    ]
+    if bool(debug_frame_numbers):
+        local_label = "%{eif\\:n\\:d}"
+        global_label = f"%{{eif\\:n+{s_frame}\\:d}}"
+        font_expr = ""
+        win_font = Path("C:/Windows/Fonts/consola.ttf")
+        if win_font.exists():
+            font_expr = "fontfile='C\\:/Windows/Fonts/consola.ttf'"
+        vf_filters.append(
+            "drawtext="
+            + f"text='local={local_label} global={global_label}'"
+            + (f":{font_expr}" if font_expr else "")
+            + ":x=16:y=16:fontsize=24:"
+            + "fontcolor=white:box=1:boxcolor=black@0.55:borderw=2"
+        )
+    vf_select = ",".join(vf_filters)
+
+    af_trim = f"atrim=start={float(start):.6f}:end={float(end):.6f},asetpts=PTS-STARTPTS"
+    return [
+        FFMPEG_BIN,
+        "-nostdin",
+        "-v", "error",
+        "-i", str(src),
+        "-vf", vf_select,
+        "-af", af_trim,
+        "-map", "0:v:0", "-map", "0:a:0?",
+        "-fps_mode:v:0", "passthrough",
+        "-c:v", "ffv1",
+        "-level", "3", "-coder", "1", "-context", "1",
+        "-c:a", "pcm_s16le", "-ar", "48000", "-ac", "1",
+        "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
+        "-y", str(dest),
+    ]
+
 def resolve_path(path_value, base_dir=None):
     path = Path(path_value).expanduser()
     if path.is_absolute():
