@@ -341,6 +341,12 @@ def test_step_6_badframe_repair_injection_and_comment():
     except RuntimeError as e:
         assert "source is also bad" in str(e)
 
+    try:
+        step_6_make_videos._build_badframe_freezeframe_lines([(6, 8, 20), (8, 10, 30)])
+        raise AssertionError("Expected RuntimeError for overlapping FreezeFrame ranges.")
+    except RuntimeError as e:
+        assert "overlapping FreezeFrame ranges" in str(e)
+
     out_forward_only = step_6_make_videos.build_badframe_prefilter_lines(
         bad_repair_ranges=[(0, 0, None), (10, 10, None)]
     )

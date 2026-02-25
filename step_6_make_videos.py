@@ -237,16 +237,23 @@ def _build_badframe_freezeframe_lines(resolved_ranges, frame_multiplier=1):
         bad_targets.update(range(int(a), int(b) + 1))
 
     fix_lines = ["c = last"]
+    last_target_end = -1
     # Freeze contiguous bad-frame runs to one neighboring clean frame.
     for a, b, src in sorted(resolved_ranges, key=lambda x: (x[0], x[1])):
+        ia, ib = int(a), int(b)
+        if ia <= last_target_end:
+            raise RuntimeError(
+                f"Invalid overlapping FreezeFrame ranges: {ia}-{ib} overlaps prior target ending at {last_target_end}."
+            )
         if int(src) in bad_targets:
             raise RuntimeError(
                 f"Invalid FreezeFrame source {src} for bad range {a}-{b}: source is also bad."
             )
-        out_a = a * m
-        out_b = ((b + 1) * m) - 1
-        out_src = src * m
+        out_a = ia * m
+        out_b = ((ib + 1) * m) - 1
+        out_src = int(src) * m
         fix_lines.append(f"c = c.FreezeFrame({out_a},{out_b},{out_src})")
+        last_target_end = ib
     fix_lines.append("c")
     return "\n".join(fix_lines) + "\n"
 
