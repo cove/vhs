@@ -3,6 +3,9 @@ import os
 import sys
 import subprocess
 import types
+import re
+import io
+import contextlib
 from pathlib import Path
 import numpy as np
 
@@ -456,7 +459,370 @@ def test_step_6_badframe_split_strategy_logic_paths():
     )
     assert r == [(210, 210, 213)]
 
+    # Optional source-clearance should avoid immediate post-burst frame.
+    r = step_6_make_videos._resolve_badframe_repair_ranges(
+        bad_repair_ranges=[(357, 371, None)],
+        max_source_frame=500,
+        source_clearance=1,
+    )
+    assert r == [(357, 371, 373)]
+
     print("Test step_6_make_videos badframe split strategy logic paths: PASSED.")
+    del sys.modules['step_6_make_videos']
+    sys.modules.pop("whisper", None)
+    sys.modules.pop("whisper.utils", None)
+
+def test_step_6_badframe_gap_bridging_policy():
+    print("Testing step_6_make_videos BAD_FRAMES gap-bridging policy...")
+    step_6_make_videos = import_step_6_module()
+
+    # Real-world style sparse pattern around chapter-05 trouble spot:
+    # singleton -> gap 5 -> burst -> gap 1 -> burst should bridge to one run.
+    repairs = step_6_make_videos.local_bad_frames_to_repairs([210, 216, 217, 218, 220, 221, 222])
+    assert repairs == [(210, 222, None)]
+
+    # Gap=1 should always bridge even without singleton on either side.
+    repairs = step_6_make_videos.local_bad_frames_to_repairs([10, 11, 13, 14])
+    assert repairs == [(10, 14, None)]
+
+    # Larger gaps should remain separate when neither side is singleton.
+    repairs = step_6_make_videos.local_bad_frames_to_repairs([0, 1, 2, 8, 9, 10])
+    assert repairs == [(0, 2, None), (8, 10, None)]
+
+    # Singleton with medium gap should bridge.
+    repairs = step_6_make_videos.local_bad_frames_to_repairs([30, 35, 36, 37])
+    assert repairs == [(30, 37, None)]
+
+    # Chapter-05 dense trouble cluster should bridge only short gaps.
+    repairs = step_6_make_videos.local_bad_frames_to_repairs(
+        [313, 314, 315, 316, 317, 319, 320, 322, 323, 326, 327, 328, 329, 330]
+    )
+    assert repairs == [(313, 323, None), (326, 330, None)]
+
+    # No padding expansion should occur when max_frame is provided.
+    repairs = step_6_make_videos.local_bad_frames_to_repairs([48, 49], max_frame=49)
+    assert repairs == [(48, 49, None)]
+
+    print("Test step_6_make_videos BAD_FRAMES gap-bridging policy: PASSED.")
+    del sys.modules['step_6_make_videos']
+    sys.modules.pop("whisper", None)
+    sys.modules.pop("whisper.utils", None)
+
+def test_step_6_badframe_randomized_generation_100_cases():
+    print("Testing step_6_make_videos badframe resolver with 100 pre-generated patterns...")
+    step_6_make_videos = import_step_6_module()
+
+    pregenerated_cases = [
+        (18, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]),
+        (19, []),
+        (36, [1, 2, 3, 6, 7, 8, 11, 12, 13, 15, 17, 18, 19, 20, 22, 23, 24, 25, 28, 29, 31, 32, 33, 34, 35]),
+        (14, []),
+        (12, [1, 2, 3, 5, 6, 7, 8, 11]),
+        (50, [0, 8, 10, 11, 14, 16, 17, 18, 20, 21, 34, 35, 36, 37, 38, 39, 41, 45]),
+        (21, [0, 2, 3, 4, 10, 12, 14, 17, 18, 19, 20]),
+        (37, [0, 2, 3, 4, 5, 6, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 26, 27, 28, 31, 32, 33, 34, 35]),
+        (45, [1, 2, 3, 4, 6, 7, 9, 10, 12, 13, 14, 20, 21, 22, 23, 25, 26, 27, 30, 31, 33, 34, 35, 42, 44]),
+        (25, [2, 5, 21, 23]),
+        (12, [4, 5]),
+        (31, [0, 5, 6, 9, 12, 13, 16, 17, 19, 20, 21, 24, 25, 26, 28, 29, 30]),
+        (45, [1, 6, 11, 13, 15, 17, 20, 21, 24, 29, 30, 32, 41]),
+        (26, [0, 1, 2, 3, 5, 10, 11, 13, 14, 15, 17, 19, 21, 22, 24]),
+        (41, [24, 33]),
+        (46, [0, 1, 4, 6, 12, 13, 15, 17, 19, 22, 23, 28, 29, 34, 36, 38, 41, 42, 45]),
+        (15, []),
+        (17, [9, 10]),
+        (27, [0, 1, 2, 3, 4, 5, 6, 8, 10, 11, 12, 13, 14, 16, 17, 18, 20, 21, 22, 24, 26]),
+        (42, [3, 4, 5, 6, 11, 17, 18, 19, 20, 25, 29, 34, 35, 37]),
+        (19, [6, 9, 12, 14, 15, 18]),
+        (25, [1, 3, 6, 10, 13, 14, 17, 20, 22, 23]),
+        (23, [0, 1, 2, 3, 4, 6, 7, 8, 10, 12, 13, 15, 16, 17, 18, 19, 22]),
+        (40, [0, 1, 2, 3, 5, 6, 8, 9, 10, 11, 12, 13, 14, 17, 19, 20, 21, 22, 24, 25, 26, 27, 28, 31, 32, 33, 35, 36, 37]),
+        (11, [0, 1, 2, 3, 4, 5, 6, 8, 9, 10]),
+        (21, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]),
+        (10, []),
+        (48, [0, 1, 2, 5, 10, 11, 12, 13, 14, 15, 16, 19, 20, 23, 25, 27, 30, 31, 36, 39, 40, 45, 47]),
+        (11, []),
+        (23, [0, 1, 2, 3, 5, 8, 11, 14, 17, 21]),
+        (31, [0, 1, 2, 3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 18, 19, 20, 22, 23, 25, 27, 30]),
+        (28, [26]),
+        (42, [1, 2, 3, 5, 6, 7, 8, 9, 10, 12, 13, 14, 17, 18, 20, 21, 22, 23, 24, 25, 26, 28, 29, 31, 33, 35, 36, 37, 38, 39, 41]),
+        (29, [0, 1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 23, 24, 25, 27]),
+        (38, [10, 12, 14, 16, 24, 37]),
+        (42, [0, 1, 2, 3, 4, 5, 6, 7, 8, 11, 13, 14, 15, 16, 19, 20, 21, 22, 23, 27, 29, 30, 32, 33, 34, 35, 36, 37, 38, 39, 41]),
+        (13, [6]),
+        (37, [2, 5, 6, 8, 9, 10, 11, 12, 13, 15, 16, 17, 19, 20, 23, 24, 25, 26, 27, 28, 29, 30, 32, 33, 34, 36]),
+        (36, [0, 6, 7, 16, 17, 25, 33]),
+        (35, [3, 6, 7, 8, 11, 16, 18, 29]),
+        (38, [5, 18, 30, 33]),
+        (38, [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 18, 19, 20, 21, 22, 23, 24, 26, 27, 28, 29, 30, 31, 33, 34, 35, 36]),
+        (31, [3, 4, 5, 8, 9, 13, 14, 16, 18, 19, 22, 24]),
+        (20, [0, 3, 6, 9, 12, 16]),
+        (45, [0, 1, 8, 9, 11, 13, 15, 19, 35, 39]),
+        (31, [10, 13, 14, 24, 28]),
+        (32, [1, 3, 5, 7, 8, 9, 11, 12, 13, 17, 19, 22, 24, 25, 27, 28, 30]),
+        (38, [0, 2, 4, 6, 7, 10, 11, 13, 22, 26, 27, 30, 31, 34, 35, 36]),
+        (49, [1, 9, 10, 12, 17, 24, 26, 27, 33, 40, 42, 45, 48]),
+        (37, [1, 2, 3, 4, 7, 8, 9, 16, 17, 19, 27, 28, 29, 31, 32]),
+        (43, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42]),
+        (30, []),
+        (36, [7, 8, 29, 33]),
+        (38, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 24, 25, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37]),
+        (35, [1, 4, 6, 7, 8, 11, 17, 19, 22, 23, 28]),
+        (29, [0, 1, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 20, 21, 23, 24, 26, 27]),
+        (21, [0, 1, 2, 4, 6, 7, 9, 10, 11, 12, 13, 16, 17, 18, 19, 20]),
+        (32, [0, 2, 4, 5, 8, 11, 12, 16, 19, 20, 22, 26, 29, 30, 31]),
+        (35, [1, 2, 3, 4, 6, 7, 8, 16, 20, 24, 26, 30, 31]),
+        (15, [0, 1, 2, 4, 5, 7, 9]),
+        (10, [1]),
+        (21, [0, 1, 3, 5, 6, 7, 10, 11, 12, 15, 16, 17, 19, 20]),
+        (30, [0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 15, 17, 18, 19, 20, 21, 22, 23, 27, 28, 29]),
+        (38, [0, 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27, 29, 30, 31, 32, 33, 34, 35, 36, 37]),
+        (49, [0, 1, 3, 4, 7, 9, 10, 13, 15, 16, 24, 26, 29, 34, 35, 36, 37, 38, 39, 42, 44, 45]),
+        (33, [0, 7, 8, 14, 16, 23, 29, 31]),
+        (30, [0, 6, 8, 20, 28]),
+        (21, [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]),
+        (31, [0, 3, 5, 6, 8, 16, 22, 23, 25]),
+        (13, [0, 1, 7, 11]),
+        (30, [0, 1, 2, 5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17, 20, 21, 23, 24, 28, 29]),
+        (50, [0, 1, 2, 3, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20, 21, 22, 23, 24, 25, 26, 28, 29, 30, 31, 32, 36, 37, 38, 40, 41, 44, 45, 46, 47]),
+        (15, [0, 2, 4, 6, 7, 10]),
+        (13, [9]),
+        (49, [4, 9, 10, 13, 14, 15, 16, 18, 21, 22, 23, 31, 32, 33, 34, 35, 37, 39, 40, 47, 48]),
+        (29, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]),
+        (21, []),
+        (28, [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 22, 23, 24, 25, 26, 27]),
+        (43, [1, 2, 3, 10, 11, 16, 23, 26, 30, 32, 33, 37, 39, 40]),
+        (41, [11, 39]),
+        (33, [0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 13, 15, 16, 19, 20, 21, 22, 23, 24, 25, 26, 27, 29, 30, 31, 32]),
+        (23, [1, 2, 3, 5, 7, 8, 10, 13, 14, 15, 17, 18, 19, 20, 22]),
+        (37, [0, 3, 4, 6, 7, 8, 10, 11, 13, 19, 24, 27, 28, 29, 31, 32, 35, 36]),
+        (20, [1, 3, 9, 10, 11, 14, 15]),
+        (13, [3, 6, 9]),
+        (37, [0, 1, 3, 4, 5, 8, 9, 10, 12, 13, 16, 17, 18, 20, 22, 23, 27, 28, 30, 31, 32, 34, 35, 36]),
+        (16, [0, 1, 4, 7, 9, 10, 14]),
+        (30, [0, 1, 2, 3, 5, 6, 7, 9, 11, 12, 13, 14, 15, 17, 18, 20, 21, 22, 23, 24, 26, 27, 28, 29]),
+        (40, [1, 2, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19, 23, 24, 25, 28, 31, 32, 33, 34, 35, 36, 37, 38, 39]),
+        (35, [0, 1, 3, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 19, 20, 23, 24, 25, 26, 28, 29, 30, 31, 33]),
+        (40, [1, 8, 10, 12, 30, 34, 37]),
+        (36, [0, 1, 2, 5, 8, 20, 24, 25, 28, 30]),
+        (44, [0, 1, 2, 3, 4, 11, 13, 16, 17, 18, 24, 32, 34, 35, 39]),
+        (47, [2, 3, 4, 11, 13, 17, 18, 20, 22, 23, 26, 36, 38, 41, 42, 44]),
+        (12, [0, 3, 4, 5, 7, 8, 9]),
+        (42, [0, 2, 4, 14, 18, 22, 24, 26, 27, 30, 34, 36, 37, 38, 40, 41]),
+        (29, [0, 1, 2, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 26, 27, 28]),
+        (31, [2, 4, 6, 8, 10, 13, 15, 16, 18, 21, 22, 23, 24, 27]),
+        (28, [0, 1, 3, 5, 6, 8, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 23, 24, 25, 26, 27]),
+        (42, [0, 1, 3, 4, 5, 6, 8, 9, 10, 11, 12, 15, 17, 18, 21, 22, 23, 25, 27, 29, 30, 32, 34, 35, 36, 37, 38, 39, 41]),
+    ]
+    assert len(pregenerated_cases) == 100
+
+    def _simulate_shown_frames(frame_count, resolved_ranges):
+        shown = list(range(frame_count))
+        for a, b, src in resolved_ranges:
+            for fi in range(int(a), int(b) + 1):
+                shown[fi] = int(src)
+        return shown
+
+    def _bad_ranges_from_frames(bad_frames):
+        frames = sorted(set(int(f) for f in bad_frames))
+        if not frames:
+            return []
+        out = []
+        a = b = frames[0]
+        for f in frames[1:]:
+            if f == b + 1:
+                b = f
+                continue
+            out.append((a, b))
+            a = b = f
+        out.append((a, b))
+        return out
+
+    def _expected_unrepaired_targets(frame_count, bad_set):
+        # Mirrors source-availability policy for auto range repair:
+        # single-frame ranges use +/-2 extra skip before scanning for a clean source.
+        if not bad_set:
+            return set()
+        unrepaired = set()
+
+        for a, b in _bad_ranges_from_frames(bad_set):
+            span = b - a + 1
+            skip = step_6_make_videos.BADFRAME_SINGLE_FRAME_SOURCE_SKIP if span == 1 else 0
+
+            next_src = b + 1 + skip
+            while next_src < frame_count and next_src in bad_set:
+                next_src += 1
+            if next_src >= frame_count:
+                next_src = None
+
+            prev_src = a - 1 - skip
+            while prev_src >= 0 and prev_src in bad_set:
+                prev_src -= 1
+            if prev_src < 0:
+                prev_src = None
+
+            if next_src is None and prev_src is None:
+                unrepaired.update(range(a, b + 1))
+
+        return unrepaired
+
+    for case_idx, (frame_count, bad_frames) in enumerate(pregenerated_cases):
+        bad_frames = sorted({int(f) for f in bad_frames if 0 <= int(f) < int(frame_count)})
+
+        bad_set = set(bad_frames)
+        with contextlib.redirect_stdout(io.StringIO()):
+            resolved = step_6_make_videos._resolve_badframe_repair_ranges(
+                bad_source_frames=bad_frames,
+                max_source_frame=frame_count - 1,
+            )
+
+        repaired_targets = set()
+        last_end = -1
+        for a, b, src in resolved:
+            assert 0 <= int(a) <= int(b) < frame_count
+            assert int(a) > last_end
+            assert 0 <= int(src) < frame_count
+            assert int(src) not in bad_set
+            for fi in range(int(a), int(b) + 1):
+                assert fi in bad_set
+                repaired_targets.add(fi)
+            last_end = int(b)
+
+        expected_unrepaired = _expected_unrepaired_targets(frame_count, bad_set)
+        expected_repaired = bad_set - expected_unrepaired
+
+        if not bad_set:
+            assert resolved == []
+            assert repaired_targets == set()
+        else:
+            assert repaired_targets == expected_repaired, (
+                f"Case {case_idx} repaired targets mismatch: "
+                f"expected={sorted(expected_repaired)} actual={sorted(repaired_targets)}"
+            )
+
+        lines = step_6_make_videos._build_badframe_freezeframe_lines(resolved, frame_multiplier=1)
+        if not resolved:
+            assert lines == ""
+        else:
+            assert lines.count("FreezeFrame(") == len(resolved)
+            line_ranges = []
+            for line in lines.splitlines():
+                m = re.search(r"FreezeFrame\((\d+),(\d+),(\d+)\)", line)
+                if m:
+                    line_ranges.append(tuple(int(v) for v in m.groups()))
+            expected_line_ranges = [(int(a), int(b), int(src)) for (a, b, src) in resolved]
+            assert line_ranges == expected_line_ranges
+
+        shown = _simulate_shown_frames(frame_count, resolved)
+        for fi in range(frame_count):
+            if fi in repaired_targets:
+                assert shown[fi] not in bad_set
+            elif fi in bad_set:
+                assert fi in expected_unrepaired
+            else:
+                assert shown[fi] == fi
+
+    print("Test step_6_make_videos badframe randomized generation (100 cases): PASSED.")
+    del sys.modules['step_6_make_videos']
+    sys.modules.pop("whisper", None)
+    sys.modules.pop("whisper.utils", None)
+
+def test_step_6_badframe_exhaustive_small_patterns_no_overlap():
+    print("Testing step_6_make_videos exhaustive small-pattern overlap safety...")
+    step_6_make_videos = import_step_6_module()
+
+    def _bad_ranges_from_frames(bad_frames):
+        frames = sorted(set(int(f) for f in bad_frames))
+        if not frames:
+            return []
+        out = []
+        a = b = frames[0]
+        for f in frames[1:]:
+            if f == b + 1:
+                b = f
+                continue
+            out.append((a, b))
+            a = b = f
+        out.append((a, b))
+        return out
+
+    def _expected_unrepaired_targets(frame_count, bad_set):
+        if not bad_set:
+            return set()
+        unrepaired = set()
+        for a, b in _bad_ranges_from_frames(bad_set):
+            span = b - a + 1
+            skip = step_6_make_videos.BADFRAME_SINGLE_FRAME_SOURCE_SKIP if span == 1 else 0
+
+            next_src = b + 1 + skip
+            while next_src < frame_count and next_src in bad_set:
+                next_src += 1
+            if next_src >= frame_count:
+                next_src = None
+
+            prev_src = a - 1 - skip
+            while prev_src >= 0 and prev_src in bad_set:
+                prev_src -= 1
+            if prev_src < 0:
+                prev_src = None
+
+            if next_src is None and prev_src is None:
+                unrepaired.update(range(a, b + 1))
+        return unrepaired
+
+    total_patterns = 0
+    for frame_count in (10, 11, 12):
+        # Exhaustive: every bad/good pattern for this frame length.
+        for mask in range(1 << frame_count):
+            bad_frames = [fi for fi in range(frame_count) if (mask >> fi) & 1]
+            bad_set = set(bad_frames)
+            with contextlib.redirect_stdout(io.StringIO()):
+                resolved = step_6_make_videos._resolve_badframe_repair_ranges(
+                    bad_source_frames=bad_frames,
+                    max_source_frame=frame_count - 1,
+                )
+
+            repaired_targets = set()
+            last_end = -1
+            for a, b, src in resolved:
+                ia, ib, isrc = int(a), int(b), int(src)
+                assert 0 <= ia <= ib < frame_count
+                assert ia > last_end
+                assert 0 <= isrc < frame_count
+                assert isrc not in bad_set
+                for fi in range(ia, ib + 1):
+                    assert fi in bad_set
+                    repaired_targets.add(fi)
+                last_end = ib
+
+            expected_unrepaired = _expected_unrepaired_targets(frame_count, bad_set)
+            expected_repaired = bad_set - expected_unrepaired
+            assert repaired_targets == expected_repaired, (
+                f"frame_count={frame_count} mask={mask} repaired mismatch: "
+                f"expected={sorted(expected_repaired)} actual={sorted(repaired_targets)}"
+            )
+
+            lines = step_6_make_videos._build_badframe_freezeframe_lines(
+                resolved,
+                frame_multiplier=1,
+            )
+            if not resolved:
+                assert lines == ""
+            else:
+                parsed = []
+                for line in lines.splitlines():
+                    m = re.search(r"FreezeFrame\((\d+),(\d+),(\d+)\)", line)
+                    if m:
+                        parsed.append(tuple(int(v) for v in m.groups()))
+                assert parsed == [(int(a), int(b), int(src)) for a, b, src in resolved]
+                prev_end = -1
+                for a, b, _src in parsed:
+                    assert a > prev_end
+                    prev_end = b
+            total_patterns += 1
+
+    assert total_patterns == (1 << 10) + (1 << 11) + (1 << 12)
+    print("Test step_6_make_videos exhaustive small-pattern overlap safety: PASSED.")
     del sys.modules['step_6_make_videos']
     sys.modules.pop("whisper", None)
     sys.modules.pop("whisper.utils", None)
@@ -493,6 +859,39 @@ def test_step_6_make_create_avs_includes_chapter_bounds():
         tmp_filter.unlink(missing_ok=True)
 
     print("Test step_6_make_videos AVS generation with chapter bounds: PASSED.")
+    del sys.modules['step_6_make_videos']
+    sys.modules.pop("whisper", None)
+    sys.modules.pop("whisper.utils", None)
+
+def test_step_6_make_freeze_only_avs_generation():
+    print("Testing step_6_make_videos freeze-only AVS generation...")
+    step_6_make_videos = import_step_6_module()
+
+    script = step_6_make_videos.make_freeze_only_avs(
+        "C:/tmp/extracted.mkv",
+        bad_source_frames=[4, 5],
+        chapter_start_frame=100,
+        chapter_end_frame=200,
+        source_clearance=1,
+    )
+    assert 'LoadPlugin("' in script
+    assert 'FFmpegSource2("C:/tmp/extracted.mkv"' in script
+    assert "chapter_start_frame = 100" in script
+    assert "chapter_end_frame = 200" in script
+    assert "FreezeFrame(4,5,7)" in script
+    assert "Import(" not in script
+    assert "QTGMC(" not in script
+
+    empty_script = step_6_make_videos.make_freeze_only_avs(
+        "C:/tmp/extracted.mkv",
+        bad_source_frames=[],
+        chapter_start_frame=100,
+        chapter_end_frame=200,
+    )
+    assert "FreezeFrame(" not in empty_script
+    assert "c = last" in empty_script
+
+    print("Test step_6_make_videos freeze-only AVS generation: PASSED.")
     del sys.modules['step_6_make_videos']
     sys.modules.pop("whisper", None)
     sys.modules.pop("whisper.utils", None)
@@ -1701,7 +2100,11 @@ def main():
     test_step_6_badframe_sidecar_mapping()
     test_step_6_badframe_repair_injection_and_comment()
     test_step_6_badframe_split_strategy_logic_paths()
+    test_step_6_badframe_gap_bridging_policy()
+    test_step_6_badframe_randomized_generation_100_cases()
+    test_step_6_badframe_exhaustive_small_patterns_no_overlap()
     test_step_6_make_create_avs_includes_chapter_bounds()
+    test_step_6_make_freeze_only_avs_generation()
     test_step_6_real_badframes_do_not_pick_bad_sources()
     test_step_6_frame_quality_ingest_exact_archive01()
     test_step_6_proxy_badframes_overlay_e2e()

@@ -15,24 +15,18 @@ from common import *
 
 ASS_NEWLINE = "\\N"
 BADFRAME_MAX_SPAN_DEFAULT = 1200
-BADFRAME_PAD_BEFORE_DEFAULT = 2
-BADFRAME_PAD_AFTER_DEFAULT = 0
 BADFRAME_POST_QTGMC_MULTIPLIER = 1
+BADFRAME_SOURCE_CLEARANCE = 1
+# Bridge small clean gaps in chapter BAD_FRAMES to avoid leaving short
+# unstable islands between bad bursts un-frozen.
+BADFRAME_BRIDGE_ALWAYS_GAP = 1
+BADFRAME_BRIDGE_SINGLETON_GAP = 5
 # Avoid pulling from prior frames in auto mode; this reduces risk when the
 # frame immediately before a burst is also visually unstable.
 BADFRAME_SPLIT_BURSTS_ACROSS_NEIGHBORS = False
 # For single-frame repairs, skip a short lookahead/behind window before picking
 # source to avoid using immediately adjacent frames that are often still unstable.
 BADFRAME_SINGLE_FRAME_SOURCE_SKIP = 2
-
-def auto_badframe_pad(span):
-    # Minimize repaired-frame count while still protecting QTGMC temporal context.
-    # Single-frame glitches usually do not need extra pre-pad.
-    if span <= 1:
-        return 0, 0
-    if span <= 3:
-        return 1, 0
-    return BADFRAME_PAD_BEFORE_DEFAULT, BADFRAME_PAD_AFTER_DEFAULT
 
 def chapter_done(final_file):
     return final_file.exists() and final_file.stat().st_size > 100_000
@@ -141,6 +135,7 @@ def _resolve_badframe_repair_ranges(
     bad_source_frames=None,
     bad_repair_ranges=None,
     max_source_frame=None,
+    source_clearance=0,
 ):
     ranges = _normalize_bad_repair_ranges(
         bad_source_frames=bad_source_frames,
@@ -156,23 +151,41 @@ def _resolve_badframe_repair_ranges(
 
     max_allowed_src = None if max_source_frame is None else int(max_source_frame)
 
+    clearance = max(0, int(source_clearance))
+
+    def source_is_clear(src):
+        if src in bad_set:
+            return False
+        if clearance <= 0:
+            return True
+        for f in range(int(src) - clearance, int(src) + clearance + 1):
+            if f in bad_set:
+                return False
+        return True
+
     def choose_repair_source_after(b, extra_skip=0):
         src = b + 1 + max(0, int(extra_skip))
-        while src in bad_set:
+        while True:
+            while src in bad_set:
+                src += 1
+            if max_allowed_src is not None and src > max_allowed_src:
+                return None
+            if source_is_clear(src):
+                return src
             src += 1
-        if max_allowed_src is not None and src > max_allowed_src:
-            return None
-        return src
 
     def choose_repair_source_before(a, extra_skip=0):
         src = a - 1 - max(0, int(extra_skip))
         if max_allowed_src is not None:
             src = min(src, max_allowed_src)
-        while src >= 0 and src in bad_set:
+        while src >= 0:
+            while src >= 0 and src in bad_set:
+                src -= 1
+            if src < 0:
+                return None
+            if source_is_clear(src):
+                return src
             src -= 1
-        if src < 0:
-            return None
-        return src
 
     resolved_ranges = []
     for a, b, src_override in sorted(ranges, key=lambda x: (x[0], x[1])):
@@ -333,19 +346,43 @@ def _merge_badframe_repairs(repairs):
             merged.append((a, b, src))
     return merged
 
-def local_bad_frames_to_repairs(local_bad_frames):
+def _bridge_bad_ranges(ranges):
+    if not ranges:
+        return []
+    merged = [(int(ranges[0][0]), int(ranges[0][1]))]
+    for a_raw, b_raw in ranges[1:]:
+        a = int(a_raw)
+        b = int(b_raw)
+        la, lb = merged[-1]
+        gap = a - lb - 1
+        left_len = lb - la + 1
+        right_len = b - a + 1
+        should_bridge = False
+        if gap <= BADFRAME_BRIDGE_ALWAYS_GAP:
+            should_bridge = True
+        elif gap <= BADFRAME_BRIDGE_SINGLETON_GAP and (left_len == 1 or right_len == 1):
+            should_bridge = True
+        if should_bridge:
+            merged[-1] = (la, max(lb, b))
+        else:
+            merged.append((a, b))
+    return merged
+
+def local_bad_frames_to_repairs(local_bad_frames, max_frame=None):
     frames = sorted({int(f) for f in (local_bad_frames or []) if int(f) >= 0})
     if not frames:
         return []
-    out = []
+    contiguous = []
     start = prev = frames[0]
     for f in frames[1:]:
         if f == prev + 1:
             prev = f
             continue
-        out.append((start, prev, None))
+        contiguous.append((start, prev))
         start = prev = f
-    out.append((start, prev, None))
+    contiguous.append((start, prev))
+    bridged = _bridge_bad_ranges(contiguous)
+    out = [(a, b, None) for a, b in bridged]
     return _merge_badframe_repairs(out)
 
 def chapter_global_frame_bounds(chapter):
@@ -603,7 +640,9 @@ def make_create_avs(
     chapter_start_frame=0,
     chapter_end_frame=0,
     no_bob=False,
+    source_clearance=0,
 ):
+    # Full filter AVS: optional pre-filter FreezeFrame, then chapter filter import.
     chapter_len_frames = int(chapter_end_frame) - int(chapter_start_frame)
     if chapter_len_frames <= 0:
         chapter_len_frames = 1
@@ -612,6 +651,7 @@ def make_create_avs(
         bad_source_frames=bad_source_frames or [],
         bad_repair_ranges=bad_repair_ranges,
         max_source_frame=max_source_frame,
+        source_clearance=source_clearance,
     )
     prefilter_text = _build_badframe_freezeframe_lines(
         resolved_bad_repair_ranges,
@@ -659,6 +699,38 @@ Import("{filter_import_path}")
                 "Invalid AVS generation: FreezeFrame lines found after filter import."
             )
     return script_text
+
+def make_freeze_only_avs(
+    temp_extracted: str,
+    bad_source_frames=None,
+    bad_repair_ranges=None,
+    chapter_start_frame=0,
+    chapter_end_frame=0,
+    source_clearance=0,
+):
+    chapter_len_frames = int(chapter_end_frame) - int(chapter_start_frame)
+    if chapter_len_frames <= 0:
+        chapter_len_frames = 1
+    max_source_frame = chapter_len_frames - 1
+    resolved_bad_repair_ranges = _resolve_badframe_repair_ranges(
+        bad_source_frames=bad_source_frames or [],
+        bad_repair_ranges=bad_repair_ranges,
+        max_source_frame=max_source_frame,
+        source_clearance=source_clearance,
+    )
+    freeze_text = _build_badframe_freezeframe_lines(
+        resolved_bad_repair_ranges,
+        frame_multiplier=1,
+    )
+    if not freeze_text:
+        freeze_text = "c = last\nc\n"
+    return f'''
+LoadPlugin("{QTGMC_DIR}/ffms2.dll")
+FFmpegSource2("{temp_extracted}", atrack=-1)
+chapter_start_frame = {int(chapter_start_frame)}
+chapter_end_frame = {int(chapter_end_frame)}
+{freeze_text}
+'''
 
 def make_extract_audio(temp_extracted, temp_transcript):
     return [FFMPEG_BIN,
@@ -854,19 +926,22 @@ def make_encode_final_x264(temp_qtgmc, subtitle_tracks, final_file, author, titl
         cmd += ["-metadata:s:a:0", "language=eng"]
     return cmd
 
-def make_deinterlace(temp_avs, temp_extracted, temp_qtgmc):
+def make_render_avs_ffv1(temp_avs, temp_audio_src, temp_out):
     return [FFMPEG_BIN,
         "-nostdin",
         "-v", "error",
         "-i", str(temp_avs),
-        "-i", str(temp_extracted),
+        "-i", str(temp_audio_src),
         "-pix_fmt", "yuv422p",
         "-fps_mode:v:0", "passthrough",
         "-map", "0:v:0", "-c:v", "ffv1",
         "-level", "3", "-coder", "1", "-context", "1",
         "-map", "1:a:0?", "-c:a", "copy",
         "-fflags", "+genpts", "-start_at_zero", "-avoid_negative_ts", "make_zero",
-        "-y", str(temp_qtgmc)]
+        "-y", str(temp_out)]
+
+def make_deinterlace(temp_avs, temp_extracted, temp_qtgmc):
+    return make_render_avs_ffv1(temp_avs, temp_extracted, temp_qtgmc)
 
 def make_deinterlace_ffmpeg_fallback(temp_extracted, temp_qtgmc, no_bob=False):
     # Cross-platform fallback when AviSynth/QTGMC is unavailable.
@@ -960,9 +1035,11 @@ def _run_with_args(args):
             temp_dir = final_dir / f"{safe(title)}_temp"
             temp_dir.mkdir(exist_ok=True)
             extracted = temp_dir / "extracted.mkv"
+            repaired_extracted = temp_dir / "repaired_extracted.mkv"
             qtgmc = temp_dir / "qtgmc.mkv"
             audio = temp_dir / "audio.wav"
             avs = temp_dir / "script.avs"
+            freeze_avs = temp_dir / "freeze.avs"
             filter_script = METADATA_DIR / archive_name / "filter.avs"
             chapter_filter_script = METADATA_DIR / archive_name / f"{title}.avs"
             if chapter_filter_script.exists():
@@ -1015,23 +1092,56 @@ def _run_with_args(args):
                             int(f) - int(chapter_start_frame) for f in manual_source_frames_global
                         ]
                         manual_repairs = local_bad_frames_to_repairs(manual_source_frames)
+                        marked_count = len(set(int(f) for f in manual_source_frames))
+                        repaired_count = sum((int(b) - int(a) + 1) for a, b, _src in manual_repairs)
+                        freeze_input = extracted
                         if manual_source_frames_global:
                             print(
                                 f"Chapter metadata bad frame(s): {len(manual_source_frames)} -> "
                                 + ",".join(str(f) for f in manual_source_frames[:12])
                                 + ("..." if len(manual_source_frames) > 12 else "")
                             )
+                            if repaired_count > marked_count:
+                                print(
+                                    "Expanded freeze target coverage by "
+                                    f"{repaired_count - marked_count} frame(s) via gap bridging "
+                                    f"(always<={BADFRAME_BRIDGE_ALWAYS_GAP}, "
+                                    f"singleton<={BADFRAME_BRIDGE_SINGLETON_GAP})."
+                                )
+                            freeze_script = make_freeze_only_avs(
+                                extracted,
+                                bad_source_frames=manual_source_frames,
+                                bad_repair_ranges=manual_repairs,
+                                chapter_start_frame=chapter_start_frame,
+                                chapter_end_frame=chapter_end_frame,
+                                source_clearance=BADFRAME_SOURCE_CLEARANCE,
+                            )
+                            freeze_lines = freeze_script.count("FreezeFrame(")
+                            print(
+                                "AVS freeze stage: "
+                                f"freeze_lines={freeze_lines}, "
+                                f"source_clearance={BADFRAME_SOURCE_CLEARANCE}"
+                            )
+                            freeze_avs.write_text(freeze_script, encoding="ascii")
+                            run(make_render_avs_ffv1(freeze_avs, extracted, repaired_extracted))
+                            assert_expected_frame_count(
+                                repaired_extracted,
+                                chapter_len,
+                                f"repaired extracted chapter '{title}'",
+                            )
+                            freeze_input = repaired_extracted
                         else:
                             print("No chapter bad frames listed; no freeze-frame repairs applied.")
 
                         script = make_create_avs(
-                            extracted,
+                            freeze_input,
                             filter_script,
-                            bad_source_frames=manual_source_frames,
-                            bad_repair_ranges=manual_repairs,
+                            bad_source_frames=[],
+                            bad_repair_ranges=[],
                             chapter_start_frame=chapter_start_frame,
                             chapter_end_frame=chapter_end_frame,
                             no_bob=args.no_bob,
+                            source_clearance=0,
                         )
                         freeze_count = script.count("FreezeFrame(")
                         filter_has_qtgmc = False
@@ -1043,12 +1153,13 @@ def _run_with_args(args):
                             pass
                         print(
                             "AVS pipeline: "
-                            f"freeze_lines={freeze_count}, "
-                            f"filter_script={filter_script.name}, "
-                            f"filter_has_qtgmc={filter_has_qtgmc}"
-                        )
+                                f"freeze_lines={freeze_count}, "
+                                f"filter_script={filter_script.name}, "
+                                f"filter_has_qtgmc={filter_has_qtgmc}, "
+                                f"filter_input={Path(freeze_input).name}"
+                            )
                         avs.write_text(script, encoding="ascii")
-                        run(make_deinterlace(avs, extracted, qtgmc))
+                        run(make_deinterlace(avs, freeze_input, qtgmc))
                         assert_expected_frame_count(
                             qtgmc,
                             chapter_len,

@@ -27,7 +27,7 @@ from pathlib import Path
 import cv2
 import gradio as gr
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image, ImageDraw, ImageOps
 
 # -- Project paths -------------------------------------------------------------
 _HERE        = Path(__file__).resolve().parent
@@ -803,10 +803,32 @@ def build_gallery_items(
         else:
             state_short = "AB" if auto_bad else "AG"
         color = "#e03030" if is_bad else "#30c870"
+        local_fid = int(fid) - int(chapter_start_frame)
+
+        # Burn frame ids into the thumbnail for quick global/local inspection.
+        overlay_lines = [f"G:{int(fid)}", f"L:{local_fid}"]
+        draw = ImageDraw.Draw(img)
+        pad_x = 3
+        pad_y = 2
+        line_gap = 1
+        line_sizes = []
+        for line in overlay_lines:
+            if hasattr(draw, "textbbox"):
+                x0, y0, x1, y1 = draw.textbbox((0, 0), line)
+                line_sizes.append((x1 - x0, y1 - y0))
+            else:
+                line_sizes.append(draw.textsize(line))
+        box_w = max((w for w, _ in line_sizes), default=0) + (2 * pad_x)
+        box_h = sum((h for _, h in line_sizes)) + (line_gap * (len(overlay_lines) - 1)) + (2 * pad_y)
+        draw.rectangle((0, 0, box_w, box_h), fill=(0, 0, 0))
+        y = pad_y
+        for line, (_, h) in zip(overlay_lines, line_sizes):
+            draw.text((pad_x, y), line, fill=(255, 255, 255))
+            y += h + line_gap
 
         # Restore fast visual scanning: colored border per frame state.
         styled = ImageOps.expand(img, border=BORDER, fill=color)
-        items.append((styled, f"#{int(fid)}  s={sc:.2f}  {state_short}"))
+        items.append((styled, f"G:{int(fid)}  L:{local_fid}  s={sc:.2f}  {state_short}"))
     return items
 
 # ===============================================================================
