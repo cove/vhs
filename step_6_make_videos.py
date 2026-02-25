@@ -602,7 +602,7 @@ if (c.FrameCount >= (expected_frames * 2 - 2) && c.FrameCount <= (expected_frame
 """
     no_bob_text = "c = last\nc\n"
     filter_import_path = Path(avs_filter_path).resolve().as_posix()
-    return f'''
+    script_text = f'''
 LoadPlugin("{QTGMC_DIR}/ffms2.dll") 
 LoadPlugin("{QTGMC_DIR}/masktools2.dll") 
 LoadPlugin("{QTGMC_DIR}/Rgtools.dll") 
@@ -625,6 +625,15 @@ Import("{filter_import_path}")
 {cadence_guard_text}
 {no_bob_text}
 '''
+    import_marker = f'Import("{filter_import_path}")'
+    imp_idx = script_text.find(import_marker)
+    if imp_idx >= 0:
+        post_import = script_text[imp_idx + len(import_marker):]
+        if "FreezeFrame(" in post_import:
+            raise RuntimeError(
+                "Invalid AVS generation: FreezeFrame lines found after filter import."
+            )
+    return script_text
 
 def make_extract_audio(temp_extracted, temp_transcript):
     return [FFMPEG_BIN,

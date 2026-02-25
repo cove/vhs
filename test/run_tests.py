@@ -473,6 +473,7 @@ def test_step_6_make_create_avs_includes_chapter_bounds():
         assert first_freeze >= 0
         assert filter_import >= 0
         assert first_freeze < filter_import
+        assert "FreezeFrame(" not in script[filter_import:]
     finally:
         tmp_filter.unlink(missing_ok=True)
 
