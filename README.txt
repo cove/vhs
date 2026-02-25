@@ -21,9 +21,28 @@ test/               - Test environment for running scripts without affecting the
 venv-mac/           - Python virtual environment for macOS
 requirements.txt    - Python dependencies used by scripts
 setup.py            - Optional setup script for installing packages
+vhs.py              - Unified CLI entrypoint for most workflows
+vhs_pipeline/       - Shared command and conversion modules used by vhs.py and step wrappers
 
-Top-Level Scripts
------------------
+Unified CLI (Preferred)
+-----------------------
+
+vhs.py
+    - Single command surface for conversion, metadata, proxy, render, compare, and checksum actions.
+    - Example commands:
+      python vhs.py convert avi tape1.avi tape2.avi
+      python vhs.py convert umatic reel1.mov reel2.mov
+      python vhs.py metadata build
+      python vhs.py metadata embed Archive/callahan_01_archive.mkv
+      python vhs.py verify archive
+      python vhs.py proxy
+      python vhs.py render --title "birthday"
+      python vhs.py compare --archive callahan_01_archive
+      python vhs.py checksum drive
+      python vhs.py verify drive
+
+Legacy Step Scripts (Still Supported)
+-------------------------------------
 
 step_1_capture_vhs_to_avi.txt
     - Instructions for capturing VHS tapes to AVI using VirtualDub.
@@ -57,11 +76,6 @@ step_6_make_videos.py
     - Chapter extraction uses frame-derived exact timestamps to keep chapter-local frame indices aligned with archive frames.
     - Manual bad-frame repair sidecar: metadata/<archive>/badframes.tsv (archive-global start/end frame ranges, applied automatically before QTGMC; optional source_frame column can force a specific replacement frame per range; optional no_pad boolean column (true/false) disables automatic pad per row; very long ranges are skipped unless note includes allow_long; adaptive pre-pad defaults to 0 for single-frame, 1 for 2-3 frame bursts, 2 for 4+ frame bursts; note supports no_pad or pad= / pad_before= / pad_after= as fallback).
 
-step_15_train_badframe_classifier_ultralytics.py
-    - Builds a frame classification dataset from `<archive>_proxy.mp4` + `metadata/<archive>/badframes.tsv`.
-    - Uses `badframes.tsv` ranges as `bad` labels; all other frames are treated as `good`.
-    - Optionally trains an Ultralytics classifier (default `yolo11n-cls.pt`) on those labels.
-
 step_7_generate_drive_checksum.py
     - Creates a SHA3-256 checksum manifest for the full drive/archive.
 
@@ -78,19 +92,24 @@ step_14_make_original_chapter_comparisons.py
 Usage Notes
 -----------
 
-1. All scripts rely on the paths defined in common.py. Adjust paths if moving the project.
+1. All commands/scripts rely on the paths defined in common.py. Adjust paths if moving the project.
 2. On Linux/macOS, step_6_make_videos.py now uses an FFmpeg `bwdif` fallback when AviSynth/QTGMC is unavailable. AviSynth `.avs` filter scripts (including chapter-specific QTGMC tuning) are Windows-only and are skipped on Linux/macOS.
 3. Virtual environments are platform-specific: venv-win/ for Windows, venv-mac/ for macOS, venv-linux/ for Linux.
 4. Make sure all software dependencies are installed (VirtualDub, UT Video codec, FFmpeg-QTGMC Easy, drivers for capture cards).
 5. Linux FFmpeg archives in `bin/` are kept compressed for Git compatibility; `setup.py` extracts `bin/ffmpeg` and `bin/ffprobe` on setup. MediaInfo is expected from the system package manager (e.g. `apt-get install mediainfo`) or `MEDIAINFO_BIN`.
+6. `vhs.py` is the preferred interface. `step_*.py` files are compatibility wrappers.
 
 General Workflow
 ----------------
 
 1. Capture tapes to AVI following step_1_capture_vhs_to_avi.txt.
-2. Convert captured files into the archive using step_2 scripts.
-3. Generate archive metadata (step_3).
-4. Verify archive integrity (step_4).
-5. Optionally, generate proxy videos for quick review (step_5).
-6. Process archive into final clips with subtitles (step_6).
-7. Optionally, generate drive-level checksums (step 7) and verify with step 8.
+2. Convert captured files into the archive:
+   - AVI: `python vhs.py convert avi <files...>`
+   - U-matic/ProRes MOV: `python vhs.py convert umatic <files...>`
+3. Generate archive metadata: `python vhs.py metadata build`
+4. Verify archive integrity: `python vhs.py verify archive`
+5. Optionally generate proxy videos: `python vhs.py proxy`
+6. Process archive into final clips with subtitles: `python vhs.py render [step_6 args]`
+7. Optionally generate/verify drive checksums:
+   - `python vhs.py checksum drive`
+   - `python vhs.py verify drive`
