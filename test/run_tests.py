@@ -2201,16 +2201,29 @@ def test_vhs_tuner_ui_defaults_and_controls():
     assert "yield _status_only(" in src
     assert 'spark_chroma = gr.HTML(_E_SIG, elem_classes=["vhs-spark"])' in src
     assert 'spark_score = gr.HTML(_E_SCORE, elem_classes=["vhs-spark", "vhs-spark-score"])' in src
-    assert 'with gr.Accordion("Range & Sample", open=False):' in src
-    assert 'with gr.Accordion("Manual Marking", open=False):' in src
-    assert 'with gr.Accordion("Signal Weights", open=False):' in src
-    assert 'with gr.Accordion("Threshold", open=False):' in src
-    assert 'with gr.Accordion("Grid", open=False):' in src
+    assert 'with gr.Row(elem_id="vhs-tuning-grid", equal_height=True):' in src
+    assert 'gr.Markdown("Range & Sample", elem_classes=["vhs-widget-title"])' in src
+    assert 'gr.Markdown("Signal Weights", elem_classes=["vhs-widget-title"])' in src
+    assert 'gr.Markdown("Threshold", elem_classes=["vhs-widget-title"])' in src
+    assert 'gr.Markdown("Grid", elem_classes=["vhs-widget-title"])' in src
+    assert 'reload_btn = gr.Button("Reload", variant="secondary")' not in src
+    assert 'mark_mode_dd = gr.Dropdown(' not in src
+    assert 'mark_mode="toggle"' in src
 
     assert "Apply & Regenerate" not in src
     assert "fstep_sl  =" not in src
 
     print("Test vhs_tuner UI defaults and control layout: PASSED.")
+
+def test_runtime_scripts_do_not_generate_framemd5():
+    print("Testing runtime scripts do not generate framemd5/md5 temp outputs...")
+    step6_src = (ROOT / "step_6_make_videos.py").read_text(encoding="utf-8", errors="ignore").lower()
+    tuner_src = (ROOT / "vhs_tuner.py").read_text(encoding="utf-8", errors="ignore").lower()
+    assert "framemd5" not in step6_src
+    assert "framemd5" not in tuner_src
+    assert ".md5" not in step6_src
+    assert ".md5" not in tuner_src
+    print("Test runtime scripts do not generate framemd5/md5 temp outputs: PASSED.")
 
 def main():
     print("Running tests...")
@@ -2244,6 +2257,7 @@ def main():
     test_update_chapter_bad_frames_preserves_untouched_chapters()
     test_update_chapter_bad_frames_omits_empty_line()
     test_vhs_tuner_ui_defaults_and_controls()
+    test_runtime_scripts_do_not_generate_framemd5()
 
 if __name__ == "__main__":
     main()

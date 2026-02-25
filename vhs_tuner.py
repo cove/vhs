@@ -1352,6 +1352,21 @@ input[type=range] { accent-color:#27a85a; }
   width: 64px !important;
   text-align: right !important;
 }
+#vhs-tuning-grid {
+  gap: 8px !important;
+}
+.vhs-widget {
+  border: 1px solid #262626;
+  border-radius: 4px;
+  background: #111;
+  padding: 6px;
+}
+.vhs-widget-title {
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  color: #9fb3a6;
+  margin-bottom: 4px;
+}
 #vhs-loader-toggle button {
   min-height: 20px !important;
   padding: 1px 6px !important;
@@ -1461,51 +1476,48 @@ with gr.Blocks(
 
             with gr.Tab("Tuning", id="tuning-tab"):
                 with gr.Column(scale=1, min_width=210, elem_id="vhs-left-col"):
-                    with gr.Accordion("Range & Sample", open=False):
-                        with gr.Row():
-                            start_n = gr.Number(label="Start", value=0, precision=0, elem_id="vhs-start-frame")
-                            end_n   = gr.Number(label="End (exclusive)", value=10000, precision=0)
-                            n_sl = gr.Slider(20, 10000, value=400, step=10, label="n")
-                            context_sl = gr.Slider(0, 200, value=10, step=1, label="Frames Around Bad")
-                        with gr.Row():
-                            strict_sampling_cb = gr.Checkbox(label="Strict Sampling", value=True)
-                            exact_extract_cb = gr.Checkbox(label="Use Step6 Extract", value=True)
-                            debug_extract_cb = gr.Checkbox(label="Debug Frame IDs", value=False)
-                            apply_range_btn = gr.Button("Apply Range", variant="secondary")
-                            reload_btn = gr.Button("Reload", variant="secondary")
-                    with gr.Accordion("Manual Marking", open=False):
-                        mark_mode_dd = gr.Dropdown(
-                            choices=["toggle", "bad", "good", "clear"],
-                            value="toggle",
-                            label="Click Action",
-                            interactive=True,
-                        )
+                    with gr.Row(elem_id="vhs-tuning-grid", equal_height=True):
+                        with gr.Column(scale=1):
+                            with gr.Group(elem_classes=["vhs-widget"]):
+                                gr.Markdown("Range & Sample", elem_classes=["vhs-widget-title"])
+                                with gr.Row():
+                                    start_n = gr.Number(label="Start", value=0, precision=0, elem_id="vhs-start-frame")
+                                    end_n   = gr.Number(label="End (exclusive)", value=10000, precision=0)
+                                n_sl = gr.Slider(20, 10000, value=400, step=10, label="n")
+                                context_sl = gr.Slider(0, 200, value=10, step=1, label="Frames Around Bad")
+                                strict_sampling_cb = gr.Checkbox(label="Strict Sampling", value=True)
+                                exact_extract_cb = gr.Checkbox(label="Use Step6 Extract", value=True)
+                                debug_extract_cb = gr.Checkbox(label="Debug Frame IDs", value=False)
+                                apply_range_btn = gr.Button("Apply Range", variant="secondary")
 
-                    with gr.Accordion("Signal Weights", open=False):
-                        wc_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="chroma")
-                        spark_chroma = gr.HTML(_E_SIG, elem_classes=["vhs-spark"])
-                        wn_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="noise")
-                        spark_noise  = gr.HTML(_E_SIG, elem_classes=["vhs-spark"])
-                        wt_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="tear")
-                        spark_tear   = gr.HTML(_E_SIG, elem_classes=["vhs-spark"])
-                        ww_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="wave")
-                        spark_wave   = gr.HTML(_E_SIG, elem_classes=["vhs-spark"])
+                            with gr.Group(elem_classes=["vhs-widget"]):
+                                gr.Markdown("Grid", elem_classes=["vhs-widget-title"])
+                                cols_sl   = gr.Slider(4, 16, value=7, step=1, label="Cols")
+                                twidth_sl = gr.Slider(64, 220, value=120, step=8, label="Width")
+                                thumb_ids_cb = gr.Checkbox(label="Show IDs On Images", value=False)
 
-                    with gr.Accordion("Threshold", open=False):
-                        t_mode  = gr.Radio(["iqr", "value", "quantile"], value="iqr",
-                                            label="Mode", interactive=True)
-                        iqr_sl  = gr.Slider(1.0, 8.0, value=3.5, step=0.05, label="k")
-                        tval_sl = gr.Slider(-5.0, 15.0, value=1.0, step=0.05,
-                                             label="Hard value", visible=False)
-                        bpct_sl = gr.Slider(1, 60, value=10, step=1,
-                                             label="Bad %", visible=False)
-                        spark_score = gr.HTML(_E_SCORE, elem_classes=["vhs-spark", "vhs-spark-score"])
+                        with gr.Column(scale=1):
+                            with gr.Group(elem_classes=["vhs-widget"]):
+                                gr.Markdown("Signal Weights", elem_classes=["vhs-widget-title"])
+                                wc_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="chroma")
+                                spark_chroma = gr.HTML(_E_SIG, elem_classes=["vhs-spark"])
+                                wn_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="noise")
+                                spark_noise  = gr.HTML(_E_SIG, elem_classes=["vhs-spark"])
+                                wt_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="tear")
+                                spark_tear   = gr.HTML(_E_SIG, elem_classes=["vhs-spark"])
+                                ww_sl        = gr.Slider(0.0, 1.0, value=0.25, step=0.01, label="wave")
+                                spark_wave   = gr.HTML(_E_SIG, elem_classes=["vhs-spark"])
 
-                    with gr.Accordion("Grid", open=False):
-                        with gr.Row():
-                            cols_sl   = gr.Slider(4, 16, value=7, step=1, label="Cols")
-                            twidth_sl = gr.Slider(64, 220, value=120, step=8, label="Width")
-                        thumb_ids_cb = gr.Checkbox(label="Show IDs On Images", value=False)
+                            with gr.Group(elem_classes=["vhs-widget"]):
+                                gr.Markdown("Threshold", elem_classes=["vhs-widget-title"])
+                                t_mode  = gr.Radio(["iqr", "value", "quantile"], value="iqr",
+                                                    label="Mode", interactive=True)
+                                iqr_sl  = gr.Slider(1.0, 8.0, value=3.5, step=0.05, label="k")
+                                tval_sl = gr.Slider(-5.0, 15.0, value=1.0, step=0.05,
+                                                     label="Hard value", visible=False)
+                                bpct_sl = gr.Slider(1, 60, value=10, step=1,
+                                                     label="Bad %", visible=False)
+                                spark_score = gr.HTML(_E_SCORE, elem_classes=["vhs-spark", "vhs-spark-score"])
 
         # Keep the runtime JS component out of layout flow to avoid panel overlap.
         gr.HTML("", elem_id="vhs-runtime-js", visible=False)
@@ -1784,7 +1796,6 @@ with gr.Blocks(
                   wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
                   cols_sl, twidth_sl, context_sl, thumb_ids_cb]
     chapters_load_btn.click(on_load, _LOAD_INS, _LOAD_OUTS)
-    reload_btn.click(on_load,     _LOAD_INS, _LOAD_OUTS)
     apply_range_btn.click(on_load, _LOAD_INS, _LOAD_OUTS)
 
     def on_save_bad_frames(
@@ -1871,7 +1882,7 @@ with gr.Blocks(
 
     # -- Frame click toggle -------------------------------------------------
     def on_click(raw_click, fids, b64, sigs, overrides, last_click_event, archive, ch_title, ch_start, ch_end,
-                 wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, mark_mode, show_image_ids):
+                 wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, show_image_ids):
         if not raw_click or not raw_click.strip() or not fids:
             return (*[gr.update()] * len(_RB_OUTS), overrides, "", last_click_event)
 
@@ -1892,7 +1903,7 @@ with gr.Blocks(
             ik=ik,
             tv=tv,
             bp=bp,
-            mark_mode=mark_mode,
+            mark_mode="toggle",
             last_click_event=last_click_event,
         )
         if str(srv_dbg).startswith("ignored:"):
@@ -1924,13 +1935,13 @@ with gr.Blocks(
         [click_recv, st_fids, st_b64, st_sigs, st_overrides, st_last_click,
          archive_dd, chapter_dd, start_n, end_n,
          wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
-         cols_sl, twidth_sl, context_sl, mark_mode_dd, thumb_ids_cb],
+         cols_sl, twidth_sl, context_sl, thumb_ids_cb],
         [*_RB_OUTS, st_overrides, click_recv, st_last_click],
         show_progress="minimal",
     )
 
     def on_gallery_select(vis_fids, fids, b64, sigs, overrides, last_click_event, archive, ch_title, ch_start, ch_end,
-                          wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, mark_mode, show_image_ids, evt: gr.SelectData):
+                          wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, show_image_ids, evt: gr.SelectData):
         if evt is None or getattr(evt, "index", None) is None:
             return (*[gr.update()] * len(_RB_OUTS), overrides, "", last_click_event)
         idx = int(evt.index)
@@ -1940,7 +1951,7 @@ with gr.Blocks(
         payload = f"{fid}:{int(time.time() * 1000)}"
         return on_click(
             payload, fids, b64, sigs, overrides, last_click_event, archive, ch_title, ch_start, ch_end,
-            wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, mark_mode, show_image_ids
+            wc, wn, wt, ww, tm, ik, tv, bp, cols, tw, context, show_image_ids
         )
 
     grid_gallery.select(
@@ -1948,7 +1959,7 @@ with gr.Blocks(
         [st_visible_fids, st_fids, st_b64, st_sigs, st_overrides, st_last_click,
          archive_dd, chapter_dd, start_n, end_n,
          wc_sl, wn_sl, wt_sl, ww_sl, t_mode, iqr_sl, tval_sl, bpct_sl,
-         cols_sl, twidth_sl, context_sl, mark_mode_dd, thumb_ids_cb],
+         cols_sl, twidth_sl, context_sl, thumb_ids_cb],
         [*_RB_OUTS, st_overrides, click_recv, st_last_click],
         show_progress="minimal",
     )
