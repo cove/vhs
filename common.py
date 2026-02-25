@@ -13,7 +13,6 @@ import os, shutil, subprocess, sys
 import hashlib
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
-import numpy as np
 
 # ---------------------------------------------------------
 # Base Paths
@@ -249,6 +248,12 @@ def read_ffmetadata_title(path):
 
 from fractions import Fraction
 
+
+def _np():
+    import numpy as np  # type: ignore
+
+    return np
+
 def _parse_timebase_fraction(text):
     raw = str(text or "").strip()
     if "/" in raw:
@@ -374,6 +379,7 @@ def parse_bad_frames_csv(text):
     return vals
 
 def robust_zscore(values, return_stats=False):
+    np = _np()
     vals = np.asarray(values, dtype=np.float64)
     center = float(np.median(vals))
     mad = float(np.median(np.abs(vals - center)))
@@ -397,6 +403,7 @@ def combine_signal_scores(
     weight_wave,
     include_norm=False,
 ):
+    np = _np()
     w_sum = float(weight_chroma) + float(weight_noise) + float(weight_tear) + float(weight_wave)
     if w_sum <= 0:
         raise ValueError("At least one signal weight must be > 0.")
@@ -435,6 +442,7 @@ def combined_score(sigs, wc, wn, wt, ww):
     )
 
 def compute_threshold(scores, mode, iqr_mult, thresh_val, bad_pct):
+    np = _np()
     v = np.asarray(scores, dtype=np.float64)
     v = v[np.isfinite(v)]
     if v.size == 0:

@@ -3,13 +3,28 @@ from __future__ import annotations
 import argparse
 
 
+def _append_flag(argv, enabled, *flags):
+    if enabled and flags:
+        argv.append(flags[0])
+
+
+def _append_option(argv, value, *flags):
+    if value is None or not flags:
+        return
+    argv.extend([flags[0], str(value)])
+
+
+def _append_repeat(argv, values, *flags):
+    if not flags:
+        return
+    for value in list(values or []):
+        argv.extend([flags[0], str(value)])
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="vhs.py",
-        description=(
-            "Unified command surface for VHS archive workflows. "
-            "Legacy step_*.py scripts remain supported."
-        ),
+        description="Unified command surface for VHS archive workflows.",
     )
     subparsers = parser.add_subparsers(dest="group", required=True)
 
@@ -33,16 +48,62 @@ def build_parser():
     metadata_embed.add_argument("files", nargs="+", help="Archive MKV file(s)")
 
     subparsers.add_parser("proxy", help="Generate proxy MP4 files")
-    subparsers.add_parser("render", help="Run delivery render pipeline (forwards args to step_6)")
-    subparsers.add_parser(
+    render_parser = subparsers.add_parser(
+        "render",
+        help="Run delivery render pipeline (forwards unknown args to step_6)",
+    )
+    render_parser.add_argument(
+        "render_args",
+        nargs=argparse.REMAINDER,
+        help="Optional args forwarded to the render pipeline.",
+    )
+    compare_parser = subparsers.add_parser(
         "compare",
-        help="Create side-by-side original vs processed chapter comparisons (forwards args to step_14)",
+        help="Create side-by-side original vs processed chapter comparisons",
+    )
+    compare_parser.add_argument(
+        "--archive",
+        action="append",
+        default=[],
+        help="Only process archive names containing this substring (case-insensitive). Repeatable.",
+    )
+    compare_parser.add_argument(
+        "--title",
+        action="append",
+        default=[],
+        help="Only process chapter titles containing this substring (case-insensitive). Repeatable.",
+    )
+    compare_parser.add_argument(
+        "--height",
+        type=int,
+        default=480,
+        help="Target height for each side before stacking (default: 480).",
+    )
+    compare_parser.add_argument(
+        "--max",
+        type=int,
+        default=0,
+        help="Max number of comparisons to create (0 = no limit).",
+    )
+    compare_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Rebuild outputs even if they already exist.",
+    )
+    compare_parser.add_argument(
+        "--output-root",
+        default=None,
+        help="Output root directory for comparison videos.",
     )
 
     verify_parser = subparsers.add_parser("verify", help="Checksum verification commands")
     verify_sub = verify_parser.add_subparsers(dest="verify_kind", required=True)
-    verify_sub.add_parser("archive", help="Verify archive checksum manifest")
-    verify_sub.add_parser("drive", help="Verify drive checksum manifest")
+    verify_archive = verify_sub.add_parser("archive", help="Verify archive checksum manifest")
+    verify_drive = verify_sub.add_parser("drive", help="Verify drive checksum manifest")
+    for verify_cmd in (verify_archive, verify_drive):
+        verify_cmd.add_argument("manifest", nargs="?", default=None, help="Path to manifest file.")
+        verify_cmd.add_argument("--blake3", "--b3", action="store_true", help="Force BLAKE3 verify mode.")
+        verify_cmd.add_argument("--sha3", "--sha3-256", action="store_true", help="Force SHA3 verify mode.")
 
     checksum_parser = subparsers.add_parser("checksum", help="Checksum generation commands")
     checksum_sub = checksum_parser.add_subparsers(dest="checksum_kind", required=True)
@@ -53,7 +114,7 @@ def build_parser():
 def main(argv=None):
     parser = build_parser()
     args, extras = parser.parse_known_args(argv)
-    allowed_extras = {"render", "compare", "verify"}
+    allowed_extras = {"render"}
     if extras and args.group not in allowed_extras:
         parser.error("Unrecognized arguments: " + " ".join(extras))
 
@@ -81,20 +142,37 @@ def main(argv=None):
     if args.group == "render":
         from vhs_pipeline import commands
 
-        return commands.run_make_videos(extras)
+        render_argv = list(extras or []) + list(args.render_args or [])
+        if render_argv and render_argv[0] == "--":
+            render_argv = render_argv[1:]
+        return commands.run_make_videos(render_argv)
 
     if args.group == "compare":
         from vhs_pipeline import commands
 
-        return commands.run_make_comparisons(extras)
+        compare_argv = []
+        _append_repeat(compare_argv, args.archive, "--archive")
+        _append_repeat(compare_argv, args.title, "--title")
+        _append_option(compare_argv, args.height, "--height")
+        _append_option(compare_argv, args.max, "--max")
+        _append_flag(compare_argv, args.overwrite, "--overwrite")
+        _append_option(compare_argv, args.output_root, "--output-root")
+        return commands.run_make_comparisons(compare_argv)
 
     if args.group == "verify":
         from vhs_pipeline import commands
 
+        verify_argv = []
+        if args.manifest:
+            verify_argv.append(str(args.manifest))
+        if args.blake3:
+            verify_argv.append("--blake3")
+        elif args.sha3:
+            verify_argv.append("--sha3")
         if args.verify_kind == "archive":
-            return commands.run_verify_archive(extras)
+            return commands.run_verify_archive(verify_argv)
         if args.verify_kind == "drive":
-            return commands.run_verify_drive(extras)
+            return commands.run_verify_drive(verify_argv)
 
     if args.group == "checksum":
         from vhs_pipeline import commands
