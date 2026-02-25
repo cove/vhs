@@ -3,6 +3,7 @@ import os
 import sys
 import subprocess
 import types
+import importlib
 import re
 import io
 import contextlib
@@ -22,6 +23,15 @@ os.environ["PYTHONPATH"] = str(BASE)
 ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
 CLIPS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def import_legacy_step(short_name: str):
+    full_name = f"legacy_steps.{short_name}"
+    if short_name not in sys.modules and full_name in sys.modules:
+        del sys.modules[full_name]
+    module = importlib.import_module(full_name)
+    sys.modules[short_name] = module
+    return module
 
 def _require_test_archive_fixture(test_name: str) -> bool:
     if TEST_ARCHIVE_FIXTURE.exists():
@@ -127,7 +137,7 @@ def import_step_6_module():
         return whisper_stub, whisper_utils_stub
 
     try:
-        import step_6_make_videos
+        step_6_make_videos = import_legacy_step("step_6_make_videos")
         if getattr(step_6_make_videos, "whisper", None) is None:
             whisper_stub, whisper_utils_stub = _install_whisper_stub()
             step_6_make_videos.whisper = whisper_stub
@@ -139,15 +149,14 @@ def import_step_6_module():
 
     _install_whisper_stub()
 
-    import step_6_make_videos
-    return step_6_make_videos
+    return import_legacy_step("step_6_make_videos")
 
 def test_step_4_generate_archive_metadata():
     print("Testing step_4_generate_archive_metadata.py...")
     if not _require_test_archive_fixture("test_step_4_generate_archive_metadata"):
         return
     shutil.copy(TEST_ARCHIVE_FIXTURE, ARCHIVE_DIR / "test_01_archive.mkv")
-    import step_3_generate_archive_metadata
+    step_3_generate_archive_metadata = import_legacy_step("step_3_generate_archive_metadata")
     assert step_3_generate_archive_metadata.main() is None
     assert step_3_generate_archive_metadata.ARCHIVE_CHECKSUM_FILE.stat().st_size > 50
     assert (ARCHIVE_DIR / "test_01_archive_mediainfo.txt").stat().st_size > 50
@@ -1606,9 +1615,9 @@ def test_step_6_qtgmc_freezeframe_long_e2e():
 
 def test_step_drive_checksums():
     print("Testing step_7_generate_drive_checksum.py...")
-    import step_7_generate_drive_checksum
+    step_7_generate_drive_checksum = import_legacy_step("step_7_generate_drive_checksum")
     assert step_7_generate_drive_checksum.main() is None
-    import step_8_verify_drive_checksum
+    step_8_verify_drive_checksum = import_legacy_step("step_8_verify_drive_checksum")
     assert step_8_verify_drive_checksum.main() is None
     print("Test step_drive_checksums: PASSED.")
     DRIVE_CHECKSUM_FILE.unlink()
@@ -2217,7 +2226,10 @@ def test_vhs_tuner_ui_defaults_and_controls():
 
 def test_runtime_scripts_do_not_generate_framemd5():
     print("Testing runtime scripts do not generate framemd5/md5 temp outputs...")
-    step6_src = (ROOT / "step_6_make_videos.py").read_text(encoding="utf-8", errors="ignore").lower()
+    step6_src = (ROOT / "legacy_steps" / "step_6_make_videos.py").read_text(
+        encoding="utf-8",
+        errors="ignore",
+    ).lower()
     tuner_src = (ROOT / "vhs_tuner.py").read_text(encoding="utf-8", errors="ignore").lower()
     assert "framemd5" not in step6_src
     assert "framemd5" not in tuner_src

@@ -10,7 +10,7 @@ Metadata layout (all under metadata/<archive>/)
 ------------------------------------------------
   chapters.ffmetadata           per-chapter BAD_FRAMES=<csv global frame ids>
 
-step_6_make_videos.py reads chapter BAD_FRAMES lists directly from chapters.ffmetadata.
+legacy_steps/step_6_make_videos.py reads chapter BAD_FRAMES lists directly from chapters.ffmetadata.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 ARCHIVE_DIR  = PROJECT_ROOT / "../Archive"
 METADATA_DIR = PROJECT_ROOT / "metadata"
-STEP6        = PROJECT_ROOT / "step_6_make_videos.py"
+STEP6        = PROJECT_ROOT / "legacy_steps" / "step_6_make_videos.py"
 FPS          = 30000 / 1001
 BORDER       = 3
 TUNER_EXTRACT_DIR = PROJECT_ROOT / "tmp" / "vhs_tuner_extracts"
@@ -67,7 +67,7 @@ from common import (
 # ===============================================================================
 
 def parse_ffmetadata_chapters(path: Path) -> list[dict]:
-    # Keep chapter frame mapping identical to step_6_make_videos/common.py.
+    # Keep chapter frame mapping identical to legacy_steps/step_6_make_videos.py.
     _ffm, chapters = parse_chapters(Path(path))
     result = []
     for ch in chapters:
@@ -1024,7 +1024,7 @@ def apply_and_regenerate(
         logs.append(f"tracking_loss failed: {exc}")
         return "\n".join(logs)
 
-    logs.append("step_6_make_videos will read BAD_FRAMES from chapters.ffmetadata")
+    logs.append("legacy step_6 will read BAD_FRAMES from chapters.ffmetadata")
     return "\n".join(logs)
 
 # ===============================================================================

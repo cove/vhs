@@ -55,7 +55,7 @@ Directory Notes
 
 - `metadata/` contains per-archive metadata (`chapters.ffmetadata`, markers, etc.).
 - `vhs_pipeline/` contains command implementations used by `vhs.py`.
-- `step_*.py` files are legacy entrypoints that now call `vhs_pipeline` modules.
+- `legacy_steps/` contains legacy `step_*` entrypoints and historical step docs.
 - `models/`, `software/`, `manuals/`, `screenshots/` contain model/data/tool references.
 
 Platform Notes
@@ -65,4 +65,3 @@ Platform Notes
 - Linux/macOS use FFmpeg fallback deinterlacing where AviSynth is unavailable.
 - Linux FFmpeg archives in `bin/` stay compressed for Git compatibility; `setup.py`
   extracts runtime binaries into `bin/`.
-
