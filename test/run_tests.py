@@ -320,14 +320,14 @@ def test_step_6_badframe_repair_injection_and_comment():
 
     out = step_6_make_videos.build_badframe_prefilter_lines([6, 7, 8, 20])
     assert out.count("FreezeFrame(") == 2
-    assert "FreezeFrame(20,20,21)" in out
+    assert "FreezeFrame(20,20,23)" in out
     assert "FreezeFrame(6,8,9)" in out
-    assert out.find("FreezeFrame(20,20,21)") < out.find("FreezeFrame(6,8,9)")
+    assert out.find("FreezeFrame(20,20,23)") < out.find("FreezeFrame(6,8,9)")
 
     out_override = step_6_make_videos.build_badframe_prefilter_lines(
         bad_repair_ranges=[(10, 12, 20), (30, 30, None)]
     )
-    assert "FreezeFrame(30,30,31)" in out_override
+    assert "FreezeFrame(30,30,33)" in out_override
     assert "FreezeFrame(10,12,20)" in out_override
 
     out_invalid_override = step_6_make_videos.build_badframe_prefilter_lines(
@@ -339,25 +339,26 @@ def test_step_6_badframe_repair_injection_and_comment():
         bad_repair_ranges=[(0, 0, None), (10, 10, None)]
     )
     # Auto-picked ranges should always use future source frames.
-    assert "FreezeFrame(10,10,11)" in out_forward_only
+    assert "FreezeFrame(10,10,13)" in out_forward_only
     assert "FreezeFrame(10,10,9)" not in out_forward_only
 
     out_forward_only_adjacent = step_6_make_videos.build_badframe_prefilter_lines(
         bad_repair_ranges=[(1, 1, None), (2, 2, None)]
     )
-    assert "FreezeFrame(1,2,3)" in out_forward_only_adjacent
+    assert "FreezeFrame(1,1,4)" in out_forward_only_adjacent
+    assert "FreezeFrame(2,2,5)" in out_forward_only_adjacent
     assert "FreezeFrame(2,2,1)" not in out_forward_only_adjacent
 
     out_monotonic = step_6_make_videos.build_badframe_prefilter_lines(
         bad_repair_ranges=[(0, 0, None), (100, 100, None)]
     )
     # Source-frame selection should remain forward and monotonic.
-    assert "FreezeFrame(100,100,101)" in out_monotonic
+    assert "FreezeFrame(100,100,103)" in out_monotonic
     assert "FreezeFrame(100,100,99)" not in out_monotonic
 
     out_post = step_6_make_videos.build_badframe_postfilter_lines([6, 7, 8, 20])
     # Post-QTGMC stabilization is single-rate when QTGMC uses FPSDivisor=2.
-    assert "FreezeFrame(20,20,21)" in out_post
+    assert "FreezeFrame(20,20,23)" in out_post
     assert "FreezeFrame(6,8,9)" in out_post
 
     c_none = step_6_make_videos.build_filmed_comment(
@@ -434,6 +435,14 @@ def test_step_6_badframe_split_strategy_logic_paths():
         max_source_frame=20,
     )
     assert r == [(5, 8, 9)]
+
+    # Single-frame auto repair should skip immediate neighbors and pick a
+    # farther forward clean source when available.
+    r = step_6_make_videos._resolve_badframe_repair_ranges(
+        bad_repair_ranges=[(210, 210, None)],
+        max_source_frame=400,
+    )
+    assert r == [(210, 210, 213)]
 
     print("Test step_6_make_videos badframe split strategy logic paths: PASSED.")
     del sys.modules['step_6_make_videos']

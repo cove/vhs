@@ -21,6 +21,9 @@ BADFRAME_POST_QTGMC_MULTIPLIER = 1
 # Avoid pulling from prior frames in auto mode; this reduces risk when the
 # frame immediately before a burst is also visually unstable.
 BADFRAME_SPLIT_BURSTS_ACROSS_NEIGHBORS = False
+# For single-frame repairs, skip a short lookahead/behind window before picking
+# source to avoid using immediately adjacent frames that are often still unstable.
+BADFRAME_SINGLE_FRAME_SOURCE_SKIP = 2
 
 def auto_badframe_pad(span):
     # Minimize repaired-frame count while still protecting QTGMC temporal context.
@@ -153,16 +156,16 @@ def _resolve_badframe_repair_ranges(
 
     max_allowed_src = None if max_source_frame is None else int(max_source_frame)
 
-    def choose_repair_source_after(b):
-        src = b + 1
+    def choose_repair_source_after(b, extra_skip=0):
+        src = b + 1 + max(0, int(extra_skip))
         while src in bad_set:
             src += 1
         if max_allowed_src is not None and src > max_allowed_src:
             return None
         return src
 
-    def choose_repair_source_before(a):
-        src = a - 1
+    def choose_repair_source_before(a, extra_skip=0):
+        src = a - 1 - max(0, int(extra_skip))
         if max_allowed_src is not None:
             src = min(src, max_allowed_src)
         while src >= 0 and src in bad_set:
@@ -187,9 +190,10 @@ def _resolve_badframe_repair_ranges(
                 "falling back to auto neighbor source selection."
             )
 
-        prev_src = choose_repair_source_before(a)
-        next_src = choose_repair_source_after(b)
         span = int(b) - int(a) + 1
+        source_skip = BADFRAME_SINGLE_FRAME_SOURCE_SKIP if span == 1 else 0
+        prev_src = choose_repair_source_before(a, extra_skip=source_skip)
+        next_src = choose_repair_source_after(b, extra_skip=source_skip)
 
         # Optional split mode: split a burst across previous/next neighbors.
         if (
