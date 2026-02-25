@@ -319,12 +319,10 @@ def test_step_6_badframe_repair_injection_and_comment():
     step_6_make_videos = import_step_6_module()
 
     out = step_6_make_videos.build_badframe_prefilter_lines([6, 7, 8, 20])
-    assert out.count("FreezeFrame(") == 3
+    assert out.count("FreezeFrame(") == 2
     assert "FreezeFrame(20,20,21)" in out
-    assert "FreezeFrame(7,8,9)" in out
-    assert "FreezeFrame(6,6,5)" in out
-    assert out.find("FreezeFrame(20,20,21)") < out.find("FreezeFrame(7,8,9)")
-    assert out.find("FreezeFrame(7,8,9)") < out.find("FreezeFrame(6,6,5)")
+    assert "FreezeFrame(6,8,9)" in out
+    assert out.find("FreezeFrame(20,20,21)") < out.find("FreezeFrame(6,8,9)")
 
     out_override = step_6_make_videos.build_badframe_prefilter_lines(
         bad_repair_ranges=[(10, 12, 20), (30, 30, None)]
@@ -335,8 +333,7 @@ def test_step_6_badframe_repair_injection_and_comment():
     out_invalid_override = step_6_make_videos.build_badframe_prefilter_lines(
         bad_repair_ranges=[(6, 8, 7)]
     )
-    assert "FreezeFrame(7,8,9)" in out_invalid_override
-    assert "FreezeFrame(6,6,5)" in out_invalid_override
+    assert "FreezeFrame(6,8,9)" in out_invalid_override
 
     out_forward_only = step_6_make_videos.build_badframe_prefilter_lines(
         bad_repair_ranges=[(0, 0, None), (10, 10, None)]
@@ -361,8 +358,7 @@ def test_step_6_badframe_repair_injection_and_comment():
     out_post = step_6_make_videos.build_badframe_postfilter_lines([6, 7, 8, 20])
     # Post-QTGMC stabilization is single-rate when QTGMC uses FPSDivisor=2.
     assert "FreezeFrame(20,20,21)" in out_post
-    assert "FreezeFrame(7,8,9)" in out_post
-    assert "FreezeFrame(6,6,5)" in out_post
+    assert "FreezeFrame(6,8,9)" in out_post
 
     c_none = step_6_make_videos.build_filmed_comment(
         None, "1995-03-18T19:25:00-08:00", "Altadena", "Tape 01", "00:01:00", "00:02:00"
@@ -385,17 +381,17 @@ def test_step_6_badframe_split_strategy_logic_paths():
     print("Testing step_6_make_videos badframe split strategy logic paths...")
     step_6_make_videos = import_step_6_module()
 
-    # Both-side neighbor split (even span).
+    # Auto mode prefers future clean source for whole burst when available.
     r = step_6_make_videos._resolve_badframe_repair_ranges(
         bad_repair_ranges=[(10, 13, None)]
     )
-    assert r == [(10, 11, 9), (12, 13, 14)]
+    assert r == [(10, 13, 14)]
 
-    # Both-side neighbor split (odd span): later half gets the extra frame.
+    # Odd spans also use future clean source in full-range mode.
     r = step_6_make_videos._resolve_badframe_repair_ranges(
         bad_repair_ranges=[(10, 14, None)]
     )
-    assert r == [(10, 11, 9), (12, 14, 15)]
+    assert r == [(10, 14, 15)]
 
     # Chapter start edge: no previous-good source, use next-good for full range.
     r = step_6_make_videos._resolve_badframe_repair_ranges(
@@ -425,19 +421,19 @@ def test_step_6_badframe_split_strategy_logic_paths():
     )
     assert r == [(10, 12, 20)]
 
-    # Explicit invalid override should fall back to auto split behavior.
+    # Explicit invalid override should fall back to forward-preferred auto behavior.
     r = step_6_make_videos._resolve_badframe_repair_ranges(
         bad_repair_ranges=[(10, 12, 50)],
         max_source_frame=30,
     )
-    assert r == [(10, 10, 9), (11, 12, 13)]
+    assert r == [(10, 12, 13)]
 
-    # Adjacent bad ranges should avoid selecting bad frames as sources.
+    # Adjacent bad ranges should avoid bad sources and merge to one forward source.
     r = step_6_make_videos._resolve_badframe_repair_ranges(
         bad_repair_ranges=[(5, 6, None), (7, 8, None)],
         max_source_frame=20,
     )
-    assert r == [(5, 5, 4), (6, 6, 9), (7, 7, 4), (8, 8, 9)]
+    assert r == [(5, 8, 9)]
 
     print("Test step_6_make_videos badframe split strategy logic paths: PASSED.")
     del sys.modules['step_6_make_videos']
@@ -460,10 +456,8 @@ def test_step_6_make_create_avs_includes_chapter_bounds():
         )
         assert "chapter_start_frame = 100" in script
         assert "chapter_end_frame = 200" in script
-        assert "FreezeFrame(5,5,6)" in script
-        assert "FreezeFrame(4,4,3)" in script
-        assert script.count("FreezeFrame(5,5,6)") == 1
-        assert script.count("FreezeFrame(4,4,3)") == 1
+        assert "FreezeFrame(4,5,6)" in script
+        assert script.count("FreezeFrame(4,5,6)") == 1
         assert "_tmp_filter.avs" in script
         assert "expected_frames = 100" in script
         assert "c.FrameCount >= (expected_frames * 2 - 2)" in script

@@ -18,6 +18,9 @@ BADFRAME_MAX_SPAN_DEFAULT = 1200
 BADFRAME_PAD_BEFORE_DEFAULT = 2
 BADFRAME_PAD_AFTER_DEFAULT = 0
 BADFRAME_POST_QTGMC_MULTIPLIER = 1
+# Avoid pulling from prior frames in auto mode; this reduces risk when the
+# frame immediately before a burst is also visually unstable.
+BADFRAME_SPLIT_BURSTS_ACROSS_NEIGHBORS = False
 
 def auto_badframe_pad(span):
     # Minimize repaired-frame count while still protecting QTGMC temporal context.
@@ -188,10 +191,13 @@ def _resolve_badframe_repair_ranges(
         next_src = choose_repair_source_after(b)
         span = int(b) - int(a) + 1
 
-        # Smarter split for bad bursts: if we have clean neighbors on both sides
-        # and at least two bad frames, freeze the first half from previous-good
-        # and the latter half from next-good to reduce visible stillness.
-        if span >= 2 and prev_src is not None and next_src is not None:
+        # Optional split mode: split a burst across previous/next neighbors.
+        if (
+            BADFRAME_SPLIT_BURSTS_ACROSS_NEIGHBORS
+            and span >= 2
+            and prev_src is not None
+            and next_src is not None
+        ):
             first_half_len = span // 2
             if first_half_len > 0:
                 left_end = int(a) + first_half_len - 1
