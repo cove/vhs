@@ -13,6 +13,7 @@ import os, shutil, subprocess, sys
 import hashlib
 from dataclasses import replace as dataclass_replace
 from pathlib import Path
+import numpy as np
 
 # ---------------------------------------------------------
 # Base Paths
@@ -371,6 +372,80 @@ def parse_bad_frames_csv(text):
         vals.append(fid)
     vals.sort()
     return vals
+
+def robust_zscore(values, return_stats=False):
+    vals = np.asarray(values, dtype=np.float64)
+    center = float(np.median(vals))
+    mad = float(np.median(np.abs(vals - center)))
+    scale = 1.4826 * mad
+    if scale <= 1e-12:
+        std = float(np.std(vals))
+        scale = std if std > 1e-12 else 1.0
+    z = (vals - center) / scale
+    if bool(return_stats):
+        return z, center, scale
+    return z
+
+def combine_signal_scores(
+    chroma_scores,
+    noise_scores,
+    tear_scores,
+    wave_scores,
+    weight_chroma,
+    weight_noise,
+    weight_tear,
+    weight_wave,
+    include_norm=False,
+):
+    w_sum = float(weight_chroma) + float(weight_noise) + float(weight_tear) + float(weight_wave)
+    if w_sum <= 0:
+        raise ValueError("At least one signal weight must be > 0.")
+    chroma_z, cc, cs = robust_zscore(chroma_scores, return_stats=True)
+    noise_z, nc, ns = robust_zscore(noise_scores, return_stats=True)
+    tear_z, tc, ts = robust_zscore(tear_scores, return_stats=True)
+    wave_z, wc, ws = robust_zscore(wave_scores, return_stats=True)
+    score = (
+        float(weight_chroma) * chroma_z
+        + float(weight_noise) * noise_z
+        + float(weight_tear) * tear_z
+        + float(weight_wave) * wave_z
+    ) / w_sum
+    score = score.astype(np.float64)
+    if not bool(include_norm):
+        return score
+    norm = {
+        "chroma": {"center": float(cc), "scale": float(cs)},
+        "noise": {"center": float(nc), "scale": float(ns)},
+        "tear": {"center": float(tc), "scale": float(ts)},
+        "wave": {"center": float(wc), "scale": float(ws)},
+    }
+    return score, norm
+
+def combined_score(sigs, wc, wn, wt, ww):
+    return combine_signal_scores(
+        sigs["chroma"],
+        sigs["noise"],
+        sigs["tear"],
+        sigs["wave"],
+        wc,
+        wn,
+        wt,
+        ww,
+        include_norm=False,
+    )
+
+def compute_threshold(scores, mode, iqr_mult, thresh_val, bad_pct):
+    v = np.asarray(scores, dtype=np.float64)
+    v = v[np.isfinite(v)]
+    if v.size == 0:
+        return 0.0
+    mode_n = str(mode or "").strip().lower()
+    if mode_n == "iqr":
+        q1, q3 = float(np.percentile(v, 25)), float(np.percentile(v, 75))
+        return q3 + float(iqr_mult) * (q3 - q1)
+    if mode_n == "value":
+        return float(thresh_val)
+    return float(np.quantile(v, 1.0 - float(bad_pct) / 100.0))
 
 def format_bad_frames_csv(frame_ids):
     vals = sorted({int(x) for x in (frame_ids or []) if int(x) >= 0})

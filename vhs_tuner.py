@@ -54,6 +54,8 @@ except ImportError:
 
 from common import (
     chapter_frame_bounds,
+    combined_score,
+    compute_threshold,
     make_extract_chapter,
     parse_bad_frames_csv,
     parse_chapters,
@@ -415,43 +417,8 @@ def extract_frames(
     return frame_ids, frames_b64, sigs, ""
 
 # ===============================================================================
-# Scoring / thresholding
+# Scoring / thresholding (shared in common.py)
 # ===============================================================================
-
-def _robust_z(v: np.ndarray) -> np.ndarray:
-    v   = np.asarray(v, dtype=np.float64)
-    med = np.median(v)
-    mad = np.median(np.abs(v - med))
-    sc  = 1.4826 * mad
-    if sc < 1e-12:
-        sc = float(np.std(v)) or 1.0
-    return (v - med) / sc
-
-def combined_score(sigs: dict, wc: float, wn: float, wt: float, ww: float) -> np.ndarray:
-    wsum = wc + wn + wt + ww or 1.0
-    return (
-        _robust_z(sigs["chroma"]) * wc +
-        _robust_z(sigs["noise"])  * wn +
-        _robust_z(sigs["tear"])   * wt +
-        _robust_z(sigs["wave"])   * ww
-    ) / wsum
-
-def compute_threshold(
-    scores: np.ndarray,
-    mode: str,
-    iqr_mult: float,
-    thresh_val: float,
-    bad_pct: float,
-) -> float:
-    v = scores[np.isfinite(scores)]
-    if v.size == 0:
-        return 0.0
-    if mode == "iqr":
-        q1, q3 = float(np.percentile(v, 25)), float(np.percentile(v, 75))
-        return q3 + iqr_mult * (q3 - q1)
-    if mode == "value":
-        return float(thresh_val)
-    return float(np.quantile(v, 1.0 - bad_pct / 100.0))
 
 def toggle_frame_override(
     fid: int,
@@ -1541,8 +1508,11 @@ with gr.Blocks(
         return bool(float(score) >= float(threshold))
 
     def _select_visible_indices(fids, bad_fids, context):
-        if not fids or not bad_fids:
+        if not fids:
             return []
+        if not bad_fids:
+            # Fallback: show sampled frames when detector finds no bad frames.
+            return list(range(len(fids)))
         ctx = max(0, int(context))
         if ctx <= 0:
             bad_set = {int(f) for f in bad_fids}

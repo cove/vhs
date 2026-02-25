@@ -39,6 +39,7 @@ from common import (
     METADATA_DIR,
     apply_config_overrides,
     chapter_frame_bounds,
+    combine_signal_scores,
     parse_bad_frames_csv,
     parse_chapters,
     require_non_empty,
@@ -328,39 +329,6 @@ def score_video_frames(video_path, start_frame, max_frame, frame_step,
     return total_frames, start, end, indices, chroma_scores, noise_scores, tear_scores, wave_scores
 
 
-def robust_zscore(values):
-    vals   = np.asarray(values, dtype=np.float64)
-    center = float(np.median(vals))
-    mad    = float(np.median(np.abs(vals - center)))
-    scale  = 1.4826 * mad
-    if scale <= 1e-12:
-        std   = float(np.std(vals))
-        scale = std if std > 1e-12 else 1.0
-    return (vals - center) / scale, center, scale
-
-
-def combine_signals(chroma_scores, noise_scores, tear_scores, wave_scores,
-                    weight_chroma, weight_noise, weight_tear, weight_wave):
-    w_sum = float(weight_chroma) + float(weight_noise) + float(weight_tear) + float(weight_wave)
-    if w_sum <= 0:
-        raise ValueError("At least one signal weight must be > 0.")
-    chroma_z, cc, cs = robust_zscore(chroma_scores)
-    noise_z,  nc, ns = robust_zscore(noise_scores)
-    tear_z,   tc, ts = robust_zscore(tear_scores)
-    wave_z,   wc, ws = robust_zscore(wave_scores)
-    score = (float(weight_chroma) * chroma_z +
-             float(weight_noise)  * noise_z  +
-             float(weight_tear)   * tear_z   +
-             float(weight_wave)   * wave_z) / w_sum
-    norm  = {
-        "chroma": {"center": float(cc), "scale": float(cs)},
-        "noise":  {"center": float(nc), "scale": float(ns)},
-        "tear":   {"center": float(tc), "scale": float(ts)},
-        "wave":   {"center": float(wc), "scale": float(ws)},
-    }
-    return score.astype(np.float64), norm
-
-
 # ---------------------------------------------------------------------------
 # I/O helpers
 # ---------------------------------------------------------------------------
@@ -541,9 +509,10 @@ def _run_with_config(config: TrackingLossConfig):
             crop_left=config.crop_left,
             crop_right=config.crop_right,
         )
-        scores_np, signal_norm = combine_signals(
+        scores_np, signal_norm = combine_signal_scores(
             chroma_scores, noise_scores, tear_scores, wave_scores,
             config.weight_chroma, config.weight_noise, config.weight_tear, config.weight_wave,
+            include_norm=True,
         )
         scores = scores_np.astype(np.float64).tolist()
 
