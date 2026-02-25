@@ -999,6 +999,20 @@ def _run_with_args(args):
                             chapter_end_frame=chapter_end_frame,
                             no_bob=args.no_bob,
                         )
+                        freeze_count = script.count("FreezeFrame(")
+                        filter_has_qtgmc = False
+                        try:
+                            filter_has_qtgmc = "QTGMC(" in filter_script.read_text(
+                                encoding="utf-8", errors="ignore"
+                            )
+                        except Exception:
+                            pass
+                        print(
+                            "AVS pipeline: "
+                            f"freeze_lines={freeze_count}, "
+                            f"filter_script={filter_script.name}, "
+                            f"filter_has_qtgmc={filter_has_qtgmc}"
+                        )
                         avs.write_text(script, encoding="ascii")
                         run(make_deinterlace(avs, extracted, qtgmc))
                         assert_expected_frame_count(
@@ -1069,7 +1083,13 @@ def _run_with_args(args):
 
             finally:
                 os.chdir(original_cwd)
-                shutil.rmtree(temp_dir, ignore_errors=True)
+                keep_temp = str(os.getenv("STEP6_KEEP_TEMP", "0")).strip().lower() in {
+                    "1", "true", "yes", "on"
+                }
+                if keep_temp:
+                    print(f"Keeping temp dir for inspection: {temp_dir}")
+                else:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
 
             cur_count += 1
 
