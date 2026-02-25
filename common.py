@@ -191,6 +191,50 @@ def read_ffmetadata_title(path):
 
 from fractions import Fraction
 
+def _parse_timebase_fraction(text):
+    raw = str(text or "").strip()
+    if "/" in raw:
+        num_s, den_s = raw.split("/", 1)
+        num = int(num_s)
+        den = int(den_s)
+    else:
+        num = int(raw)
+        den = 1
+    if den == 0:
+        raise ValueError("timebase denominator cannot be zero")
+    if den < 0:
+        num = -num
+        den = -den
+    return int(num), int(den)
+
+def _round_fraction_nearest_int(frac):
+    frac = Fraction(frac)
+    if frac >= 0:
+        return int((frac.numerator * 2 + frac.denominator) // (2 * frac.denominator))
+    pos = -frac
+    return -int((pos.numerator * 2 + pos.denominator) // (2 * pos.denominator))
+
+def chapter_frame_bounds(chapter, fps_num=30000, fps_den=1001):
+    """
+    Return chapter [start_frame, end_frame) using exact rational math when raw
+    ffmetadata ticks/timebase are available. Falls back to float seconds.
+    """
+    fps = Fraction(int(fps_num), int(fps_den))
+    try:
+        s_raw = int(chapter.get("start_raw"))
+        e_raw = int(chapter.get("end_raw"))
+        tb_num = int(chapter.get("timebase_num"))
+        tb_den = int(chapter.get("timebase_den"))
+        tb = Fraction(tb_num, tb_den)
+        s = _round_fraction_nearest_int(Fraction(s_raw) * tb * fps)
+        e = _round_fraction_nearest_int(Fraction(e_raw) * tb * fps)
+    except Exception:
+        s = int(round(float(chapter.get("start", 0.0)) * float(fps_num) / float(fps_den)))
+        e = int(round(float(chapter.get("end", 0.0)) * float(fps_num) / float(fps_den)))
+    if e < s:
+        e = s
+    return int(s), int(e)
+
 def parse_chapters(path):
     chapters = []
     ffmetadata = {}
@@ -199,18 +243,27 @@ def parse_chapters(path):
     seen_chapter = False
 
     def finalize(ch):
-        tb = Fraction(1, 1)
+        tb_num = 1
+        tb_den = 1
         if "timebase" in ch:
-            num, den = ch["timebase"].split("/", 1)
-            tb = Fraction(int(num), int(den))
+            tb_num, tb_den = _parse_timebase_fraction(ch["timebase"])
+        tb = Fraction(int(tb_num), int(tb_den))
+        ch["timebase_num"] = int(tb_num)
+        ch["timebase_den"] = int(tb_den)
 
         if "start" in ch:
-            s = int(ch["start"])
-            ch["start"] = float(round(Fraction(s) * tb, 3))
+            s_raw = int(ch["start"])
+            ch["start_raw"] = int(s_raw)
+            ch["start"] = float(Fraction(s_raw) * tb)
+        else:
+            ch["start"] = float(ch.get("start", 0.0))
 
         if "end" in ch:
-            e = int(ch["end"])
-            ch["end"] = float(round(Fraction(e) * tb, 3))
+            e_raw = int(ch["end"])
+            ch["end_raw"] = int(e_raw)
+            ch["end"] = float(Fraction(e_raw) * tb)
+        else:
+            ch["end"] = float(ch.get("end", 0.0))
 
     for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
@@ -276,10 +329,28 @@ def load_bad_frames_by_chapter(path):
         bad_by_title[title] = parse_bad_frames_csv(ch.get("bad_frames", ""))
     return bad_by_title
 
-def update_chapter_bad_frames_in_ffmetadata(path, chapter_bad_frames):
+_FRAME_LIST_KEYS = (
+    "bad_frames",
+    "bad_frame_override",
+    "good_frame_override",
+)
+
+def _normalize_frame_list_key(key):
+    k = str(key or "").strip().lower()
+    return k if k in _FRAME_LIST_KEYS else ""
+
+def update_chapter_frame_lists_in_ffmetadata(path, chapter_frame_lists):
     """
-    Update BAD_FRAMES lines in chapters.ffmetadata in-place.
-    chapter_bad_frames: {chapter_title: [global_frame_ids]}.
+    Update chapter frame-list metadata lines in chapters.ffmetadata in-place.
+    chapter_frame_lists:
+      {
+        chapter_title: {
+          "BAD_FRAMES": [...],
+          "BAD_FRAME_OVERRIDE": [...],
+          "GOOD_FRAME_OVERRIDE": [...],
+        }
+      }
+    Empty lists remove the corresponding key from that chapter block.
     """
     p = Path(path)
     if not p.exists():
@@ -288,7 +359,19 @@ def update_chapter_bad_frames_in_ffmetadata(path, chapter_bad_frames):
     def _norm_title(text):
         return " ".join(str(text or "").strip().lower().split())
 
-    pending = {_norm_title(k): list(v or []) for k, v in (chapter_bad_frames or {}).items()}
+    pending = {}
+    for raw_title, raw_fields in (chapter_frame_lists or {}).items():
+        nk = _norm_title(raw_title)
+        if not nk:
+            continue
+        field_map = {}
+        for raw_key, vals in dict(raw_fields or {}).items():
+            key = _normalize_frame_list_key(raw_key)
+            if not key:
+                continue
+            field_map[key] = list(vals or [])
+        if field_map:
+            pending[nk] = field_map
     if not pending:
         return 0
 
@@ -320,32 +403,49 @@ def update_chapter_bad_frames_in_ffmetadata(path, chapter_bad_frames):
                     break
 
         nk = _norm_title(title)
-        should_update = nk in pending
+        updates = pending.get(nk)
+        should_update = updates is not None
+        remove_keys = set(updates.keys()) if should_update else set()
 
         title_idx = -1
         cleaned = []
         for bline in block:
             s = bline.strip()
             if "=" in s and not s.startswith(";"):
-                k, v = s.split("=", 1)
+                k, _v = s.split("=", 1)
                 key = k.strip().lower()
                 if key == "title":
                     title_idx = len(cleaned)
-                # Only replace BAD_FRAMES for chapter blocks we're updating.
-                if should_update and key == "bad_frames":
+                if should_update and key in remove_keys:
                     continue
             cleaned.append(bline)
 
         if should_update:
-            csv = format_bad_frames_csv(pending[nk])
-            if csv:
-                insert_at = title_idx + 1 if title_idx >= 0 else len(cleaned)
-                cleaned.insert(insert_at, f"BAD_FRAMES={csv}")
+            insert_at = title_idx + 1 if title_idx >= 0 else len(cleaned)
+            for key in _FRAME_LIST_KEYS:
+                if key not in updates:
+                    continue
+                csv = format_bad_frames_csv(updates[key])
+                if csv:
+                    cleaned.insert(insert_at, f"{key.upper()}={csv}")
+                    insert_at += 1
             touched += 1
+
         out.extend(cleaned)
 
     p.write_text("\n".join(out) + "\n", encoding="utf-8")
     return touched
+
+def update_chapter_bad_frames_in_ffmetadata(path, chapter_bad_frames):
+    """
+    Update BAD_FRAMES lines in chapters.ffmetadata in-place.
+    chapter_bad_frames: {chapter_title: [global_frame_ids]}.
+    """
+    mapped = {
+        title: {"BAD_FRAMES": list(vals or [])}
+        for title, vals in (chapter_bad_frames or {}).items()
+    }
+    return update_chapter_frame_lists_in_ffmetadata(path, mapped)
 
 metadata_by_title = {}
 def load_all_metadata():

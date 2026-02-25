@@ -49,6 +49,7 @@ except ImportError:
     _HAS_TRACKING = False
 
 from common import (
+    chapter_frame_bounds,
     parse_bad_frames_csv,
     parse_chapters,
     update_chapter_bad_frames_in_ffmetadata,
@@ -65,10 +66,7 @@ def parse_ffmetadata_chapters(path: Path) -> list[dict]:
     for ch in chapters:
         start_sec = float(ch.get("start", 0.0))
         end_sec = float(ch.get("end", 0.0))
-        start_frame = int(round(start_sec * FPS))
-        end_frame = int(round(end_sec * FPS))
-        if end_frame < start_frame:
-            end_frame = start_frame
+        start_frame, end_frame = chapter_frame_bounds(ch, fps_num=30000, fps_den=1001)
         result.append(
             {
                 "title": str(ch.get("title", "Untitled")),

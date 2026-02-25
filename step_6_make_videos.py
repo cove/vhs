@@ -324,13 +324,8 @@ def local_bad_frames_to_repairs(local_bad_frames):
     return _merge_badframe_repairs(out)
 
 def chapter_global_frame_bounds(chapter):
-    # Chapters are parsed to seconds in common.parse_chapters; convert back to
-    # source frame indices using archive cadence (30000/1001).
-    s = int(round(float(chapter.get("start", 0.0)) * 30000.0 / 1001.0))
-    e = int(round(float(chapter.get("end", 0.0)) * 30000.0 / 1001.0))
-    if e < s:
-        e = s
-    return s, e
+    # Use exact rational math when raw ffmetadata ticks are available.
+    return chapter_frame_bounds(chapter, fps_num=30000, fps_den=1001)
 
 def chapter_exact_time_bounds(chapter):
     # Derive extraction time bounds from integer frame bounds to avoid

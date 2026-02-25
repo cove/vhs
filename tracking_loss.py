@@ -1,18 +1,18 @@
-﻿#!/usr/bin/env python3.11
+#!/usr/bin/env python3.11
 #
 # Tracking-loss bad frame classification for VHS archives.
 #
-# Signals — designed for the two VHS tracking-loss artifacts:
-#   1) chroma_loss  — mean HSV saturation drop.  Chroma loss makes frames go
+# Signals - designed for the two VHS tracking-loss artifacts:
+#   1) chroma_loss  - mean HSV saturation drop.  Chroma loss makes frames go
 #                     grey/noisy; the S channel collapses toward 0.
 #                     Signal = 1 - mean(S)/255  (0 = good, 1 = fully grey)
 #
-#   2) noise_energy — std of per-row pixel variance, normalised by mean row
+#   2) noise_energy - std of per-row pixel variance, normalised by mean row
 #                     variance.  Tracking noise creates a handful of rows with
 #                     wildly high variance sitting next to normal rows; the
 #                     std of variances spikes even when only a few rows are hit.
 #
-#   3) row_tear     — 95th-percentile of per-row mean-absolute-difference with
+#   3) row_tear     - 95th-percentile of per-row mean-absolute-difference with
 #                     the adjacent row.  Tearing shifts rows horizontally; the
 #                     diff with their neighbour becomes enormous for torn rows.
 #                     95th-pct rather than mean so a few torn rows dominate
@@ -38,7 +38,9 @@ from common import (
     ARCHIVE_DIR,
     METADATA_DIR,
     apply_config_overrides,
+    chapter_frame_bounds,
     parse_bad_frames_csv,
+    parse_chapters,
     require_non_empty,
     update_chapter_bad_frames_in_ffmetadata,
 )
@@ -79,7 +81,7 @@ DEFAULT_CONFIG = TrackingLossConfig()
 def compute_tracking_signals(frame_bgr, crop_top, crop_bottom, crop_left, crop_right):
     """
     Compute three artifact-specific signals from a raw BGR frame.
-    Works on the full colour frame — grayscale conversion only happens
+    Works on the full colour frame - grayscale conversion only happens
     where needed, after chroma is measured.
 
     Returns
@@ -90,7 +92,7 @@ def compute_tracking_signals(frame_bgr, crop_top, crop_bottom, crop_left, crop_r
     """
     h, w = frame_bgr.shape[:2]
 
-    # Crop — clamp so we always have at least 1 row/col
+    # Crop - clamp so we always have at least 1 row/col
     y0 = min(int(crop_top),    max(0, h - 1))
     y1 = max(y0 + 1,           h - int(crop_bottom))
     x0 = min(int(crop_left),   max(0, w - 1))
@@ -100,30 +102,30 @@ def compute_tracking_signals(frame_bgr, crop_top, crop_bottom, crop_left, crop_r
     if roi.size == 0:
         roi = frame_bgr
 
-    # 1. Chroma loss — measure before converting to grey
+    # 1. Chroma loss - measure before converting to grey
     hsv         = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-    s           = hsv[:, :, 1].astype(np.float32)   # saturation 0–255
+    s           = hsv[:, :, 1].astype(np.float32)   # saturation 0-255
     chroma_loss = 1.0 - float(np.mean(s) / 255.0)   # invert: high = bad
 
-    # 2. Noise energy — per-row variance spread
+    # 2. Noise energy - per-row variance spread
     gray     = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY).astype(np.float32)
     row_vars = np.var(gray, axis=1)
     mean_var = float(np.mean(row_vars))
     noise_energy = float(np.std(row_vars) / mean_var) if mean_var > 1e-6 else 0.0
 
-    # 3. Row tear — 95th-percentile of row-to-neighbour difference
+    # 3. Row tear - 95th-percentile of row-to-neighbour difference
     if gray.shape[0] > 1:
         row_diffs = np.abs(gray[1:] - gray[:-1]).mean(axis=1)
         row_tear  = float(np.percentile(row_diffs, 95))
     else:
         row_tear = 0.0
 
-    # 4. Wave energy — std of per-row horizontal centre-of-mass.
+    # 4. Wave energy - std of per-row horizontal centre-of-mass.
     #    VHS horizontal sync instability displaces rows left/right in a wave
     #    pattern.  The CoM of each row's luminance oscillates; stable frames
     #    have near-constant CoM across rows.  High-pass the CoM series first
     #    (subtract a 5-row rolling mean) so slow scene content gradients don't
-    #    inflate the score — only the rapid row-to-row oscillation counts.
+    #    inflate the score - only the rapid row-to-row oscillation counts.
     gray_f   = gray.astype(np.float32)
     row_sums = gray_f.sum(axis=1)
     cols_idx = np.arange(gray_f.shape[1], dtype=np.float32)
@@ -143,57 +145,15 @@ def compute_tracking_signals(frame_bgr, crop_top, crop_bottom, crop_left, crop_r
 # ---------------------------------------------------------------------------
 
 def parse_chapters_ffmetadata(path):
-    chapters, current = [], {}
-    default_tb = 1.0 / 1_000_000_000
-    for raw_line in Path(path).read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = raw_line.strip()
-        if line == "[CHAPTER]":
-            if current.get("start_raw") is not None and current.get("end_raw") is not None:
-                tb = float(current.get("_tb", default_tb))
-                start_frame = int(round(float(current["start_raw"]) * tb * FPS))
-                end_frame = int(round(float(current["end_raw"]) * tb * FPS))
-                chapters.append({
-                    "start": start_frame,
-                    "end": end_frame,
-                    "title": str(current.get("title", "")),
-                    "bad_frames": str(current.get("bad_frames", "")),
-                })
-            current = {"_tb": default_tb}
-            continue
-        if "=" not in line or line.startswith(";"):
-            continue
-        key, _, value = line.partition("=")
-        key   = key.strip().upper()
-        value = value.strip()
-        if key == "TIMEBASE":
-            try:
-                n, d = value.split("/")
-                current["_tb"] = float(n) / float(d)
-            except Exception:
-                pass
-        elif key == "START":
-            try:
-                current["start_raw"] = int(value)
-            except ValueError:
-                pass
-        elif key == "END":
-            try:
-                current["end_raw"] = int(value)
-            except ValueError:
-                pass
-        elif key == "TITLE":
-            current["title"] = value
-        elif key == "BAD_FRAMES":
-            current["bad_frames"] = value
-    if current.get("start_raw") is not None and current.get("end_raw") is not None:
-        tb = float(current.get("_tb", default_tb))
-        start_frame = int(round(float(current["start_raw"]) * tb * FPS))
-        end_frame = int(round(float(current["end_raw"]) * tb * FPS))
+    _ffm, parsed = parse_chapters(Path(path))
+    chapters = []
+    for ch in parsed:
+        start_frame, end_frame = chapter_frame_bounds(ch, fps_num=30000, fps_den=1001)
         chapters.append({
-            "start": start_frame,
-            "end": end_frame,
-            "title": str(current.get("title", "")),
-            "bad_frames": str(current.get("bad_frames", "")),
+            "start": int(start_frame),
+            "end": int(end_frame),
+            "title": str(ch.get("title", "")),
+            "bad_frames": str(ch.get("bad_frames", "")),
         })
     return chapters
 
@@ -203,13 +163,13 @@ def resolve_overlapping_chapters(chapters):
     kept  = list(chapters or [])
     if len(kept) <= 1:
         return kept, {"original_count": len(kept), "excluded_count": 0, "kept_count": len(kept)}
-    spans   = [max(1, int(ch["end"]) - int(ch["start"]) + 1) for ch in kept]
+    spans = [max(1, int(ch["end"]) - int(ch["start"])) for ch in kept]
     exclude = set()
     for i in range(len(kept)):
         for j in range(i + 1, len(kept)):
             a0, a1 = int(kept[i]["start"]), int(kept[i]["end"])
             b0, b1 = int(kept[j]["start"]), int(kept[j]["end"])
-            if a1 < b0 or b1 < a0:
+            if a1 <= b0 or b1 <= a0:
                 continue
             if spans[i] > spans[j]:
                 exclude.add(i)
@@ -222,11 +182,11 @@ def resolve_overlapping_chapters(chapters):
 
 
 def assign_frames_to_chapters(indices, chapters):
-    spans = [max(1, int(ch["end"]) - int(ch["start"]) + 1) for ch in chapters]
+    spans = [max(1, int(ch["end"]) - int(ch["start"])) for ch in chapters]
     result = []
     for fi in indices:
         cands = [ci for ci, ch in enumerate(chapters)
-                 if int(ch["start"]) <= int(fi) <= int(ch["end"])]
+                 if int(ch["start"]) <= int(fi) < int(ch["end"])]
         if not cands:
             result.append(-1)
         else:
@@ -270,9 +230,9 @@ def compute_per_frame_thresholds(scores, indices, chapters, window_size, iqr_mul
         ch_s    = int(ch["start"])
         ch_e    = int(ch["end"])
         title   = ch.get("title", f"chapter_{cid}")
-        for win_s in range(ch_s, ch_e + 1, win_size):
-            win_e     = min(ch_e, win_s + win_size - 1)
-            positions = [p for p in ch_positions if win_s <= int(indices[p]) <= win_e]
+        for win_s in range(ch_s, ch_e, win_size):
+            win_e = min(ch_e, win_s + win_size)
+            positions = [p for p in ch_positions if win_s <= int(indices[p]) < win_e]
             if not positions:
                 continue
             wscores = scores_np[positions]
@@ -284,7 +244,7 @@ def compute_per_frame_thresholds(scores, indices, chapters, window_size, iqr_mul
             q3 = float(np.percentile(finite, 75)) if finite.size else float("nan")
             window_info.append({
                 "chapter_id": int(cid), "title": title, "window_type": "chapter",
-                "window_start_frame": int(win_s), "window_end_frame": int(win_e),
+                "window_start_frame": int(win_s), "window_end_frame": int(win_e - 1),
                 "frame_count_in_window": len(positions),
                 "q1": q1, "q3": q3, "iqr": q3 - q1,
                 "iqr_mult": float(iqr_mult),
@@ -607,7 +567,7 @@ def _run_with_config(config: TrackingLossConfig):
         print(f"WARNING: chapters file not found ({chapters_file}); "
               "using single window over all frames.")
 
-    # Per-chapter IQR thresholds — now uses config.iqr_mult
+    # Per-chapter IQR thresholds - now uses config.iqr_mult
     thresholds, chapter_ids, window_info = compute_per_frame_thresholds(
         scores_np, indices, chapters,
         window_size=config.threshold_window_size,
