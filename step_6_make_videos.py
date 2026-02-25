@@ -592,10 +592,6 @@ def make_create_avs(
         resolved_bad_repair_ranges,
         frame_multiplier=1,
     )
-    postfilter_text = _build_badframe_freezeframe_lines(
-        resolved_bad_repair_ranges,
-        frame_multiplier=BADFRAME_POST_QTGMC_MULTIPLIER,
-    )
     # Guard against chapter filter scripts that still output bob cadence.
     # If filter output is approximately 2x chapter length, decimate to single-rate.
     cadence_guard_text = f"""c = last
@@ -627,7 +623,6 @@ chapter_end_frame = {int(chapter_end_frame)}
 {prefilter_text}
 Import("{filter_import_path}")
 {cadence_guard_text}
-{postfilter_text}
 {no_bob_text}
 '''
 

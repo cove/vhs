@@ -462,12 +462,17 @@ def test_step_6_make_create_avs_includes_chapter_bounds():
         assert "chapter_end_frame = 200" in script
         assert "FreezeFrame(5,5,6)" in script
         assert "FreezeFrame(4,4,3)" in script
-        assert script.count("FreezeFrame(5,5,6)") == 2
-        assert script.count("FreezeFrame(4,4,3)") == 2
+        assert script.count("FreezeFrame(5,5,6)") == 1
+        assert script.count("FreezeFrame(4,4,3)") == 1
         assert "_tmp_filter.avs" in script
         assert "expected_frames = 100" in script
         assert "c.FrameCount >= (expected_frames * 2 - 2)" in script
         assert "c = c.SelectEven()" in script
+        filter_import = script.find('_tmp_filter.avs')
+        first_freeze = script.find("FreezeFrame(")
+        assert first_freeze >= 0
+        assert filter_import >= 0
+        assert first_freeze < filter_import
     finally:
         tmp_filter.unlink(missing_ok=True)
 
