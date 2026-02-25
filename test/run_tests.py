@@ -322,7 +322,7 @@ def test_step_6_badframe_repair_injection_and_comment():
     assert out.count("FreezeFrame(") == 2
     assert "FreezeFrame(20,20,23)" in out
     assert "FreezeFrame(6,8,9)" in out
-    assert out.find("FreezeFrame(20,20,23)") < out.find("FreezeFrame(6,8,9)")
+    assert out.find("FreezeFrame(6,8,9)") < out.find("FreezeFrame(20,20,23)")
 
     out_override = step_6_make_videos.build_badframe_prefilter_lines(
         bad_repair_ranges=[(10, 12, 20), (30, 30, None)]
@@ -334,6 +334,12 @@ def test_step_6_badframe_repair_injection_and_comment():
         bad_repair_ranges=[(6, 8, 7)]
     )
     assert "FreezeFrame(6,8,9)" in out_invalid_override
+
+    try:
+        step_6_make_videos._build_badframe_freezeframe_lines([(6, 8, 7)])
+        raise AssertionError("Expected RuntimeError for bad FreezeFrame source.")
+    except RuntimeError as e:
+        assert "source is also bad" in str(e)
 
     out_forward_only = step_6_make_videos.build_badframe_prefilter_lines(
         bad_repair_ranges=[(0, 0, None), (10, 10, None)]

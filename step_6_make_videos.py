@@ -231,10 +231,18 @@ def _build_badframe_freezeframe_lines(resolved_ranges, frame_multiplier=1):
     if not resolved_ranges:
         return ""
     m = max(1, int(frame_multiplier))
+    # Guardrail: never allow a source frame that is itself targeted as bad.
+    bad_targets = set()
+    for a, b, _src in resolved_ranges:
+        bad_targets.update(range(int(a), int(b) + 1))
 
     fix_lines = ["c = last"]
     # Freeze contiguous bad-frame runs to one neighboring clean frame.
-    for a, b, src in sorted(resolved_ranges, key=lambda x: (x[0], x[1]), reverse=True):
+    for a, b, src in sorted(resolved_ranges, key=lambda x: (x[0], x[1])):
+        if int(src) in bad_targets:
+            raise RuntimeError(
+                f"Invalid FreezeFrame source {src} for bad range {a}-{b}: source is also bad."
+            )
         out_a = a * m
         out_b = ((b + 1) * m) - 1
         out_src = src * m
