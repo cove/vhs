@@ -6,26 +6,36 @@
   <title>VHS Tuner</title>
   <style>
     :root {
-      --bg: #002b36;
-      --bg-soft: #073642;
-      --bg-alt: #0a3944;
-      --line: #1b5866;
-      --text: #93a1a1;
-      --text-strong: #eee8d5;
-      --accent: #268bd2;
-      --accent-soft: #2aa198;
-      --good: #859900;
-      --bad: #dc322f;
-      --warn: #b58900;
+      --bg: #050705;
+      --bg-soft: #071007;
+      --bg-alt: #0a160a;
+      --line: #3a2814;
+      --text: #b88a52;
+      --text-strong: #e3b16f;
+      --accent: #d28f3d;
+      --accent-soft: #b87931;
+      --good: #5bbf5b;
+      --bad: #d36b55;
+      --warn: #ffb469;
     }
 
     * { box-sizing: border-box; }
 
     body {
       margin: 0;
-      background: radial-gradient(1200px 700px at 100% -10%, #0b4a56 0%, transparent 55%), var(--bg);
+      background:
+        repeating-linear-gradient(
+          0deg,
+          rgba(130, 255, 130, 0.04) 0px,
+          rgba(130, 255, 130, 0.04) 1px,
+          rgba(0, 0, 0, 0) 2px,
+          rgba(0, 0, 0, 0) 4px
+        ),
+        radial-gradient(1400px 800px at 50% -15%, #0f220f 0%, transparent 55%),
+        var(--bg);
       color: var(--text);
-      font-family: "Segoe UI", Tahoma, sans-serif;
+      font-family: "Consolas", "Lucida Console", "Courier New", monospace;
+      text-shadow: 0 0 4px rgba(210, 143, 61, 0.14);
     }
 
     .app {
@@ -37,17 +47,25 @@
     }
 
     .title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
       font-size: 20px;
       color: var(--text-strong);
-      letter-spacing: 0.3px;
+      letter-spacing: 0.8px;
+    }
+    .title-icon {
+      width: 34px;
+      height: 22px;
+      flex: 0 0 auto;
     }
 
     .status {
       min-height: 24px;
       padding: 6px 10px;
       border: 1px solid var(--line);
-      border-radius: 8px;
-      background: rgba(7, 54, 66, 0.6);
+      border-radius: 2px;
+      background: rgba(8, 16, 8, 0.8);
       font-size: 13px;
     }
 
@@ -66,7 +84,7 @@
       border: 1px solid var(--line);
       background: var(--bg-soft);
       color: var(--text);
-      border-radius: 999px;
+      border-radius: 2px;
       padding: 6px 10px;
       font-size: 12px;
     }
@@ -74,7 +92,8 @@
     .step-pill.active {
       border-color: var(--accent);
       color: var(--text-strong);
-      background: #0a4050;
+      background: #102110;
+      box-shadow: inset 0 0 0 1px rgba(210, 143, 61, 0.2);
     }
 
     .page { display: none; min-height: 0; }
@@ -82,8 +101,8 @@
 
     .panel {
       border: 1px solid var(--line);
-      background: linear-gradient(180deg, rgba(7,54,66,0.95), rgba(5,43,53,0.95));
-      border-radius: 10px;
+      background: linear-gradient(180deg, rgba(8,16,8,0.95), rgba(5,10,5,0.95));
+      border-radius: 2px;
       padding: 10px;
       min-height: 0;
     }
@@ -116,7 +135,7 @@
       border: 1px solid var(--line);
       background: var(--bg-soft);
       color: var(--text);
-      border-radius: 8px;
+      border-radius: 2px;
       padding: 8px;
       text-align: left;
       cursor: pointer;
@@ -127,7 +146,7 @@
     .item-btn:hover { border-color: var(--accent-soft); }
     .item-btn.active {
       border-color: var(--accent);
-      background: #0b4150;
+      background: #122412;
       color: var(--text-strong);
     }
 
@@ -139,7 +158,7 @@
     }
 
     .chapter-row .meta {
-      color: #6eb9c1;
+      color: #75b875;
       font-size: 11px;
       text-align: right;
       white-space: nowrap;
@@ -155,10 +174,10 @@
 
     .details {
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 2px;
       padding: 10px;
       white-space: pre-wrap;
-      background: rgba(0, 32, 41, 0.6);
+      background: rgba(7, 14, 7, 0.8);
       font-family: "Consolas", "Courier New", monospace;
       font-size: 12px;
       min-height: 90px;
@@ -181,7 +200,7 @@
       width: 100%;
       border: 1px solid var(--line);
       border-radius: 7px;
-      background: #052a33;
+      background: #071107;
       color: var(--text-strong);
       padding: 8px;
     }
@@ -195,15 +214,15 @@
 
     button.action {
       border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #094152;
+      border-radius: 2px;
+      background: #102110;
       color: var(--text-strong);
       padding: 8px 12px;
       cursor: pointer;
       font-size: 13px;
     }
 
-    button.action.primary { border-color: var(--accent); background: #0f5370; }
+    button.action.primary { border-color: var(--accent); background: #3a240f; }
     button.action.warn { border-color: var(--warn); }
     button.action:disabled { opacity: 0.55; cursor: not-allowed; }
 
@@ -232,13 +251,24 @@
     }
 
     .iqr-box input[type="range"] { width: 220px; }
+    .spark-play-btn {
+      min-width: 52px;
+      min-height: 36px;
+      padding-left: 12px;
+      padding-right: 12px;
+      font-weight: 700;
+      line-height: 1;
+      font-size: 20px;
+      border-width: 2px;
+      box-shadow: inset 0 0 0 1px rgba(210, 143, 61, 0.25);
+    }
 
     .iqr-spark {
       width: 100%;
       height: 68px;
       border: 1px solid var(--line);
-      border-radius: 8px;
-      background: #05252e;
+      border-radius: 2px;
+      background: #050b05;
       display: block;
       cursor: ew-resize;
       user-select: none;
@@ -255,14 +285,14 @@
 
     .spark-meta {
       font-size: 11px;
-      color: #8bb7b7;
+      color: #7cb67c;
       min-height: 14px;
     }
 
     .frame-grid {
       border: 1px solid var(--line);
-      border-radius: 8px;
-      background: rgba(0, 32, 41, 0.55);
+      border-radius: 2px;
+      background: rgba(7, 14, 7, 0.75);
       padding: 8px;
       overflow: auto;
       display: grid;
@@ -274,8 +304,8 @@
 
     .frame-card {
       border: 2px solid var(--line);
-      border-radius: 8px;
-      background: #03232b;
+      border-radius: 2px;
+      background: #081208;
       padding: 6px;
       display: grid;
       gap: 4px;
@@ -289,7 +319,7 @@
       width: 100%;
       max-height: 112px;
       object-fit: contain;
-      background: #001c24;
+      background: #030703;
       border-radius: 4px;
     }
 
@@ -297,7 +327,7 @@
       font-family: "Consolas", "Courier New", monospace;
       font-size: 11px;
       line-height: 1.25;
-      color: #c9d6d6;
+      color: #9add9a;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -312,14 +342,14 @@
 
     .summary-box {
       border: 1px solid var(--line);
-      border-radius: 8px;
-      background: rgba(0, 32, 41, 0.6);
+      border-radius: 2px;
+      background: rgba(7, 14, 7, 0.8);
       padding: 10px;
       white-space: pre-wrap;
       overflow: auto;
       font-family: "Consolas", "Courier New", monospace;
       font-size: 12px;
-      color: #d2dfdf;
+      color: #a9e4a9;
     }
 
     .overlay {
@@ -328,7 +358,7 @@
       display: none;
       align-items: center;
       justify-content: center;
-      background: rgba(0, 23, 30, 0.75);
+      background: rgba(0, 10, 0, 0.8);
       z-index: 1000;
     }
 
@@ -336,8 +366,8 @@
 
     .overlay-card {
       border: 1px solid var(--line);
-      border-radius: 10px;
-      background: #08323c;
+      border-radius: 2px;
+      background: #0a140a;
       min-width: 300px;
       padding: 12px;
       display: grid;
@@ -348,22 +378,28 @@
       width: 100%;
       height: 10px;
       border: 1px solid var(--line);
-      border-radius: 999px;
-      background: #06303a;
+      border-radius: 2px;
+      background: #0a140a;
       overflow: hidden;
     }
 
     .overlay-progress-fill {
       width: 0%;
       height: 100%;
-      background: linear-gradient(90deg, #2aa198, #268bd2);
+      background: linear-gradient(90deg, #b87931, #e3b16f);
       transition: width 0.15s linear;
     }
 
     .overlay-progress-text {
       font-size: 11px;
-      color: #9ac4c4;
+      color: #8cc48c;
       text-align: right;
+    }
+    .overlay-eta-text {
+      font-size: 11px;
+      color: #b88a52;
+      text-align: right;
+      min-height: 14px;
     }
 
     .overlay-actions {
@@ -374,7 +410,7 @@
     .spinner {
       width: 26px;
       height: 26px;
-      border: 3px solid #0e5564;
+      border: 3px solid #1f3f1f;
       border-top-color: var(--accent);
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
@@ -431,7 +467,20 @@
 </head>
 <body>
   <div class="app">
-    <div class="title">VHS Tuner</div>
+    <div class="title">
+      <svg class="title-icon" viewBox="0 0 68 44" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect x="2" y="4" width="64" height="36" rx="2" fill="#120c06" stroke="#d28f3d" stroke-width="2"/>
+        <rect x="10" y="10" width="48" height="16" rx="1.5" fill="#0b0704" stroke="#b87931" stroke-width="1.3"/>
+        <circle cx="24" cy="18" r="5.3" fill="#160f08" stroke="#d49a54" stroke-width="1.5"/>
+        <circle cx="44" cy="18" r="5.3" fill="#160f08" stroke="#d49a54" stroke-width="1.5"/>
+        <circle cx="24" cy="18" r="1.2" fill="#b88a52"/>
+        <circle cx="44" cy="18" r="1.2" fill="#b88a52"/>
+        <rect x="24" y="32" width="20" height="3" rx="1" fill="#b87931"/>
+        <rect x="6" y="8" width="3" height="28" fill="#3a2814"/>
+        <rect x="59" y="8" width="3" height="28" fill="#3a2814"/>
+      </svg>
+      <span>VHS Frame Tuner</span>
+    </div>
     <div id="status" class="status"></div>
     <div class="steps">
       <div id="stepPill1" class="step-pill active">1/3 Load Chapter</div>
@@ -481,10 +530,10 @@
         <div class="panel review-top">
           <div id="reviewStats" class="review-stats">No frames loaded.</div>
           <div class="iqr-box">
+            <button id="sparkPlayBtn" class="action spark-play-btn" type="button" title="Play spark window">▶</button>
             <label for="iqrK">IQR k</label>
             <input id="iqrK" type="range" min="0" max="12" step="0.05" value="3.5">
             <span id="iqrLabel">3.50</span>
-            <button id="applyIqr" class="action">Apply</button>
             <button id="toggleFullscreen" class="action">Fullscreen</button>
           </div>
         </div>
@@ -524,6 +573,7 @@
         <div id="overlayProgressFill" class="overlay-progress-fill"></div>
       </div>
       <div id="overlayProgressText" class="overlay-progress-text"></div>
+      <div id="overlayEtaText" class="overlay-eta-text"></div>
       <div id="overlayCancelWrap" class="overlay-actions" style="display:none;">
         <button id="overlayCancelBtn" class="action warn" type="button">Cancel</button>
       </div>
@@ -549,6 +599,7 @@
     const overlayMsgEl = document.getElementById('overlayMsg');
     const overlayProgressFillEl = document.getElementById('overlayProgressFill');
     const overlayProgressTextEl = document.getElementById('overlayProgressText');
+    const overlayEtaTextEl = document.getElementById('overlayEtaText');
     const overlayCancelWrapEl = document.getElementById('overlayCancelWrap');
     const overlayCancelBtnEl = document.getElementById('overlayCancelBtn');
 
@@ -568,15 +619,19 @@
     const summaryBoxEl = document.getElementById('summaryBox');
     const iqrSparkEl = document.getElementById('iqrSpark');
     const sparkMetaEl = document.getElementById('sparkMeta');
+    const sparkPlayBtnEl = document.getElementById('sparkPlayBtn');
     const page2El = document.getElementById('page2');
     const fullscreenBtnEl = document.getElementById('toggleFullscreen');
 
     let autoIqrTimer = null;
     let visibleRangeRefreshPending = false;
     let loadProgressPollTimer = null;
+    let loadSampleTimingStartAt = 0;
+    let loadSampleTimingStartDone = 0;
     let sparkDragPointerId = null;
     let sparkDragRaf = null;
     let sparkDragClientX = 0;
+    let sparkPlayTimer = null;
 
     function setLoadCancelUi(visible, disabled = false, label = 'Cancel') {
       if (!overlayCancelWrapEl || !overlayCancelBtnEl) return;
@@ -596,8 +651,57 @@
       if (!active) {
         if (overlayProgressFillEl) overlayProgressFillEl.style.width = '0%';
         if (overlayProgressTextEl) overlayProgressTextEl.textContent = '';
+        if (overlayEtaTextEl) overlayEtaTextEl.textContent = '';
         setLoadCancelUi(false);
       }
+    }
+
+    function formatClockTime(tsMs) {
+      const d = new Date(Number(tsMs));
+      const h = String(d.getHours()).padStart(2, '0');
+      const m = String(d.getMinutes()).padStart(2, '0');
+      const s = String(d.getSeconds()).padStart(2, '0');
+      return `${h}:${m}:${s}`;
+    }
+
+    function renderReadyAtFromSamples(sampleDone, sampleTotal) {
+      if (!overlayEtaTextEl) return;
+      const done = Math.max(0, Number(sampleDone || 0));
+      const total = Math.max(0, Number(sampleTotal || 0));
+      if (total <= 0) {
+        overlayEtaTextEl.textContent = '';
+        return;
+      }
+      if (done >= total) {
+        overlayEtaTextEl.textContent = `Estimated ready at ${formatClockTime(Date.now())}`;
+        return;
+      }
+      if (done <= 0) {
+        overlayEtaTextEl.textContent = 'Estimating ready time...';
+        return;
+      }
+      if (!loadSampleTimingStartAt) {
+        loadSampleTimingStartAt = Date.now();
+        loadSampleTimingStartDone = done;
+      }
+      const observedFrames = Math.max(0, done - loadSampleTimingStartDone);
+      if (observedFrames < 20) {
+        overlayEtaTextEl.textContent = `Estimating ready time... (${observedFrames}/20 frame sample)`;
+        return;
+      }
+      const elapsedMs = Date.now() - loadSampleTimingStartAt;
+      if (!(elapsedMs > 0)) {
+        overlayEtaTextEl.textContent = '';
+        return;
+      }
+      const framesPerSec = observedFrames / (elapsedMs / 1000);
+      if (!(framesPerSec > 0)) {
+        overlayEtaTextEl.textContent = 'Estimating ready time...';
+        return;
+      }
+      const remaining = Math.max(0, total - done);
+      const etaMs = Date.now() + (remaining / framesPerSec) * 1000;
+      overlayEtaTextEl.textContent = `Estimated ready at ${formatClockTime(etaMs)}`;
     }
 
     function setOverlayProgress(value) {
@@ -620,6 +724,7 @@
           }
         }
         setOverlayProgress(Number(p.progress || 0));
+        renderReadyAtFromSamples(done, total);
       } catch (_err) {
         // Ignore transient polling errors while main request is in-flight.
       }
@@ -631,8 +736,11 @@
         loadProgressPollTimer = null;
       }
       setLoading(true, message || 'Loading chapter...');
+      loadSampleTimingStartAt = 0;
+      loadSampleTimingStartDone = 0;
       setLoadCancelUi(true, false, 'Cancel');
       setOverlayProgress(1);
+      renderReadyAtFromSamples(0, 0);
       pollLoadProgressOnce();
       loadProgressPollTimer = window.setInterval(pollLoadProgressOnce, 180);
     }
@@ -645,12 +753,15 @@
       setLoadCancelUi(false);
       if (success) {
         setOverlayProgress(100);
+        renderReadyAtFromSamples(1, 1);
         window.setTimeout(() => {
           setLoading(false);
         }, 180);
       } else {
         setLoading(false);
       }
+      loadSampleTimingStartAt = 0;
+      loadSampleTimingStartDone = 0;
     }
 
     async function api(path, method = 'GET', body = null) {
@@ -670,6 +781,9 @@
     function setStep(step) {
       const pages = ['page1', 'page2', 'page3'];
       const pills = ['stepPill1', 'stepPill2', 'stepPill3'];
+      if (step !== 2) {
+        stopSparkWindowPlayback();
+      }
       if (step !== 2 && document.fullscreenElement === page2El && document.exitFullscreen) {
         document.exitFullscreen().catch(() => {});
       }
@@ -846,6 +960,10 @@
       });
     }
 
+    function isReviewStepActive() {
+      return page2El && page2El.classList.contains('active');
+    }
+
     function _clamp(value, minValue, maxValue) {
       return Math.max(minValue, Math.min(maxValue, Number(value)));
     }
@@ -869,6 +987,65 @@
       const top = Math.max(0, target.offsetTop - Math.floor(frameGridEl.clientHeight * 0.12));
       frameGridEl.scrollTo({ top, behavior: 'auto' });
       scheduleVisibleRangeRefresh();
+    }
+
+    function updateSparkPlayButton() {
+      if (!sparkPlayBtnEl) return;
+      const playing = Boolean(sparkPlayTimer);
+      sparkPlayBtnEl.textContent = playing ? '■' : '▶';
+      sparkPlayBtnEl.title = playing ? 'Stop spark window playback' : 'Play spark window';
+    }
+
+    function stopSparkWindowPlayback() {
+      if (sparkPlayTimer) {
+        window.clearInterval(sparkPlayTimer);
+        sparkPlayTimer = null;
+      }
+      updateSparkPlayButton();
+    }
+
+    function stepSparkWindowRight() {
+      if (!isReviewStepActive()) {
+        stopSparkWindowPlayback();
+        return;
+      }
+      if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) {
+        stopSparkWindowPlayback();
+        return;
+      }
+      const maxTop = Math.max(0, frameGridEl.scrollHeight - frameGridEl.clientHeight);
+      if (maxTop <= 1) {
+        scheduleVisibleRangeRefresh();
+        return;
+      }
+
+      const cards = Array.from(frameGridEl.querySelectorAll('.frame-card'));
+      let rowStep = Math.max(24, Math.round(frameGridEl.clientHeight * 0.12));
+      if (cards.length >= 2) {
+        const firstTop = cards[0].offsetTop;
+        const nextRow = cards.find(c => c.offsetTop > firstTop + 1);
+        if (nextRow) {
+          rowStep = Math.max(12, nextRow.offsetTop - firstTop);
+        }
+      }
+
+      let nextTop = frameGridEl.scrollTop + rowStep;
+      if (nextTop >= maxTop - 1) {
+        nextTop = 0;
+      }
+      frameGridEl.scrollTo({ top: nextTop, behavior: 'auto' });
+      scheduleVisibleRangeRefresh();
+    }
+
+    function toggleSparkWindowPlayback() {
+      if (sparkPlayTimer) {
+        stopSparkWindowPlayback();
+        return;
+      }
+      if (!isReviewStepActive()) return;
+      if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) return;
+      sparkPlayTimer = window.setInterval(stepSparkWindowRight, 100);
+      updateSparkPlayButton();
     }
 
     function seekFrameGridFromSparkClientX(clientX) {
@@ -1173,7 +1350,6 @@
     document.getElementById('nextToSummary').addEventListener('click', loadSummary);
     document.getElementById('backToReview').addEventListener('click', () => setStep(2));
     document.getElementById('saveAndReturn').addEventListener('click', saveAndReturn);
-    document.getElementById('applyIqr').addEventListener('click', () => applyIqr(true));
     fullscreenBtnEl.addEventListener('click', toggleReviewFullscreen);
     document.addEventListener('fullscreenchange', () => {
       updateFullscreenButton();
@@ -1241,6 +1417,7 @@
 
     window.addEventListener('load', async () => {
       iqrLabelEl.textContent = Number(iqrEl.value).toFixed(2);
+      updateSparkPlayButton();
       updateFullscreenButton();
       setStatus('Loading archives...');
       try {
@@ -1255,6 +1432,35 @@
         scheduleVisibleRangeRefresh();
       }
     });
+
+    sparkPlayBtnEl.addEventListener('click', toggleSparkWindowPlayback);
+
+    function normalizeWheelToPixels(event) {
+      const mode = Number(event.deltaMode || 0);
+      const dy = Number(event.deltaY || 0);
+      const dx = Number(event.deltaX || 0);
+      const dominant = Math.abs(dy) >= Math.abs(dx) ? dy : dx;
+      if (!dominant) return 0;
+      if (mode === 1) return dominant * 16;
+      if (mode === 2) return dominant * Math.max(320, window.innerHeight || 800);
+      return dominant;
+    }
+
+    function relayWheelToFrameGrid(event) {
+      if (!isReviewStepActive()) return;
+      if (!frameGridEl) return;
+      if (overlayEl && overlayEl.classList.contains('active')) return;
+      if (event.target && event.target.closest('input, textarea, select, button')) return;
+
+      const deltaPx = normalizeWheelToPixels(event);
+      if (deltaPx === 0) return;
+      if (event.cancelable) event.preventDefault();
+      frameGridEl.scrollBy({ top: deltaPx * 1.75, behavior: 'auto' });
+      scheduleVisibleRangeRefresh();
+    }
+
+    window.addEventListener('wheel', relayWheelToFrameGrid, { passive: false, capture: true });
   </script>
 </body>
 </html>
+

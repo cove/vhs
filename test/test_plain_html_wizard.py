@@ -66,6 +66,7 @@ def test_static_html_contains_live_iqr_spark_and_fullscreen_controls() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
 
     assert 'id="iqrK" type="range" min="0" max="12"' in html
+    assert 'id="sparkPlayBtn"' in html
     assert 'id="iqrSpark"' in html
     assert 'id="toggleFullscreen"' in html
     assert "grid-template-rows: auto auto minmax(0, 1fr) auto;" in html
@@ -74,16 +75,26 @@ def test_static_html_contains_live_iqr_spark_and_fullscreen_controls() -> None:
     assert "scheduleAutoApplyIqr()" in html
     assert "scheduleVisibleRangeRefresh()" in html
     assert "frameGridEl.addEventListener('scroll'" in html
+    assert "normalizeWheelToPixels(" in html
+    assert "window.addEventListener('wheel', relayWheelToFrameGrid, { passive: false, capture: true })" in html
+    assert "frameGridEl.scrollBy({ top: deltaPx * 1.75, behavior: 'auto' })" in html
     assert 'id="overlayProgressFill"' in html
     assert 'id="overlayProgressText"' in html
+    assert 'id="overlayEtaText"' in html
     assert 'id="overlayCancelBtn"' in html
     assert "startLoadProgress(" in html
     assert "finishLoadProgress(" in html
     assert "pollLoadProgressOnce()" in html
     assert "api('/api/load_progress')" in html
+    assert "renderReadyAtFromSamples(" in html
+    assert "Estimated ready at" in html
+    assert "20 frame sample" in html
     assert "api('/api/cancel_load', 'POST', {})" in html
     assert "seekFrameGridFromSparkClientX(" in html
     assert "queueSparkDragSeek(" in html
+    assert "toggleSparkWindowPlayback(" in html
+    assert "window.setInterval(stepSparkWindowRight, 100)" in html
+    assert "sparkPlayBtnEl.addEventListener('click', toggleSparkWindowPlayback)" in html
     assert "iqrSparkEl.addEventListener('pointerdown'" in html
     assert "iqrSparkEl.addEventListener('pointermove'" in html
     assert "frameGridEl.scrollTo({ top, behavior: 'auto' })" in html
