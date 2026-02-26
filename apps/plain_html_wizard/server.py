@@ -77,6 +77,7 @@ class SessionState:
     load_message: str = ""
     load_sample_done: int = 0
     load_sample_total: int = 0
+    load_cancel_requested: bool = False
 
 
 _SESSION_LOCK = threading.Lock()
@@ -357,6 +358,26 @@ class WizardHandler(BaseHTTPRequestHandler):
             self._handle_load_chapter(session, payload)
             return
 
+        if parsed.path == "/api/cancel_load":
+            session.load_cancel_requested = True
+            if session.load_running:
+                _set_load_progress(
+                    session,
+                    message="Cancel requested... stopping after current frame.",
+                )
+            self._send_json(
+                {
+                    "ok": True,
+                    "running": bool(session.load_running),
+                    "message": (
+                        "Cancel requested... stopping after current frame."
+                        if session.load_running
+                        else "No active load to cancel."
+                    ),
+                }
+            )
+            return
+
         if parsed.path == "/api/apply_iqr":
             if not session.fids:
                 self._send_error_json("No loaded chapter data yet.")
@@ -392,8 +413,16 @@ class WizardHandler(BaseHTTPRequestHandler):
                 progress=0.0,
                 message=str(message),
             )
+            session.load_cancel_requested = False
             self._send_error_json(message)
 
+        def cancelled() -> bool:
+            if not bool(session.load_cancel_requested):
+                return False
+            fail("Load cancelled.")
+            return True
+
+        session.load_cancel_requested = False
         _set_load_progress(
             session,
             running=True,
@@ -409,6 +438,8 @@ class WizardHandler(BaseHTTPRequestHandler):
             fail("Archive and chapter are required.")
             return
 
+        if cancelled():
+            return
         _archive_state(session, archive, selected_title=chapter)
         chapter_obj = _find_chapter(session.chapters, chapter)
         if not chapter_obj:
@@ -442,6 +473,8 @@ class WizardHandler(BaseHTTPRequestHandler):
             fail(f"No archive video found for '{session.archive}'.")
             return
 
+        if cancelled():
+            return
         n_samp = sample_count_from_stride(session.start_frame, session.end_frame, session.sample_stride)
         _set_load_progress(
             session,
@@ -459,6 +492,8 @@ class WizardHandler(BaseHTTPRequestHandler):
 
         if bool(session.exact_extract):
             _set_load_progress(session, progress=8.0, message="Extracting chapter segment...")
+            if cancelled():
+                return
             try:
                 read_video_p, ex_err = _ensure_step6_chapter_extract(
                     source_video=video,
@@ -480,6 +515,8 @@ class WizardHandler(BaseHTTPRequestHandler):
         else:
             _set_load_progress(session, progress=12.0, message="Sampling source video frames...")
 
+        if cancelled():
+            return
         sample_target = max(1, int(n_samp))
         stage_start = 30.0 if bool(session.exact_extract) else 14.0
         stage_end = 92.0
@@ -510,6 +547,7 @@ class WizardHandler(BaseHTTPRequestHandler):
             session.chapter,
             frame_read_offset=frame_read_offset,
             progress=_sample_progress,
+            should_cancel=lambda: bool(session.load_cancel_requested),
         )
         if err or fids is None or b64 is None or sigs is None:
             fail(err or "Failed to extract frames.")
@@ -545,6 +583,7 @@ class WizardHandler(BaseHTTPRequestHandler):
                     frame_ids=focus_fids,
                     frame_read_offset=frame_read_offset,
                     progress=_sample_progress,
+                    should_cancel=lambda: bool(session.load_cancel_requested),
                 )
                 if err or fids is None or b64 is None or sigs is None:
                     fail(err or "Failed to extract focus frames.")
@@ -593,6 +632,7 @@ class WizardHandler(BaseHTTPRequestHandler):
             sample_done=len(session.fids),
             sample_total=max(1, int(n_samp)),
         )
+        session.load_cancel_requested = False
         self._send_json({"ok": True, "review": review, "settings": details})
 
     def _handle_toggle_frame(self, session: SessionState, fid: int) -> None:

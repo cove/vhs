@@ -1,8 +1,79 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from common import ARCHIVE_DIR, FFMPEG_BIN, METADATA_DIR, run
+
+PROXY_FPS = "30000/1001"
+
+
+def build_proxy_command(src: Path, ffmetadata_path: Path, proxy: Path) -> list[str]:
+    # Keep frame-index lockstep with archive while reducing proxy size.
+    font_expr = ""
+    win_font = Path("C:/Windows/Fonts/consola.ttf")
+    if win_font.exists():
+        font_expr = "fontfile='C\\:/Windows/Fonts/consola.ttf'"
+    drawtext = (
+        "drawtext="
+        + "text='frame=%{eif\\:n\\:d}'"
+        + (f":{font_expr}" if font_expr else "")
+        + ":x=16:y=16:fontsize=24:"
+        + "fontcolor=white:box=1:boxcolor=black@0.55:borderw=2"
+    )
+    vf = f"scale=iw/2:ih/2:flags=lanczos,setpts=N/(30000/1001*TB),{drawtext}"
+    return [
+        str(FFMPEG_BIN),
+        "-nostdin",
+        "-v",
+        "error",
+        "-i",
+        str(src),
+        "-f",
+        "ffmetadata",
+        "-i",
+        str(ffmetadata_path),
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a:0?",
+        "-map_metadata",
+        "1",
+        "-vf",
+        vf,
+        "-r",
+        PROXY_FPS,
+        "-fps_mode:v:0",
+        "cfr",
+        "-vsync",
+        "cfr",
+        "-video_track_timescale",
+        "30000",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "superfast",
+        "-tune",
+        "fastdecode",
+        "-crf",
+        "28",
+        "-x264-params",
+        "keyint=30:min-keyint=1:scenecut=40",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "48k",
+        "-ar",
+        "48000",
+        "-ac",
+        "1",
+        "-movflags",
+        "+faststart+use_metadata_tags",
+        "-y",
+        str(proxy),
+    ]
 
 
 def make_proxies():
@@ -22,60 +93,7 @@ def make_proxies():
             continue
 
         print(f"Processing: {src.name} {proxy.name}")
-        run(
-            [
-                FFMPEG_BIN,
-                "-nostdin",
-                "-v",
-                "error",
-                "-i",
-                str(src),
-                "-f",
-                "ffmetadata",
-                "-i",
-                str(ffmetadata_path),
-                "-map",
-                "0:v:0",
-                "-map",
-                "0:a:0?",
-                "-map_metadata",
-                "1",
-                "-vf",
-                "setpts=N/(30000/1001*TB)",
-                "-r",
-                "30000/1001",
-                "-fps_mode:v:0",
-                "cfr",
-                "-vsync",
-                "cfr",
-                "-video_track_timescale",
-                "30000",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "superfast",
-                "-tune",
-                "fastdecode",
-                "-crf",
-                "28",
-                "-x264-params",
-                "keyint=30:min-keyint=1:scenecut=40",
-                "-pix_fmt",
-                "yuv420p",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "48k",
-                "-ar",
-                "48000",
-                "-ac",
-                "1",
-                "-movflags",
-                "+faststart+use_metadata_tags",
-                "-y",
-                str(proxy),
-            ]
-        )
+        run(build_proxy_command(src, ffmetadata_path, proxy))
         count += 1
 
     print(f"Created {count} proxies.")

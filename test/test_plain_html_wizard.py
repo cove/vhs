@@ -76,10 +76,20 @@ def test_static_html_contains_live_iqr_spark_and_fullscreen_controls() -> None:
     assert "frameGridEl.addEventListener('scroll'" in html
     assert 'id="overlayProgressFill"' in html
     assert 'id="overlayProgressText"' in html
+    assert 'id="overlayCancelBtn"' in html
     assert "startLoadProgress(" in html
     assert "finishLoadProgress(" in html
     assert "pollLoadProgressOnce()" in html
     assert "api('/api/load_progress')" in html
+    assert "api('/api/cancel_load', 'POST', {})" in html
+    assert "seekFrameGridFromSparkClientX(" in html
+    assert "queueSparkDragSeek(" in html
+    assert "iqrSparkEl.addEventListener('pointerdown'" in html
+    assert "iqrSparkEl.addEventListener('pointermove'" in html
+    assert "frameGridEl.scrollTo({ top, behavior: 'auto' })" in html
+    assert "const solarizedOrange = '#cb4b16';" in html
+    assert 'clipPath id="sparkAboveThresholdClip"' in html
+    assert "frame.status === 'bad'" in html
 
 
 def test_set_load_progress_updates_and_clamps_state() -> None:

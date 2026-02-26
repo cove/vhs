@@ -240,7 +240,11 @@
       border-radius: 8px;
       background: #05252e;
       display: block;
+      cursor: ew-resize;
+      user-select: none;
+      touch-action: none;
     }
+    .iqr-spark.dragging { cursor: grabbing; }
 
     .spark-panel {
       display: grid;
@@ -369,6 +373,11 @@
       font-size: 11px;
       color: #9ac4c4;
       text-align: right;
+    }
+
+    .overlay-actions {
+      display: flex;
+      justify-content: flex-end;
     }
 
     .spinner {
@@ -524,6 +533,9 @@
         <div id="overlayProgressFill" class="overlay-progress-fill"></div>
       </div>
       <div id="overlayProgressText" class="overlay-progress-text"></div>
+      <div id="overlayCancelWrap" class="overlay-actions" style="display:none;">
+        <button id="overlayCancelBtn" class="action warn" type="button">Cancel</button>
+      </div>
     </div>
   </div>
 
@@ -546,6 +558,8 @@
     const overlayMsgEl = document.getElementById('overlayMsg');
     const overlayProgressFillEl = document.getElementById('overlayProgressFill');
     const overlayProgressTextEl = document.getElementById('overlayProgressText');
+    const overlayCancelWrapEl = document.getElementById('overlayCancelWrap');
+    const overlayCancelBtnEl = document.getElementById('overlayCancelBtn');
 
     const archiveListEl = document.getElementById('archiveList');
     const chapterListEl = document.getElementById('chapterList');
@@ -569,6 +583,16 @@
     let autoIqrTimer = null;
     let visibleRangeRefreshPending = false;
     let loadProgressPollTimer = null;
+    let sparkDragPointerId = null;
+    let sparkDragRaf = null;
+    let sparkDragClientX = 0;
+
+    function setLoadCancelUi(visible, disabled = false, label = 'Cancel') {
+      if (!overlayCancelWrapEl || !overlayCancelBtnEl) return;
+      overlayCancelWrapEl.style.display = visible ? 'flex' : 'none';
+      overlayCancelBtnEl.disabled = Boolean(disabled);
+      overlayCancelBtnEl.textContent = String(label || 'Cancel');
+    }
 
     function setStatus(text, isError = false) {
       statusEl.textContent = text || '';
@@ -581,6 +605,7 @@
       if (!active) {
         if (overlayProgressFillEl) overlayProgressFillEl.style.width = '0%';
         if (overlayProgressTextEl) overlayProgressTextEl.textContent = '';
+        setLoadCancelUi(false);
       }
     }
 
@@ -615,6 +640,7 @@
         loadProgressPollTimer = null;
       }
       setLoading(true, message || 'Loading chapter...');
+      setLoadCancelUi(true, false, 'Cancel');
       setOverlayProgress(1);
       pollLoadProgressOnce();
       loadProgressPollTimer = window.setInterval(pollLoadProgressOnce, 180);
@@ -625,6 +651,7 @@
         window.clearInterval(loadProgressPollTimer);
         loadProgressPollTimer = null;
       }
+      setLoadCancelUi(false);
       if (success) {
         setOverlayProgress(100);
         window.setTimeout(() => {
@@ -732,6 +759,7 @@
       const w = Math.max(320, Math.floor(iqrSparkEl.clientWidth || 320));
       const h = 68;
       const pad = 6;
+      const solarizedOrange = '#cb4b16';
       const scores = data.map(f => Number(f.score || 0));
       const badCount = data.filter(f => f.status === 'bad').length;
       const minV = Math.min(...scores, Number(threshold || 0));
@@ -746,7 +774,14 @@
 
       const points = scores.map((v, i) => `${xFor(i).toFixed(2)},${yFor(v).toFixed(2)}`).join(' ');
       const yThr = yFor(Number(threshold || 0));
+      const yThrClamped = _clamp(yThr, 0, h);
       iqrSparkEl.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+      const badDotsSvg = data
+        .map((frame, i) => ({ frame, i }))
+        .filter(({ frame }) => frame.status === 'bad')
+        .map(({ i }) => `<circle cx="${xFor(i).toFixed(2)}" cy="${(h - 2).toFixed(2)}" r="1.8" fill="${solarizedOrange}" opacity="0.95"></circle>`)
+        .join('');
 
       let viewportSvg = '';
       if (state.visibleRange && Number.isFinite(state.visibleRange.start) && Number.isFinite(state.visibleRange.end)) {
@@ -764,8 +799,15 @@
       }
 
       iqrSparkEl.innerHTML = `
+        <defs>
+          <clipPath id="sparkAboveThresholdClip">
+            <rect x="0" y="0" width="${w}" height="${yThrClamped.toFixed(2)}"></rect>
+          </clipPath>
+        </defs>
         <polyline points="${points}" fill="none" stroke="#2aa198" stroke-width="1.6" opacity="0.95"></polyline>
+        <polyline points="${points}" fill="none" stroke="${solarizedOrange}" stroke-width="1.9" opacity="0.98" clip-path="url(#sparkAboveThresholdClip)"></polyline>
         <line x1="${pad}" y1="${yThr.toFixed(2)}" x2="${(w - pad).toFixed(2)}" y2="${yThr.toFixed(2)}" stroke="#dc322f" stroke-width="1.4" opacity="0.95"></line>
+        ${badDotsSvg}
         ${viewportSvg}
       `;
       if (state.visibleRange) {
@@ -811,6 +853,60 @@
         visibleRangeRefreshPending = false;
         refreshVisibleRangeFromGrid();
       });
+    }
+
+    function _clamp(value, minValue, maxValue) {
+      return Math.max(minValue, Math.min(maxValue, Number(value)));
+    }
+
+    function _sparkClientXToIndex(clientX) {
+      if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) return null;
+      const rect = iqrSparkEl.getBoundingClientRect();
+      if (!rect.width || rect.width <= 0) return null;
+      const x = _clamp(Number(clientX) - rect.left, 0, rect.width);
+      const ratio = rect.width <= 1 ? 0 : x / rect.width;
+      const maxIndex = Math.max(0, state.review.frames.length - 1);
+      return _clamp(Math.round(ratio * maxIndex), 0, maxIndex);
+    }
+
+    function _scrollFrameGridToIndex(index) {
+      const cards = frameGridEl.querySelectorAll('.frame-card');
+      if (!cards.length) return;
+      const idx = _clamp(Number(index), 0, cards.length - 1);
+      const target = cards[idx];
+      if (!target) return;
+      const top = Math.max(0, target.offsetTop - Math.floor(frameGridEl.clientHeight * 0.12));
+      frameGridEl.scrollTo({ top, behavior: 'auto' });
+      scheduleVisibleRangeRefresh();
+    }
+
+    function seekFrameGridFromSparkClientX(clientX) {
+      const idx = _sparkClientXToIndex(clientX);
+      if (idx === null) return;
+      _scrollFrameGridToIndex(idx);
+    }
+
+    function queueSparkDragSeek(clientX) {
+      sparkDragClientX = Number(clientX);
+      if (sparkDragRaf) return;
+      sparkDragRaf = window.requestAnimationFrame(() => {
+        sparkDragRaf = null;
+        seekFrameGridFromSparkClientX(sparkDragClientX);
+      });
+    }
+
+    function endSparkDrag() {
+      if (sparkDragRaf) {
+        window.cancelAnimationFrame(sparkDragRaf);
+        sparkDragRaf = null;
+      }
+      if (sparkDragPointerId !== null && iqrSparkEl.releasePointerCapture) {
+        try {
+          iqrSparkEl.releasePointerCapture(sparkDragPointerId);
+        } catch (_err) {}
+      }
+      sparkDragPointerId = null;
+      iqrSparkEl.classList.remove('dragging');
     }
 
     function scheduleAutoApplyIqr() {
@@ -958,7 +1054,9 @@
         setStep(2);
       } catch (err) {
         loadFailed = true;
-        setStatus(err.message, true);
+        const msg = String(err?.message || err || 'Load failed.');
+        const cancelled = /cancel/i.test(msg);
+        setStatus(msg, !cancelled);
       } finally {
         finishLoadProgress(!loadFailed);
       }
@@ -1106,6 +1204,49 @@
     });
     frameGridEl.addEventListener('scroll', () => {
       scheduleVisibleRangeRefresh();
+    });
+    overlayCancelBtnEl.addEventListener('click', async () => {
+      if (!loadProgressPollTimer) return;
+      setLoadCancelUi(true, true, 'Cancelling...');
+      try {
+        const result = await api('/api/cancel_load', 'POST', {});
+        if (result && result.message) {
+          overlayMsgEl.textContent = String(result.message);
+        } else {
+          overlayMsgEl.textContent = 'Cancelling load...';
+        }
+      } catch (_err) {
+        overlayMsgEl.textContent = 'Cancelling load...';
+      }
+    });
+    iqrSparkEl.addEventListener('pointerdown', (event) => {
+      if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) return;
+      event.preventDefault();
+      sparkDragPointerId = event.pointerId;
+      iqrSparkEl.classList.add('dragging');
+      if (iqrSparkEl.setPointerCapture) {
+        try {
+          iqrSparkEl.setPointerCapture(event.pointerId);
+        } catch (_err) {}
+      }
+      queueSparkDragSeek(event.clientX);
+    });
+    iqrSparkEl.addEventListener('pointermove', (event) => {
+      if (sparkDragPointerId === null || event.pointerId !== sparkDragPointerId) return;
+      event.preventDefault();
+      queueSparkDragSeek(event.clientX);
+    });
+    iqrSparkEl.addEventListener('pointerup', (event) => {
+      if (sparkDragPointerId === null || event.pointerId !== sparkDragPointerId) return;
+      event.preventDefault();
+      queueSparkDragSeek(event.clientX);
+      endSparkDrag();
+    });
+    iqrSparkEl.addEventListener('pointercancel', () => {
+      endSparkDrag();
+    });
+    iqrSparkEl.addEventListener('lostpointercapture', () => {
+      endSparkDrag();
     });
 
     window.addEventListener('load', async () => {

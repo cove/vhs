@@ -326,6 +326,7 @@ def extract_frames(
     include_thumbs: bool = True,
     frame_read_offset: int = 0,
     progress=None,
+    should_cancel=None,
 ) -> tuple[list[int] | None, list[str] | None, dict | None, str]:
     start_i, end_i = _normalize_frame_span(start, end)
     if frame_ids is None:
@@ -354,6 +355,9 @@ def extract_frames(
 
     read_offset = int(frame_read_offset)
     for idx, fid in enumerate(frame_ids):
+        if callable(should_cancel) and bool(should_cancel()):
+            cap.release()
+            return None, None, None, "Load cancelled."
         read_fid = int(fid) - read_offset
         if progress is not None:
             progress(idx / len(frame_ids), desc=f"Frame {fid}...")
@@ -1022,7 +1026,7 @@ def _get_archives() -> list[str]:
 def _resolve_archive_video(archive: str) -> Path | None:
     proxy = ARCHIVE_DIR / f"{archive}_proxy.mp4"
     mkv = ARCHIVE_DIR / f"{archive}.mkv"
-    return mkv if mkv.exists() else proxy if proxy.exists() else None
+    return proxy if proxy.exists() else mkv if mkv.exists() else None
 
 CHAPTER_SELECT_LABEL = "-- select chapter --"
 CHAPTER_MISSING_LABEL = "-- no chapters file found --"
