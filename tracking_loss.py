@@ -611,7 +611,7 @@ def _run_with_config(config: TrackingLossConfig):
         "predicted_bad_ranges": int(len(bad_ranges)),
         "png_samples": {
             "enabled": False,
-            "note": "PNG sample export is disabled; use vhs_tuner.py for frame review.",
+            "note": "PNG sample export is disabled; use `python vhs.py tuner` for frame review.",
             "review_output_dir": None,
             "review_manifest":   None,
             "bad":  {"requested": 0, "written": 0, "failed": []},

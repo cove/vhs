@@ -242,7 +242,7 @@ def _summary_payload(session: SessionState) -> dict[str, Any]:
 
 
 class WizardHandler(BaseHTTPRequestHandler):
-    server_version = "VHSPlainWizard/1.0"
+    server_version = "VHSTuner/1.0"
 
     def _ensure_session(self) -> SessionState:
         self._set_cookie: str | None = None
@@ -695,7 +695,7 @@ class WizardHandler(BaseHTTPRequestHandler):
 
 def run(host: str = "0.0.0.0", port: int = 8092) -> None:
     server = ThreadingHTTPServer((host, int(port)), WizardHandler)
-    print(f"VHS Plain HTML Wizard running at http://{host}:{port}")
+    print(f"VHS Tuner running at http://{host}:{port}")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

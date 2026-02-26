@@ -10,6 +10,7 @@ from vhs_pipeline.convert import (
 from vhs_pipeline.metadata import generate_archive_metadata
 from vhs_pipeline.proxy import make_proxies
 from vhs_pipeline.render import run_render
+from apps.plain_html_wizard.server import run as run_tuner_server
 
 
 def run_convert_avi(paths):
@@ -53,4 +54,9 @@ def run_verify_drive(argv):
 
 def run_make_comparisons(argv):
     return int(run_comparisons(argv) or 0)
+
+
+def run_tuner(host: str = "0.0.0.0", port: int = 8092):
+    run_tuner_server(host=host, port=int(port))
+    return 0
 
