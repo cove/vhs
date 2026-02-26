@@ -29,6 +29,7 @@ BADFRAME_SPLIT_BURSTS_ACROSS_NEIGHBORS = False
 # For single-frame repairs, skip a short lookahead/behind window before picking
 # source to avoid using immediately adjacent frames that are often still unstable.
 BADFRAME_SINGLE_FRAME_SOURCE_SKIP = 2
+ENABLE_DESCRATCH_PLUGIN = False
 
 def chapter_done(final_file):
     return final_file.exists() and final_file.stat().st_size > 100_000
@@ -678,10 +679,11 @@ if (c.FrameCount >= (expected_frames * 2 - 2) && c.FrameCount <= (expected_frame
     no_bob_text = "c = last\nc\n"
     filter_import_path = Path(avs_filter_path).resolve().as_posix()
     descratch_lines = []
-    for dll_name in ("Descratch64.dll", "Descratch32.dll"):
-        dll_path = Path(QTGMC_DIR) / dll_name
-        if dll_path.exists():
-            descratch_lines.append(f'LoadPlugin("{dll_path.as_posix()}")')
+    if ENABLE_DESCRATCH_PLUGIN:
+        for dll_name in ("Descratch64.dll", "Descratch32.dll"):
+            dll_path = Path(QTGMC_DIR) / dll_name
+            if dll_path.exists():
+                descratch_lines.append(f'LoadPlugin("{dll_path.as_posix()}")')
     descratch_block = ("\n".join(descratch_lines) + "\n") if descratch_lines else ""
     script_text = f'''
 LoadPlugin("{QTGMC_DIR}/ffms2.dll") 

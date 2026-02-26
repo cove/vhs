@@ -77,6 +77,7 @@ def test_static_html_contains_live_iqr_spark_and_fullscreen_controls() -> None:
     assert 'id="sparkPlayBtn"' in html
     assert 'id="iqrSpark"' in html
     assert 'id="toggleFullscreen"' in html
+    assert 'id="previewRender"' in html
     assert "grid-template-rows: auto auto minmax(0, 1fr) auto;" in html
     assert "iqrEl.addEventListener('input'" in html
     assert "iqrEl.addEventListener('change'" in html
@@ -94,6 +95,7 @@ def test_static_html_contains_live_iqr_spark_and_fullscreen_controls() -> None:
     assert "finishLoadProgress(" in html
     assert "pollLoadProgressOnce()" in html
     assert "api('/api/load_progress')" in html
+    assert "api('/api/preview_render', 'POST', {})" in html
     assert "renderReadyAtFromSamples(" in html
     assert "Estimated ready at" in html
     assert "20 frame sample" in html
@@ -110,6 +112,7 @@ def test_static_html_contains_live_iqr_spark_and_fullscreen_controls() -> None:
     assert 'clipPath id="sparkAboveThresholdClip"' in html
     assert "frame.status === 'bad'" in html
     assert "event.target.closest('.frame-card')" in html
+    assert "window.open(target, '_blank', 'noopener')" in html
     assert "Toggle Good/Bad" not in html
 
 

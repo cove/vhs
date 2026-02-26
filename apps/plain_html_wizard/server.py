@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 import json
+import html
+import re
+import shutil
+import subprocess
 import sys
 import threading
 import uuid
@@ -19,7 +23,7 @@ _HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = _HERE.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from common import combined_score, compute_threshold
+from common import ARCHIVE_DIR, FFMPEG_BIN, METADATA_DIR, combined_score, compute_threshold
 from libs.vhs_tuner_core import (
     _chapter_bad_overrides,
     _chapter_extract_cache_path,
@@ -34,6 +38,7 @@ from libs.vhs_tuner_core import (
     persist_bad_frames_for_chapter,
     sample_count_from_stride,
     select_focus_frame_ids,
+    slugify,
     RENDER_DEBUG_EXTRACT_FRAME_NUMBERS_ENV,
     TUNER_DEBUG_EXTRACT_ENV,
 )
@@ -78,6 +83,7 @@ class SessionState:
     load_sample_done: int = 0
     load_sample_total: int = 0
     load_cancel_requested: bool = False
+    preview_video_path: str = ""
 
 
 _SESSION_LOCK = threading.Lock()
@@ -218,6 +224,19 @@ def _build_review_payload(session: SessionState, include_images: bool) -> dict[s
     }
 
 
+def _selected_bad_frame_ids(session: SessionState) -> list[int]:
+    if not session.fids or not session.sigs:
+        return []
+    scores = combined_score(session.sigs, session.wc, session.wn, session.wt, session.ww)
+    thr = float(compute_threshold(scores, session.t_mode, session.iqr_k, session.tval, session.bpct))
+    out: list[int] = []
+    for fid, score in zip(session.fids, scores):
+        status, _src = _frame_status(session, int(fid), float(score), thr)
+        if status == "bad":
+            out.append(int(fid))
+    return out
+
+
 def _summary_payload(session: SessionState) -> dict[str, Any]:
     review = _build_review_payload(session, include_images=False)
     bad_ids = [str(f["fid"]) for f in review["frames"] if f["status"] == "bad"]
@@ -282,6 +301,91 @@ class WizardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _send_video_file(self, path: Path) -> None:
+        p = Path(path)
+        if not p.exists() or not p.is_file():
+            self._send_error_json("Preview video is not available.", code=HTTPStatus.NOT_FOUND)
+            return
+
+        total_size = int(p.stat().st_size)
+        if total_size <= 0:
+            self._send_error_json("Preview video is empty.", code=HTTPStatus.NOT_FOUND)
+            return
+
+        start = 0
+        end = total_size - 1
+        status = HTTPStatus.OK
+        content_range = None
+
+        range_header = str(self.headers.get("Range", "") or "").strip()
+        if range_header:
+            m = re.match(r"bytes=(\d*)-(\d*)$", range_header)
+            if m:
+                g_start, g_end = m.groups()
+                if g_start:
+                    start = int(g_start)
+                if g_end:
+                    end = int(g_end)
+                if not g_end:
+                    end = total_size - 1
+                if g_start and not g_end:
+                    end = total_size - 1
+                if start < 0:
+                    start = 0
+                if end >= total_size:
+                    end = total_size - 1
+                if start > end or start >= total_size:
+                    self.send_response(HTTPStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+                    self.send_header("Content-Range", f"bytes */{total_size}")
+                    self.send_header("Accept-Ranges", "bytes")
+                    self.send_header("Cache-Control", "no-store")
+                    if self._set_cookie:
+                        self.send_header("Set-Cookie", self._set_cookie)
+                    self.end_headers()
+                    return
+                status = HTTPStatus.PARTIAL_CONTENT
+                content_range = f"bytes {start}-{end}/{total_size}"
+
+        length = (end - start) + 1
+        self.send_response(status)
+        self.send_header("Content-Type", "video/mp4")
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Length", str(length))
+        self.send_header("Cache-Control", "no-store")
+        if content_range:
+            self.send_header("Content-Range", content_range)
+        if self._set_cookie:
+            self.send_header("Set-Cookie", self._set_cookie)
+        self.end_headers()
+
+        with p.open("rb") as fh:
+            fh.seek(start)
+            remaining = length
+            chunk_size = 64 * 1024
+            while remaining > 0:
+                chunk = fh.read(min(chunk_size, remaining))
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+                remaining -= len(chunk)
+
+    def _preview_page_html(self, session: SessionState) -> str:
+        title_text = html.escape(str(session.chapter or "Preview"))
+        return (
+            "<!doctype html>\n"
+            "<html><head><meta charset=\"utf-8\"><title>VHS Preview</title>"
+            "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
+            "<style>"
+            "body{margin:0;background:#111;color:#eee;font-family:Segoe UI,Arial,sans-serif;}"
+            ".wrap{display:grid;grid-template-rows:auto 1fr;height:100vh;gap:8px;padding:10px;box-sizing:border-box;}"
+            ".meta{font-size:13px;opacity:.9;}"
+            "video{width:100%;height:100%;background:#000;border:1px solid #333;border-radius:8px;}"
+            "</style></head><body><div class=\"wrap\">"
+            f"<div class=\"meta\">Preview: {title_text}</div>"
+            "<video controls autoplay preload=\"auto\" src=\"/api/preview_video\"></video>"
+            "</div></body></html>"
+        )
+
     def _read_json(self) -> dict[str, Any]:
         raw_len = int(self.headers.get("Content-Length", "0") or "0")
         if raw_len <= 0:
@@ -303,6 +407,27 @@ class WizardHandler(BaseHTTPRequestHandler):
                 self._send_text("Missing index.html", code=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
             self._send_text(INDEX_HTML.read_text(encoding="utf-8"), content_type="text/html; charset=utf-8")
+            return
+
+        if parsed.path == "/preview":
+            preview_raw = str(session.preview_video_path or "").strip()
+            preview_path = Path(preview_raw) if preview_raw else None
+            if not preview_path or not preview_path.exists() or not preview_path.is_file():
+                self._send_text(
+                    "Preview render is not ready yet. Run Preview Render from Step 2 first.",
+                    code=HTTPStatus.NOT_FOUND,
+                )
+                return
+            self._send_text(self._preview_page_html(session), content_type="text/html; charset=utf-8")
+            return
+
+        if parsed.path == "/api/preview_video":
+            preview_raw = str(session.preview_video_path or "").strip()
+            preview_path = Path(preview_raw) if preview_raw else None
+            if not preview_path or not preview_path.exists() or not preview_path.is_file():
+                self._send_error_json("Preview render is not ready yet.", code=HTTPStatus.NOT_FOUND)
+                return
+            self._send_video_file(preview_path)
             return
 
         if parsed.path == "/api/archives":
@@ -399,6 +524,10 @@ class WizardHandler(BaseHTTPRequestHandler):
             self._handle_toggle_frame(session, fid)
             return
 
+        if parsed.path == "/api/preview_render":
+            self._handle_preview_render(session)
+            return
+
         if parsed.path == "/api/save":
             self._handle_save(session)
             return
@@ -467,6 +596,7 @@ class WizardHandler(BaseHTTPRequestHandler):
         session.exact_extract = bool(payload.get("exact_extract", session.exact_extract))
         session.debug_extract = bool(payload.get("debug_extract", session.debug_extract))
         session.iqr_k = iqr_k
+        session.preview_video_path = ""
 
         video = _resolve_archive_video(session.archive)
         if not video:
@@ -651,6 +781,227 @@ class WizardHandler(BaseHTTPRequestHandler):
         frame_state = _build_review_payload(session, include_images=False)
         updated = next((f for f in frame_state["frames"] if int(f["fid"]) == int(fid)), None)
         self._send_json({"ok": True, "frame": updated, "review": frame_state})
+
+    def _run_cmd(self, cmd: list[Any], label: str) -> tuple[bool, str]:
+        proc = subprocess.run(
+            [str(x) for x in cmd],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode == 0:
+            return True, ""
+        detail = (proc.stderr or proc.stdout or "").strip()
+        if not detail:
+            detail = f"{label} failed with exit code {int(proc.returncode)}."
+        else:
+            detail = f"{label} failed: {detail}"
+        return False, detail
+
+    def _handle_preview_render(self, session: SessionState) -> None:
+        if not session.fids or not session.sigs:
+            self._send_error_json("No loaded chapter data yet.")
+            return
+        if not session.archive or not session.chapter:
+            self._send_error_json("Archive and chapter context are missing.")
+            return
+
+        try:
+            from vhs_pipeline.render_pipeline import (
+                BADFRAME_SOURCE_CLEARANCE,
+                assert_expected_frame_count,
+                local_bad_frames_to_repairs,
+                make_create_avs,
+                make_deinterlace,
+                make_deinterlace_ffmpeg_fallback,
+                make_freeze_only_avs,
+                make_render_avs_ffv1,
+            )
+        except Exception as exc:
+            self._send_error_json(f"Preview render is unavailable: {type(exc).__name__}: {exc}")
+            return
+
+        proxy_video = ARCHIVE_DIR / f"{session.archive}_proxy.mp4"
+        archive_video = ARCHIVE_DIR / f"{session.archive}.mkv"
+        if proxy_video.exists():
+            source_video = proxy_video
+            source_label = "proxy"
+        elif archive_video.exists():
+            source_video = archive_video
+            source_label = "archive (proxy missing)"
+        else:
+            self._send_error_json(f"No source video found for '{session.archive}'.")
+            return
+
+        start_frame, end_frame = _normalize_frame_span(session.start_frame, session.end_frame)
+        chapter_len = max(1, int(end_frame) - int(start_frame))
+        debug_overlay = bool(session.debug_extract) or _env_truthy(TUNER_DEBUG_EXTRACT_ENV) or _env_truthy(
+            RENDER_DEBUG_EXTRACT_FRAME_NUMBERS_ENV
+        )
+        extracted, ex_err = _ensure_render_chapter_extract(
+            source_video=source_video,
+            archive=session.archive,
+            chapter_title=session.chapter,
+            ch_start=start_frame,
+            ch_end=end_frame,
+            debug_overlay=debug_overlay,
+        )
+        if ex_err or extracted is None:
+            self._send_error_json(ex_err or "Failed to extract preview chapter segment.")
+            return
+
+        bad_global = [
+            int(fid)
+            for fid in _selected_bad_frame_ids(session)
+            if int(start_frame) <= int(fid) < int(end_frame)
+        ]
+        local_bad = [int(fid) - int(start_frame) for fid in bad_global]
+        local_repairs = local_bad_frames_to_repairs(local_bad) if local_bad else []
+
+        preview_root = PROJECT_ROOT / "tmp" / "plain_html_wizard_preview"
+        preview_dir = preview_root / (
+            f"{session.archive}__{slugify(session.chapter)}__{int(start_frame)}_{int(end_frame)}"
+        )
+        preview_dir.mkdir(parents=True, exist_ok=True)
+
+        freeze_avs = preview_dir / "freeze.avs"
+        filter_avs = preview_dir / "script.avs"
+        repaired_extracted = preview_dir / "repaired_extracted.mkv"
+        qtgmc = preview_dir / "qtgmc.mkv"
+        preview_video = preview_dir / "preview_render.mp4"
+
+        filter_script = METADATA_DIR / session.archive / "filter.avs"
+        chapter_filter_script = METADATA_DIR / session.archive / f"{session.chapter}.avs"
+        if chapter_filter_script.exists():
+            filter_script = chapter_filter_script
+
+        freeze_input = extracted
+        used_non_windows_fallback = False
+
+        try:
+            if sys.platform == "win32":
+                if local_bad:
+                    freeze_script = make_freeze_only_avs(
+                        extracted,
+                        bad_source_frames=local_bad,
+                        bad_repair_ranges=local_repairs,
+                        chapter_start_frame=start_frame,
+                        chapter_end_frame=end_frame,
+                        source_clearance=BADFRAME_SOURCE_CLEARANCE,
+                    )
+                    freeze_avs.write_text(freeze_script, encoding="ascii")
+                    ok, detail = self._run_cmd(
+                        make_render_avs_ffv1(freeze_avs, extracted, repaired_extracted),
+                        "Preview freeze stage",
+                    )
+                    if not ok:
+                        self._send_error_json(detail)
+                        return
+                    assert_expected_frame_count(
+                        repaired_extracted,
+                        chapter_len,
+                        f"preview repaired chapter '{session.chapter}'",
+                    )
+                    freeze_input = repaired_extracted
+
+                if filter_script.exists():
+                    script_text = make_create_avs(
+                        freeze_input,
+                        filter_script,
+                        bad_source_frames=[],
+                        bad_repair_ranges=[],
+                        chapter_start_frame=start_frame,
+                        chapter_end_frame=end_frame,
+                        no_bob=False,
+                        source_clearance=0,
+                    )
+                    filter_avs.write_text(script_text, encoding="ascii")
+                    ok, detail = self._run_cmd(
+                        make_deinterlace(filter_avs, freeze_input, qtgmc),
+                        "Preview deinterlace stage",
+                    )
+                    if not ok:
+                        self._send_error_json(detail)
+                        return
+                else:
+                    shutil.copy2(freeze_input, qtgmc)
+            else:
+                used_non_windows_fallback = True
+                ok, detail = self._run_cmd(
+                    make_deinterlace_ffmpeg_fallback(extracted, qtgmc, no_bob=False),
+                    "Preview fallback deinterlace stage",
+                )
+                if not ok:
+                    self._send_error_json(detail)
+                    return
+
+            assert_expected_frame_count(
+                qtgmc,
+                chapter_len,
+                f"preview qtgmc chapter '{session.chapter}'",
+            )
+        except Exception as exc:
+            self._send_error_json(f"Preview render failed: {type(exc).__name__}: {exc}")
+            return
+
+        ok, detail = self._run_cmd(
+            [
+                FFMPEG_BIN,
+                "-nostdin",
+                "-v",
+                "error",
+                "-i",
+                str(qtgmc),
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a:0?",
+                "-pix_fmt",
+                "yuv420p",
+                "-fps_mode:v:0",
+                "passthrough",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "veryfast",
+                "-crf",
+                "18",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "96k",
+                "-ar",
+                "48000",
+                "-ac",
+                "1",
+                "-movflags",
+                "+faststart",
+                "-y",
+                str(preview_video),
+            ],
+            "Preview encode stage",
+        )
+        if not ok:
+            self._send_error_json(detail)
+            return
+
+        session.preview_video_path = str(preview_video.resolve())
+        msg = (
+            f"Preview render ready for {session.chapter}: "
+            f"{len(local_bad)} sampled bad frame(s) applied from current review state. "
+            f"Source: {source_label}."
+        )
+        if used_non_windows_fallback and local_bad:
+            msg += " Note: non-Windows fallback cannot apply AviSynth FreezeFrame repair logic."
+        self._send_json(
+            {
+                "ok": True,
+                "message": msg,
+                "preview_path": str(preview_video),
+                "preview_url": "/api/preview_video",
+                "preview_page_url": "/preview",
+                "bad_sampled_count": int(len(local_bad)),
+            }
+        )
 
     def _handle_save(self, session: SessionState) -> None:
         if not session.fids:

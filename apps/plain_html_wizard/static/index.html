@@ -265,6 +265,20 @@
     }
 
     .iqr-box input[type="range"] { width: 220px; }
+    .sim-freeze {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      margin-left: 4px;
+      color: #d0c18c;
+      user-select: none;
+    }
+    .sim-freeze input[type="checkbox"] {
+      width: 14px;
+      height: 14px;
+      accent-color: #d28f3d;
+      cursor: pointer;
+    }
     .spark-play-btn {
       min-width: 52px;
       min-height: 36px;
@@ -328,6 +342,10 @@
 
     .frame-card.good { border-color: var(--good); }
     .frame-card.bad { border-color: var(--bad); }
+    .frame-card.replaced {
+      border-style: dashed;
+      box-shadow: inset 0 0 0 1px rgba(255, 196, 116, 0.2);
+    }
 
     .frame-card img {
       width: 100%;
@@ -342,6 +360,15 @@
       font-size: 11px;
       line-height: 1.25;
       color: #9add9a;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .frame-replace-note {
+      min-height: 13px;
+      font-size: 10px;
+      line-height: 1.2;
+      color: #d7bc8e;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -622,6 +649,10 @@
             <label for="iqrK">IQR k</label>
             <input id="iqrK" type="range" min="0" max="12" step="0.05" value="3.5">
             <span id="iqrLabel">3.50</span>
+            <label class="sim-freeze" for="simulateFreezeFrame">
+              <input id="simulateFreezeFrame" type="checkbox">
+              <span>Sim FreezeFrame</span>
+            </label>
             <button id="toggleFullscreen" class="action">Fullscreen</button>
           </div>
         </div>
@@ -634,6 +665,7 @@
 
         <div class="actions">
           <button id="backToLoad" class="action warn">Back</button>
+          <button id="previewRender" class="action">Preview Render</button>
           <button id="nextToSummary" class="action primary">Next: Summary</button>
         </div>
       </div>
@@ -690,9 +722,11 @@
         <ul>
           <li>Each frame card is color-coded: green is currently good, red is currently bad.</li>
           <li>Click any frame to toggle its manual override between good and bad.</li>
+          <li>Enable <code>Sim FreezeFrame</code> to preview replacement in real time; dashed card borders mark simulated replacements.</li>
           <li>Use the <code>IQR k</code> slider to change the automatic threshold. Lower <code>k</code> marks more frames bad; higher <code>k</code> marks fewer.</li>
           <li>The sparkline shows score distribution and threshold. Drag on it to jump around the grid.</li>
           <li><code>Fullscreen</code> expands the review panel for faster triage.</li>
+          <li><code>Preview Render</code> runs a real chapter render preview from the current in-memory bad-frame selections, without writing <code>chapters.ffmetadata</code> yet.</li>
         </ul>
 
         <h3>Step 3: Summary + Save</h3>
@@ -732,7 +766,15 @@
       liveIqrPending: false,
       liveIqrInFlight: false,
       visibleRange: null,
+      frameImages: new Map(),
+      freezeReplacementMap: new Map(),
+      simulateFreezeFrame: false,
     };
+
+    const FREEZE_BRIDGE_ALWAYS_GAP = 1;
+    const FREEZE_BRIDGE_SINGLETON_GAP = 5;
+    const FREEZE_SINGLE_FRAME_SOURCE_SKIP = 2;
+    const FREEZE_SOURCE_CLEARANCE = 1;
 
     const statusEl = document.getElementById('status');
     const overlayEl = document.getElementById('overlay');
@@ -765,6 +807,8 @@
     const sparkPlayBtnEl = document.getElementById('sparkPlayBtn');
     const page2El = document.getElementById('page2');
     const fullscreenBtnEl = document.getElementById('toggleFullscreen');
+    const simulateFreezeFrameEl = document.getElementById('simulateFreezeFrame');
+    const previewRenderBtnEl = document.getElementById('previewRender');
 
     let autoIqrTimer = null;
     let visibleRangeRefreshPending = false;
@@ -1269,31 +1313,276 @@
       updateFullscreenButton();
     }
 
+    function rememberFrameImages(frames) {
+      for (const frame of (frames || [])) {
+        if (!frame || frame.fid === undefined || frame.fid === null) continue;
+        const image = frame.image;
+        if (typeof image !== 'string' || !image) continue;
+        state.frameImages.set(String(frame.fid), image);
+      }
+    }
+
+    function _frameListToRanges(frameIds) {
+      const ints = Array.from(
+        new Set(
+          (frameIds || [])
+            .map(v => Number(v))
+            .filter(v => Number.isFinite(v) && v >= 0)
+            .map(v => Math.trunc(v))
+        )
+      ).sort((a, b) => a - b);
+      if (!ints.length) return [];
+      const out = [];
+      let start = ints[0];
+      let prev = ints[0];
+      for (let i = 1; i < ints.length; i += 1) {
+        const f = ints[i];
+        if (f === prev + 1) {
+          prev = f;
+          continue;
+        }
+        out.push([start, prev]);
+        start = f;
+        prev = f;
+      }
+      out.push([start, prev]);
+      return out;
+    }
+
+    function _bridgeBadRanges(ranges) {
+      if (!Array.isArray(ranges) || !ranges.length) return [];
+      const merged = [[Number(ranges[0][0]), Number(ranges[0][1])]];
+      for (let i = 1; i < ranges.length; i += 1) {
+        const a = Number(ranges[i][0]);
+        const b = Number(ranges[i][1]);
+        const last = merged[merged.length - 1];
+        const la = Number(last[0]);
+        const lb = Number(last[1]);
+        const gap = a - lb - 1;
+        const leftLen = lb - la + 1;
+        const rightLen = b - a + 1;
+        const shouldBridge = (
+          gap <= FREEZE_BRIDGE_ALWAYS_GAP ||
+          (gap <= FREEZE_BRIDGE_SINGLETON_GAP && (leftLen === 1 || rightLen === 1))
+        );
+        if (shouldBridge) {
+          last[1] = Math.max(lb, b);
+        } else {
+          merged.push([a, b]);
+        }
+      }
+      return merged;
+    }
+
+    function _mergeRepairRanges(repairs) {
+      if (!Array.isArray(repairs) || !repairs.length) return [];
+      const sorted = repairs
+        .map(item => [Number(item[0]), Number(item[1]), item[2] === null ? null : Number(item[2])])
+        .sort((a, b) => (
+          (a[0] - b[0]) ||
+          (a[1] - b[1]) ||
+          ((a[2] === null ? -1 : a[2]) - (b[2] === null ? -1 : b[2]))
+        ));
+      const merged = [sorted[0]];
+      for (let i = 1; i < sorted.length; i += 1) {
+        const [a, b, src] = sorted[i];
+        const last = merged[merged.length - 1];
+        if (src === last[2] && a <= last[1] + 1) {
+          last[1] = Math.max(last[1], b);
+        } else {
+          merged.push([a, b, src]);
+        }
+      }
+      return merged;
+    }
+
+    function _localBadFramesToRepairs(badFrameIds) {
+      const contiguous = _frameListToRanges(badFrameIds);
+      if (!contiguous.length) return [];
+      const bridged = _bridgeBadRanges(contiguous);
+      return _mergeRepairRanges(bridged.map(([a, b]) => [a, b, null]));
+    }
+
+    function _resolveFreezeRepairs(frames) {
+      const rows = [];
+      for (const frame of (frames || [])) {
+        if (!frame) continue;
+        const fidRaw = Number(frame.fid);
+        if (!Number.isFinite(fidRaw)) continue;
+        rows.push({
+          fid: Math.trunc(fidRaw),
+          status: String(frame.status || ''),
+        });
+      }
+      if (!rows.length) return new Map();
+
+      const badFrameIds = rows.filter(r => r.status === 'bad').map(r => r.fid);
+      const baseRanges = _localBadFramesToRepairs(badFrameIds);
+      if (!baseRanges.length) return new Map();
+
+      const badSet = new Set();
+      for (const [aRaw, bRaw] of baseRanges) {
+        const a = Number(aRaw);
+        const b = Number(bRaw);
+        for (let f = a; f <= b; f += 1) {
+          badSet.add(f);
+        }
+      }
+
+      const sourceCandidates = Array.from(
+        new Set(
+          rows
+            .filter(r => r.status === 'good' && state.frameImages.has(String(r.fid)))
+            .map(r => r.fid)
+        )
+      ).sort((a, b) => a - b);
+      if (!sourceCandidates.length) return new Map();
+
+      const endFrameRaw = Number(state.loadSettings && state.loadSettings.end_frame);
+      let maxSourceFrame = Number.isFinite(endFrameRaw) ? Math.max(0, Math.trunc(endFrameRaw) - 1) : null;
+      if (maxSourceFrame === null) {
+        maxSourceFrame = Math.max(...rows.map(r => r.fid));
+      }
+
+      const clearance = Math.max(0, Number(FREEZE_SOURCE_CLEARANCE) || 0);
+
+      function sourceIsClear(src) {
+        if (badSet.has(src)) return false;
+        if (clearance <= 0) return true;
+        for (let f = src - clearance; f <= src + clearance; f += 1) {
+          if (badSet.has(f)) return false;
+        }
+        return true;
+      }
+
+      function chooseSourceAfter(b, extraSkip = 0) {
+        const minSource = Number(b) + 1 + Math.max(0, Number(extraSkip) || 0);
+        for (const src of sourceCandidates) {
+          if (src < minSource) continue;
+          if (maxSourceFrame !== null && src > maxSourceFrame) return null;
+          if (sourceIsClear(src)) return src;
+        }
+        return null;
+      }
+
+      function chooseSourceBefore(a, extraSkip = 0) {
+        const maxSource = Number(a) - 1 - Math.max(0, Number(extraSkip) || 0);
+        for (let i = sourceCandidates.length - 1; i >= 0; i -= 1) {
+          const src = sourceCandidates[i];
+          if (src > maxSource) continue;
+          if (src < 0) return null;
+          if (maxSourceFrame !== null && src > maxSourceFrame) continue;
+          if (sourceIsClear(src)) return src;
+        }
+        return null;
+      }
+
+      const resolved = [];
+      for (const [aRaw, bRaw] of baseRanges) {
+        const a = Number(aRaw);
+        const b = Number(bRaw);
+        const span = b - a + 1;
+        const sourceSkip = span === 1 ? FREEZE_SINGLE_FRAME_SOURCE_SKIP : 0;
+        const prevSrc = chooseSourceBefore(a, sourceSkip);
+        const nextSrc = chooseSourceAfter(b, sourceSkip);
+        const src = nextSrc !== null ? nextSrc : prevSrc;
+        if (src === null) continue;
+        resolved.push([a, b, src]);
+      }
+
+      const replacementMap = new Map();
+      const merged = _mergeRepairRanges(resolved);
+      for (const [aRaw, bRaw, srcRaw] of merged) {
+        const a = Number(aRaw);
+        const b = Number(bRaw);
+        const src = Number(srcRaw);
+        for (let f = a; f <= b; f += 1) {
+          replacementMap.set(String(f), src);
+        }
+      }
+      return replacementMap;
+    }
+
+    function refreshFreezeSimulation() {
+      const frames = (state.review && Array.isArray(state.review.frames)) ? state.review.frames : [];
+      state.freezeReplacementMap = _resolveFreezeRepairs(frames);
+      const frameLookup = new Map((frames || []).map(f => [String(f.fid), f]));
+
+      frameGridEl.querySelectorAll('.frame-card').forEach(card => {
+        const fidKey = String(card.dataset.fid || '');
+        const frame = frameLookup.get(fidKey);
+        const imgEl = card.querySelector('img');
+        const noteEl = card.querySelector('.frame-replace-note');
+        const originalImage = state.frameImages.get(fidKey) || '';
+        let nextImage = originalImage;
+        let replaced = false;
+        let note = '';
+
+        if (state.simulateFreezeFrame && frame && frame.status === 'bad') {
+          const sourceFid = state.freezeReplacementMap.get(fidKey);
+          if (sourceFid !== undefined && sourceFid !== null) {
+            const sourceKey = String(sourceFid);
+            const sourceImage = state.frameImages.get(sourceKey) || '';
+            if (sourceImage) {
+              nextImage = sourceImage;
+              replaced = true;
+              note = `FreezeFrame sim source G:${sourceKey}`;
+            } else {
+              note = `FreezeFrame sim source G:${sourceKey} not sampled`;
+            }
+          } else {
+            note = 'FreezeFrame sim has no nearby clean source';
+          }
+        }
+
+        if (imgEl) {
+          if (nextImage) {
+            imgEl.src = nextImage;
+          } else if (originalImage) {
+            imgEl.src = originalImage;
+          }
+        }
+        if ((!state.simulateFreezeFrame || !frame || frame.status !== 'bad') && imgEl && originalImage) {
+          imgEl.src = originalImage;
+        }
+
+        card.classList.toggle('replaced', Boolean(replaced));
+        if (noteEl) noteEl.textContent = state.simulateFreezeFrame ? note : '';
+      });
+    }
+
     function renderReviewFrames(frames) {
       frameGridEl.innerHTML = '';
       if (!frames || !frames.length) {
+        state.freezeReplacementMap = new Map();
         frameGridEl.textContent = 'No frames loaded.';
         renderSparkline([], 0);
         return;
       }
+      rememberFrameImages(frames);
       const fragment = document.createDocumentFragment();
       frames.forEach(frame => {
+        const frameImage = String(frame.image || state.frameImages.get(String(frame.fid)) || '');
         const card = document.createElement('div');
         card.className = `frame-card ${frame.status}`;
         card.dataset.fid = String(frame.fid);
+        card.dataset.label = String(frame.label || '');
         card.innerHTML = `
-          <img src="${frame.image}" alt="frame ${frame.fid}">
+          <img src="${frameImage}" alt="frame ${frame.fid}">
           <div class="frame-label">${escapeHtml(frame.label)}</div>
+          <div class="frame-replace-note"></div>
         `;
         fragment.appendChild(card);
       });
       frameGridEl.appendChild(fragment);
+      refreshFreezeSimulation();
       renderSparkline(frames, state.review ? state.review.threshold : 0);
       scheduleVisibleRangeRefresh();
     }
 
     function applyFrameUpdates(updates) {
       const map = new Map((updates || []).map(f => [String(f.fid), f]));
+      rememberFrameImages(updates);
       frameGridEl.querySelectorAll('.frame-card').forEach(card => {
         const fid = card.dataset.fid;
         const update = map.get(fid);
@@ -1301,7 +1590,10 @@
         card.classList.toggle('bad', update.status === 'bad');
         card.classList.toggle('good', update.status === 'good');
         const label = card.querySelector('.frame-label');
-        if (label) label.textContent = update.label;
+        if (label) {
+          label.textContent = update.label;
+          card.dataset.label = String(update.label || '');
+        }
       });
     }
 
@@ -1369,6 +1661,8 @@
       startLoadProgress('Extracting chapter and sampling frames...');
       try {
         const result = await api('/api/load_chapter', 'POST', payload);
+        state.frameImages = new Map();
+        state.freezeReplacementMap = new Map();
         state.review = result.review;
         state.loadSettings = result.settings || null;
         reviewStatsEl.textContent = statsText(result.review.stats, result.review.threshold);
@@ -1423,6 +1717,7 @@
           threshold: review.threshold,
           frames: review.frames || [],
         };
+        refreshFreezeSimulation();
         setStatus(`Applied IQR k=${k.toFixed(2)} (${changed} frame(s) changed).`);
       } catch (err) {
         setStatus(err.message, true);
@@ -1453,6 +1748,7 @@
           threshold: result.review.threshold,
           frames: result.review.frames || [],
         };
+        refreshFreezeSimulation();
       } catch (err) {
         setStatus(err.message, true);
       } finally {
@@ -1466,6 +1762,26 @@
         const result = await api('/api/summary');
         summaryBoxEl.textContent = result.summary;
         setStep(3);
+      } catch (err) {
+        setStatus(err.message, true);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function previewRender() {
+      if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) {
+        setStatus('Load and review a chapter before running preview render.', true);
+        return;
+      }
+      setLoading(true, 'Rendering chapter preview from current frame selections...');
+      try {
+        const result = await api('/api/preview_render', 'POST', {});
+        const target = result.preview_page_url || result.preview_url || '';
+        if (target) {
+          window.open(target, '_blank', 'noopener');
+        }
+        setStatus(result.message || 'Preview render ready.');
       } catch (err) {
         setStatus(err.message, true);
       } finally {
@@ -1509,6 +1825,7 @@
     document.getElementById('nextToReview').addEventListener('click', loadFrames);
     document.getElementById('backToLoad').addEventListener('click', () => setStep(1));
     document.getElementById('nextToSummary').addEventListener('click', loadSummary);
+    previewRenderBtnEl.addEventListener('click', previewRender);
     document.getElementById('backToReview').addEventListener('click', () => setStep(2));
     document.getElementById('saveAndReturn').addEventListener('click', saveAndReturn);
     fullscreenBtnEl.addEventListener('click', toggleReviewFullscreen);
@@ -1523,6 +1840,12 @@
     iqrEl.addEventListener('change', () => {
       applyIqr(true);
     });
+    if (simulateFreezeFrameEl) {
+      simulateFreezeFrameEl.addEventListener('change', () => {
+        state.simulateFreezeFrame = Boolean(simulateFreezeFrameEl.checked);
+        refreshFreezeSimulation();
+      });
+    }
 
     frameGridEl.addEventListener('click', (event) => {
       const card = event.target.closest('.frame-card');
