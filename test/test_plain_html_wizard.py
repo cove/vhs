@@ -90,6 +90,8 @@ def test_static_html_contains_live_iqr_spark_and_fullscreen_controls() -> None:
     assert "const solarizedOrange = '#cb4b16';" in html
     assert 'clipPath id="sparkAboveThresholdClip"' in html
     assert "frame.status === 'bad'" in html
+    assert "event.target.closest('.frame-card')" in html
+    assert "Toggle Good/Bad" not in html
 
 
 def test_set_load_progress_updates_and_clamps_state() -> None:

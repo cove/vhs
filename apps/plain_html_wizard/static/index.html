@@ -278,7 +278,8 @@
       background: #03232b;
       padding: 6px;
       display: grid;
-      gap: 6px;
+      gap: 4px;
+      cursor: pointer;
     }
 
     .frame-card.good { border-color: var(--good); }
@@ -300,16 +301,6 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-    }
-
-    .frame-toggle {
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #0a3f4e;
-      color: var(--text-strong);
-      padding: 6px;
-      cursor: pointer;
-      font-size: 12px;
     }
 
     .page-final-layout {
@@ -955,7 +946,6 @@
         card.innerHTML = `
           <img src="${frame.image}" alt="frame ${frame.fid}">
           <div class="frame-label">${escapeHtml(frame.label)}</div>
-          <button class="frame-toggle" data-fid="${frame.fid}">Toggle Good/Bad</button>
         `;
         fragment.appendChild(card);
       });
@@ -1198,9 +1188,9 @@
     });
 
     frameGridEl.addEventListener('click', (event) => {
-      const button = event.target.closest('.frame-toggle');
-      if (!button) return;
-      toggleFrame(button.dataset.fid);
+      const card = event.target.closest('.frame-card');
+      if (!card) return;
+      toggleFrame(card.dataset.fid);
     });
     frameGridEl.addEventListener('scroll', () => {
       scheduleVisibleRangeRefresh();
