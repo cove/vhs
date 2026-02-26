@@ -210,13 +210,13 @@
     .page-review-layout {
       height: calc(100vh - 170px);
       display: grid;
-      grid-template-rows: auto 1fr auto;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
       gap: 10px;
     }
 
     .review-top {
       display: grid;
-      grid-template-columns: 1fr auto;
+      grid-template-columns: minmax(220px, 1fr) auto;
       gap: 10px;
       align-items: center;
     }
@@ -227,10 +227,33 @@
       display: flex;
       gap: 8px;
       align-items: center;
+      flex-wrap: wrap;
       font-size: 12px;
     }
 
     .iqr-box input[type="range"] { width: 220px; }
+
+    .iqr-spark {
+      width: 100%;
+      height: 68px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #05252e;
+      display: block;
+    }
+
+    .spark-panel {
+      display: grid;
+      gap: 6px;
+      align-content: start;
+      min-height: 0;
+    }
+
+    .spark-meta {
+      font-size: 11px;
+      color: #8bb7b7;
+      min-height: 14px;
+    }
 
     .frame-grid {
       border: 1px solid var(--line);
@@ -242,6 +265,7 @@
       grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
       gap: 8px;
       align-content: start;
+      min-height: 0;
     }
 
     .frame-card {
@@ -325,6 +349,28 @@
       gap: 10px;
     }
 
+    .overlay-progress {
+      width: 100%;
+      height: 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #06303a;
+      overflow: hidden;
+    }
+
+    .overlay-progress-fill {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, #2aa198, #268bd2);
+      transition: width 0.15s linear;
+    }
+
+    .overlay-progress-text {
+      font-size: 11px;
+      color: #9ac4c4;
+      text-align: right;
+    }
+
     .spinner {
       width: 26px;
       height: 26px;
@@ -341,6 +387,45 @@
       .controls { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
       .page-review-layout, .page-final-layout { height: auto; }
       .frame-grid { min-height: 420px; }
+      .review-top { grid-template-columns: 1fr; }
+      .iqr-box input[type="range"] { width: 180px; }
+    }
+
+    #page2:fullscreen {
+      display: block;
+      padding: 10px;
+      background: var(--bg);
+    }
+
+    #page2:fullscreen .page-review-layout {
+      height: calc(100vh - 20px);
+    }
+
+    body.review-fullscreen-fallback .app {
+      padding: 0;
+      grid-template-rows: 1fr;
+      gap: 0;
+    }
+
+    body.review-fullscreen-fallback .title,
+    body.review-fullscreen-fallback .status,
+    body.review-fullscreen-fallback .steps,
+    body.review-fullscreen-fallback #page1,
+    body.review-fullscreen-fallback #page3 {
+      display: none !important;
+    }
+
+    body.review-fullscreen-fallback #page2 {
+      display: block !important;
+      position: fixed;
+      inset: 0;
+      z-index: 900;
+      padding: 12px;
+      background: var(--bg);
+    }
+
+    body.review-fullscreen-fallback #page2 .page-review-layout {
+      height: calc(100vh - 24px);
     }
   </style>
 </head>
@@ -397,10 +482,15 @@
           <div id="reviewStats" class="review-stats">No frames loaded.</div>
           <div class="iqr-box">
             <label for="iqrK">IQR k</label>
-            <input id="iqrK" type="range" min="1" max="8" step="0.05" value="3.5">
+            <input id="iqrK" type="range" min="0" max="12" step="0.05" value="3.5">
             <span id="iqrLabel">3.50</span>
             <button id="applyIqr" class="action">Apply</button>
+            <button id="toggleFullscreen" class="action">Fullscreen</button>
           </div>
+        </div>
+        <div class="panel spark-panel">
+          <svg id="iqrSpark" class="iqr-spark" viewBox="0 0 320 68" preserveAspectRatio="none"></svg>
+          <div id="sparkMeta" class="spark-meta"></div>
         </div>
 
         <div id="frameGrid" class="frame-grid"></div>
@@ -430,6 +520,10 @@
         <strong style="color: var(--text-strong);">Loading</strong>
       </div>
       <div id="overlayMsg" style="font-size:13px;">Working...</div>
+      <div class="overlay-progress">
+        <div id="overlayProgressFill" class="overlay-progress-fill"></div>
+      </div>
+      <div id="overlayProgressText" class="overlay-progress-text"></div>
     </div>
   </div>
 
@@ -441,11 +535,17 @@
       chapter: '',
       review: null,
       loadSettings: null,
+      iqrApplySeq: 0,
+      liveIqrPending: false,
+      liveIqrInFlight: false,
+      visibleRange: null,
     };
 
     const statusEl = document.getElementById('status');
     const overlayEl = document.getElementById('overlay');
     const overlayMsgEl = document.getElementById('overlayMsg');
+    const overlayProgressFillEl = document.getElementById('overlayProgressFill');
+    const overlayProgressTextEl = document.getElementById('overlayProgressText');
 
     const archiveListEl = document.getElementById('archiveList');
     const chapterListEl = document.getElementById('chapterList');
@@ -461,6 +561,14 @@
     const reviewStatsEl = document.getElementById('reviewStats');
     const frameGridEl = document.getElementById('frameGrid');
     const summaryBoxEl = document.getElementById('summaryBox');
+    const iqrSparkEl = document.getElementById('iqrSpark');
+    const sparkMetaEl = document.getElementById('sparkMeta');
+    const page2El = document.getElementById('page2');
+    const fullscreenBtnEl = document.getElementById('toggleFullscreen');
+
+    let autoIqrTimer = null;
+    let visibleRangeRefreshPending = false;
+    let loadProgressPollTimer = null;
 
     function setStatus(text, isError = false) {
       statusEl.textContent = text || '';
@@ -470,6 +578,61 @@
     function setLoading(active, message = 'Working...') {
       overlayEl.classList.toggle('active', Boolean(active));
       overlayMsgEl.textContent = message;
+      if (!active) {
+        if (overlayProgressFillEl) overlayProgressFillEl.style.width = '0%';
+        if (overlayProgressTextEl) overlayProgressTextEl.textContent = '';
+      }
+    }
+
+    function setOverlayProgress(value) {
+      const p = Math.max(0, Math.min(100, Number(value) || 0));
+      if (overlayProgressFillEl) overlayProgressFillEl.style.width = `${p.toFixed(1)}%`;
+      if (overlayProgressTextEl) overlayProgressTextEl.textContent = `${Math.round(p)}%`;
+    }
+
+    async function pollLoadProgressOnce() {
+      try {
+        const p = await api('/api/load_progress');
+        const done = Number(p.sample_done || 0);
+        const total = Number(p.sample_total || 0);
+        const msg = String(p.message || '');
+        if (msg) {
+          if (total > 0) {
+            overlayMsgEl.textContent = `${msg} (${done}/${total})`;
+          } else {
+            overlayMsgEl.textContent = msg;
+          }
+        }
+        setOverlayProgress(Number(p.progress || 0));
+      } catch (_err) {
+        // Ignore transient polling errors while main request is in-flight.
+      }
+    }
+
+    function startLoadProgress(message) {
+      if (loadProgressPollTimer) {
+        window.clearInterval(loadProgressPollTimer);
+        loadProgressPollTimer = null;
+      }
+      setLoading(true, message || 'Loading chapter...');
+      setOverlayProgress(1);
+      pollLoadProgressOnce();
+      loadProgressPollTimer = window.setInterval(pollLoadProgressOnce, 180);
+    }
+
+    function finishLoadProgress(success = true) {
+      if (loadProgressPollTimer) {
+        window.clearInterval(loadProgressPollTimer);
+        loadProgressPollTimer = null;
+      }
+      if (success) {
+        setOverlayProgress(100);
+        window.setTimeout(() => {
+          setLoading(false);
+        }, 180);
+      } else {
+        setLoading(false);
+      }
     }
 
     async function api(path, method = 'GET', body = null) {
@@ -489,10 +652,22 @@
     function setStep(step) {
       const pages = ['page1', 'page2', 'page3'];
       const pills = ['stepPill1', 'stepPill2', 'stepPill3'];
+      if (step !== 2 && document.fullscreenElement === page2El && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+      if (step !== 2 && document.body.classList.contains('review-fullscreen-fallback')) {
+        document.body.classList.remove('review-fullscreen-fallback');
+      }
       pages.forEach((id, i) => {
         document.getElementById(id).classList.toggle('active', i + 1 === step);
         document.getElementById(pills[i]).classList.toggle('active', i + 1 === step);
       });
+      updateFullscreenButton();
+      if (step === 2 && state.review && Array.isArray(state.review.frames) && state.review.frames.length) {
+        window.requestAnimationFrame(() => {
+          scheduleVisibleRangeRefresh();
+        });
+      }
     }
 
     function chapterByTitle(title) {
@@ -544,10 +719,136 @@
       return `Bad: ${stats.bad} (${Math.round((100 * stats.bad) / Math.max(1, stats.total))}%) | Good: ${stats.good} | Threshold: ${threshold.toFixed(4)} | Overrides: ${stats.overrides} | n=${stats.total} | shown=${stats.shown}`;
     }
 
+    function renderSparkline(frames, threshold) {
+      if (!iqrSparkEl || !sparkMetaEl) return;
+      const data = Array.isArray(frames) ? frames : [];
+      if (!data.length) {
+        iqrSparkEl.innerHTML = '';
+        sparkMetaEl.textContent = 'No score data loaded.';
+        state.visibleRange = null;
+        return;
+      }
+
+      const w = Math.max(320, Math.floor(iqrSparkEl.clientWidth || 320));
+      const h = 68;
+      const pad = 6;
+      const scores = data.map(f => Number(f.score || 0));
+      const badCount = data.filter(f => f.status === 'bad').length;
+      const minV = Math.min(...scores, Number(threshold || 0));
+      const maxV = Math.max(...scores, Number(threshold || 0));
+      const span = Math.max(1e-9, maxV - minV);
+
+      const xFor = (i) => {
+        if (scores.length <= 1) return w / 2;
+        return pad + (i * (w - pad * 2)) / (scores.length - 1);
+      };
+      const yFor = (v) => h - pad - ((v - minV) / span) * (h - pad * 2);
+
+      const points = scores.map((v, i) => `${xFor(i).toFixed(2)},${yFor(v).toFixed(2)}`).join(' ');
+      const yThr = yFor(Number(threshold || 0));
+      iqrSparkEl.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+      let viewportSvg = '';
+      if (state.visibleRange && Number.isFinite(state.visibleRange.start) && Number.isFinite(state.visibleRange.end)) {
+        const startIdx = Math.max(0, Math.min(scores.length - 1, Number(state.visibleRange.start)));
+        const endIdx = Math.max(startIdx, Math.min(scores.length - 1, Number(state.visibleRange.end)));
+        const xStart = xFor(startIdx);
+        const xEnd = xFor(endIdx);
+        const xMid = (xStart + xEnd) / 2;
+        viewportSvg = `
+          <rect x="${Math.min(xStart, xEnd).toFixed(2)}" y="${pad}" width="${Math.max(1, Math.abs(xEnd - xStart)).toFixed(2)}" height="${(h - pad * 2).toFixed(2)}" fill="#268bd2" opacity="0.15"></rect>
+          <line x1="${xStart.toFixed(2)}" y1="${pad}" x2="${xStart.toFixed(2)}" y2="${(h - pad).toFixed(2)}" stroke="#268bd2" stroke-width="1.3" opacity="0.95"></line>
+          <line x1="${xEnd.toFixed(2)}" y1="${pad}" x2="${xEnd.toFixed(2)}" y2="${(h - pad).toFixed(2)}" stroke="#268bd2" stroke-width="1.3" opacity="0.95"></line>
+          <line x1="${xMid.toFixed(2)}" y1="${pad}" x2="${xMid.toFixed(2)}" y2="${(h - pad).toFixed(2)}" stroke="#6ec5ff" stroke-width="1.0" opacity="0.9"></line>
+        `;
+      }
+
+      iqrSparkEl.innerHTML = `
+        <polyline points="${points}" fill="none" stroke="#2aa198" stroke-width="1.6" opacity="0.95"></polyline>
+        <line x1="${pad}" y1="${yThr.toFixed(2)}" x2="${(w - pad).toFixed(2)}" y2="${yThr.toFixed(2)}" stroke="#dc322f" stroke-width="1.4" opacity="0.95"></line>
+        ${viewportSvg}
+      `;
+      if (state.visibleRange) {
+        const start = Math.max(0, Number(state.visibleRange.start)) + 1;
+        const end = Math.max(start, Number(state.visibleRange.end) + 1);
+        sparkMetaEl.textContent = `Scores: min ${minV.toFixed(2)} | max ${maxV.toFixed(2)} | threshold ${Number(threshold || 0).toFixed(2)} | auto bad ${badCount} | view ${start}-${end}/${scores.length}`;
+      } else {
+        sparkMetaEl.textContent = `Scores: min ${minV.toFixed(2)} | max ${maxV.toFixed(2)} | threshold ${Number(threshold || 0).toFixed(2)} | auto bad ${badCount}`;
+      }
+    }
+
+    function _computeVisibleIndexRange() {
+      const cards = Array.from(frameGridEl.querySelectorAll('.frame-card'));
+      if (!cards.length) return null;
+      const gridRect = frameGridEl.getBoundingClientRect();
+      let minIdx = null;
+      let maxIdx = null;
+      for (let i = 0; i < cards.length; i += 1) {
+        const r = cards[i].getBoundingClientRect();
+        const isVisible = r.bottom > gridRect.top && r.top < gridRect.bottom;
+        if (!isVisible) continue;
+        if (minIdx === null || i < minIdx) minIdx = i;
+        if (maxIdx === null || i > maxIdx) maxIdx = i;
+      }
+      if (minIdx === null || maxIdx === null) return null;
+      return { start: minIdx, end: maxIdx };
+    }
+
+    function refreshVisibleRangeFromGrid() {
+      if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) {
+        state.visibleRange = null;
+        return;
+      }
+      const range = _computeVisibleIndexRange();
+      state.visibleRange = range || { start: 0, end: state.review.frames.length - 1 };
+      renderSparkline(state.review.frames, state.review.threshold || 0);
+    }
+
+    function scheduleVisibleRangeRefresh() {
+      if (visibleRangeRefreshPending) return;
+      visibleRangeRefreshPending = true;
+      window.requestAnimationFrame(() => {
+        visibleRangeRefreshPending = false;
+        refreshVisibleRangeFromGrid();
+      });
+    }
+
+    function scheduleAutoApplyIqr() {
+      if (!state.review) return;
+      if (autoIqrTimer) window.clearTimeout(autoIqrTimer);
+      autoIqrTimer = window.setTimeout(() => {
+        applyIqr(false);
+      }, 120);
+    }
+
+    function updateFullscreenButton() {
+      const active = document.fullscreenElement === page2El || document.body.classList.contains('review-fullscreen-fallback');
+      fullscreenBtnEl.textContent = active ? 'Exit Fullscreen' : 'Fullscreen';
+    }
+
+    async function toggleReviewFullscreen() {
+      if (!page2El) return;
+      try {
+        if (document.fullscreenEnabled && page2El.requestFullscreen) {
+          if (document.fullscreenElement === page2El) {
+            await document.exitFullscreen();
+          } else {
+            await page2El.requestFullscreen();
+          }
+        } else {
+          document.body.classList.toggle('review-fullscreen-fallback');
+        }
+      } catch (err) {
+        document.body.classList.toggle('review-fullscreen-fallback');
+      }
+      updateFullscreenButton();
+    }
+
     function renderReviewFrames(frames) {
       frameGridEl.innerHTML = '';
       if (!frames || !frames.length) {
         frameGridEl.textContent = 'No frames loaded.';
+        renderSparkline([], 0);
         return;
       }
       const fragment = document.createDocumentFragment();
@@ -563,6 +864,8 @@
         fragment.appendChild(card);
       });
       frameGridEl.appendChild(fragment);
+      renderSparkline(frames, state.review ? state.review.threshold : 0);
+      scheduleVisibleRangeRefresh();
     }
 
     function applyFrameUpdates(updates) {
@@ -624,7 +927,7 @@
         chapter: state.chapter,
         start_frame: Number(startFrameEl.value || 0),
         end_frame: Number(endFrameEl.value || 1),
-        sample_stride: Number(sampleStrideEl.value || 20),
+        sample_stride: Number(sampleStrideEl.value || 1),
         context: Number(contextEl.value || 10),
         iqr_k: Number(iqrEl.value || 3.5),
         strict_sampling: true,
@@ -632,7 +935,14 @@
         debug_extract: false,
       };
 
-      setLoading(true, 'Extracting chapter and sampling frames...');
+      if (autoIqrTimer) {
+        window.clearTimeout(autoIqrTimer);
+        autoIqrTimer = null;
+      }
+      state.iqrApplySeq += 1;
+
+      let loadFailed = false;
+      startLoadProgress('Extracting chapter and sampling frames...');
       try {
         const result = await api('/api/load_chapter', 'POST', payload);
         state.review = result.review;
@@ -647,29 +957,59 @@
         setStatus(`Loaded ${totalText} frame(s) for ${state.chapter} (stride ${strideText}).`);
         setStep(2);
       } catch (err) {
+        loadFailed = true;
         setStatus(err.message, true);
       } finally {
-        setLoading(false);
+        finishLoadProgress(!loadFailed);
       }
     }
 
-    async function applyIqr() {
+    async function applyIqr(isManual = true) {
       if (!state.review) return;
+      if (!isManual && state.liveIqrInFlight) {
+        state.liveIqrPending = true;
+        return;
+      }
       const k = Number(iqrEl.value || 3.5);
       iqrLabelEl.textContent = k.toFixed(2);
-      setLoading(true, 'Applying IQR threshold...');
+      const callSeq = ++state.iqrApplySeq;
+      if (isManual) {
+        setLoading(true, 'Applying IQR threshold...');
+      } else {
+        state.liveIqrInFlight = true;
+        setStatus(`Reprocessing frame statuses (IQR k=${k.toFixed(2)})...`);
+      }
       try {
         const result = await api('/api/apply_iqr', 'POST', { iqr_k: k });
+        if (callSeq !== state.iqrApplySeq) return;
         const review = result.review;
+        const previous = new Map((state.review.frames || []).map(f => [String(f.fid), f.status]));
+        let changed = 0;
+        for (const f of (review.frames || [])) {
+          if (previous.get(String(f.fid)) !== f.status) changed += 1;
+        }
         reviewStatsEl.textContent = statsText(review.stats, review.threshold);
         applyFrameUpdates(review.frames);
-        state.review.stats = review.stats;
-        state.review.threshold = review.threshold;
-        setStatus(`Applied IQR k=${k.toFixed(2)}.`);
+        renderSparkline(review.frames, review.threshold);
+        state.review = {
+          ...state.review,
+          stats: review.stats,
+          threshold: review.threshold,
+          frames: review.frames || [],
+        };
+        setStatus(`Applied IQR k=${k.toFixed(2)} (${changed} frame(s) changed).`);
       } catch (err) {
         setStatus(err.message, true);
       } finally {
-        setLoading(false);
+        if (isManual) {
+          setLoading(false);
+        } else {
+          state.liveIqrInFlight = false;
+          if (state.liveIqrPending) {
+            state.liveIqrPending = false;
+            applyIqr(false);
+          }
+        }
       }
     }
 
@@ -680,8 +1020,13 @@
         const frame = result.frame;
         if (frame) applyFrameUpdates([frame]);
         reviewStatsEl.textContent = statsText(result.review.stats, result.review.threshold);
-        state.review.stats = result.review.stats;
-        state.review.threshold = result.review.threshold;
+        renderSparkline(result.review.frames, result.review.threshold);
+        state.review = {
+          ...state.review,
+          stats: result.review.stats,
+          threshold: result.review.threshold,
+          frames: result.review.frames || [],
+        };
       } catch (err) {
         setStatus(err.message, true);
       } finally {
@@ -740,9 +1085,18 @@
     document.getElementById('nextToSummary').addEventListener('click', loadSummary);
     document.getElementById('backToReview').addEventListener('click', () => setStep(2));
     document.getElementById('saveAndReturn').addEventListener('click', saveAndReturn);
-    document.getElementById('applyIqr').addEventListener('click', applyIqr);
+    document.getElementById('applyIqr').addEventListener('click', () => applyIqr(true));
+    fullscreenBtnEl.addEventListener('click', toggleReviewFullscreen);
+    document.addEventListener('fullscreenchange', () => {
+      updateFullscreenButton();
+      scheduleVisibleRangeRefresh();
+    });
     iqrEl.addEventListener('input', () => {
       iqrLabelEl.textContent = Number(iqrEl.value || 0).toFixed(2);
+      scheduleAutoApplyIqr();
+    });
+    iqrEl.addEventListener('change', () => {
+      applyIqr(true);
     });
 
     frameGridEl.addEventListener('click', (event) => {
@@ -750,14 +1104,24 @@
       if (!button) return;
       toggleFrame(button.dataset.fid);
     });
+    frameGridEl.addEventListener('scroll', () => {
+      scheduleVisibleRangeRefresh();
+    });
 
     window.addEventListener('load', async () => {
       iqrLabelEl.textContent = Number(iqrEl.value).toFixed(2);
+      updateFullscreenButton();
       setStatus('Loading archives...');
       try {
         await loadArchives();
       } catch (err) {
         setStatus(err.message, true);
+      }
+    });
+
+    window.addEventListener('resize', () => {
+      if (state.review && Array.isArray(state.review.frames) && state.review.frames.length) {
+        scheduleVisibleRangeRefresh();
       }
     });
   </script>

@@ -72,10 +72,44 @@ class SessionState:
     sigs: dict[str, np.ndarray] = field(default_factory=dict)
     overrides: dict[int, str] = field(default_factory=dict)
     threshold: float = 0.0
+    load_running: bool = False
+    load_progress: float = 0.0
+    load_message: str = ""
+    load_sample_done: int = 0
+    load_sample_total: int = 0
 
 
 _SESSION_LOCK = threading.Lock()
 _SESSIONS: dict[str, SessionState] = {}
+
+
+def _set_load_progress(
+    session: SessionState,
+    *,
+    running: bool | None = None,
+    progress: float | None = None,
+    message: str | None = None,
+    sample_done: int | None = None,
+    sample_total: int | None = None,
+) -> None:
+    if running is not None:
+        session.load_running = bool(running)
+    if progress is not None:
+        session.load_progress = max(0.0, min(100.0, float(progress)))
+    if message is not None:
+        session.load_message = str(message)
+    if sample_done is not None:
+        session.load_sample_done = max(0, int(sample_done))
+    if sample_total is not None:
+        session.load_sample_total = max(0, int(sample_total))
+
+
+def _normalize_iqr_k(raw: Any, default: float = 3.5) -> float:
+    try:
+        value = float(raw)
+    except Exception:
+        value = float(default)
+    return max(0.0, min(12.0, float(value)))
 
 
 def _details_text(chapter_row: dict[str, Any] | None) -> str:
@@ -294,6 +328,19 @@ class WizardHandler(BaseHTTPRequestHandler):
             self._send_json({"ok": True, **_summary_payload(session)})
             return
 
+        if parsed.path == "/api/load_progress":
+            self._send_json(
+                {
+                    "ok": True,
+                    "running": bool(session.load_running),
+                    "progress": float(session.load_progress),
+                    "message": str(session.load_message or ""),
+                    "sample_done": int(session.load_sample_done),
+                    "sample_total": int(session.load_sample_total),
+                }
+            )
+            return
+
         self._send_error_json("Not found", code=HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
@@ -314,10 +361,7 @@ class WizardHandler(BaseHTTPRequestHandler):
             if not session.fids:
                 self._send_error_json("No loaded chapter data yet.")
                 return
-            try:
-                session.iqr_k = float(payload.get("iqr_k", session.iqr_k))
-            except Exception:
-                session.iqr_k = 3.5
+            session.iqr_k = _normalize_iqr_k(payload.get("iqr_k", session.iqr_k), default=session.iqr_k)
             review = _build_review_payload(session, include_images=False)
             self._send_json({"ok": True, "review": review})
             return
@@ -341,16 +385,34 @@ class WizardHandler(BaseHTTPRequestHandler):
         self._send_error_json("Not found", code=HTTPStatus.NOT_FOUND)
 
     def _handle_load_chapter(self, session: SessionState, payload: dict[str, Any]) -> None:
+        def fail(message: str) -> None:
+            _set_load_progress(
+                session,
+                running=False,
+                progress=0.0,
+                message=str(message),
+            )
+            self._send_error_json(message)
+
+        _set_load_progress(
+            session,
+            running=True,
+            progress=1.0,
+            message="Preparing chapter load...",
+            sample_done=0,
+            sample_total=0,
+        )
+
         archive = str(payload.get("archive", session.archive) or "").strip()
         chapter = str(payload.get("chapter", session.chapter) or "").strip()
         if not archive or not chapter:
-            self._send_error_json("Archive and chapter are required.")
+            fail("Archive and chapter are required.")
             return
 
         _archive_state(session, archive, selected_title=chapter)
         chapter_obj = _find_chapter(session.chapters, chapter)
         if not chapter_obj:
-            self._send_error_json("Selected chapter was not found.")
+            fail("Selected chapter was not found.")
             return
 
         default_start = int(chapter_obj.get("start_frame", 0))
@@ -361,9 +423,9 @@ class WizardHandler(BaseHTTPRequestHandler):
             end_raw = int(payload.get("end_frame", default_end))
             sample_stride = max(1, int(payload.get("sample_stride", session.sample_stride)))
             context = max(0, int(payload.get("context", session.context)))
-            iqr_k = float(payload.get("iqr_k", session.iqr_k))
+            iqr_k = _normalize_iqr_k(payload.get("iqr_k", session.iqr_k), default=session.iqr_k)
         except Exception:
-            self._send_error_json("Invalid numeric load settings.")
+            fail("Invalid numeric load settings.")
             return
 
         session.chapter = chapter
@@ -377,10 +439,17 @@ class WizardHandler(BaseHTTPRequestHandler):
 
         video = _resolve_archive_video(session.archive)
         if not video:
-            self._send_error_json(f"No archive video found for '{session.archive}'.")
+            fail(f"No archive video found for '{session.archive}'.")
             return
 
         n_samp = sample_count_from_stride(session.start_frame, session.end_frame, session.sample_stride)
+        _set_load_progress(
+            session,
+            progress=4.0,
+            message=f"Target sampled frames: {int(n_samp)}",
+            sample_done=0,
+            sample_total=int(n_samp),
+        )
         read_video = video
         frame_read_offset = 0
 
@@ -389,6 +458,7 @@ class WizardHandler(BaseHTTPRequestHandler):
         )
 
         if bool(session.exact_extract):
+            _set_load_progress(session, progress=8.0, message="Extracting chapter segment...")
             try:
                 read_video_p, ex_err = _ensure_step6_chapter_extract(
                     source_video=video,
@@ -399,13 +469,37 @@ class WizardHandler(BaseHTTPRequestHandler):
                     debug_overlay=debug_overlay,
                 )
             except Exception as exc:
-                self._send_error_json(f"Step6 extract failed: {type(exc).__name__}: {exc}")
+                fail(f"Step6 extract failed: {type(exc).__name__}: {exc}")
                 return
             if ex_err or read_video_p is None:
-                self._send_error_json(ex_err or "Step6 extract failed")
+                fail(ex_err or "Step6 extract failed")
                 return
             read_video = read_video_p
             frame_read_offset = session.start_frame
+            _set_load_progress(session, progress=28.0, message="Chapter extract ready; sampling frames...")
+        else:
+            _set_load_progress(session, progress=12.0, message="Sampling source video frames...")
+
+        sample_target = max(1, int(n_samp))
+        stage_start = 30.0 if bool(session.exact_extract) else 14.0
+        stage_end = 92.0
+
+        def _sample_progress(frac: float, desc: str | None = None) -> None:
+            _ = desc
+            try:
+                f = float(frac)
+            except Exception:
+                f = 0.0
+            f = max(0.0, min(1.0, f))
+            done = max(0, min(sample_target, int(round(f * sample_target))))
+            p = stage_start + f * (stage_end - stage_start)
+            _set_load_progress(
+                session,
+                progress=p,
+                message=f"Sampling frames {done}/{sample_target}",
+                sample_done=done,
+                sample_total=sample_target,
+            )
 
         fids, b64, sigs, err = extract_frames(
             str(read_video),
@@ -415,11 +509,18 @@ class WizardHandler(BaseHTTPRequestHandler):
             session.archive,
             session.chapter,
             frame_read_offset=frame_read_offset,
-            progress=None,
+            progress=_sample_progress,
         )
         if err or fids is None or b64 is None or sigs is None:
-            self._send_error_json(err or "Failed to extract frames.")
+            fail(err or "Failed to extract frames.")
             return
+        _set_load_progress(
+            session,
+            progress=95.0,
+            message=f"Processing sampled frames {sample_target}/{sample_target}",
+            sample_done=sample_target,
+            sample_total=sample_target,
+        )
 
         if not bool(session.strict_sampling):
             sc0 = combined_score(sigs, session.wc, session.wn, session.wt, session.ww)
@@ -443,10 +544,10 @@ class WizardHandler(BaseHTTPRequestHandler):
                     session.chapter,
                     frame_ids=focus_fids,
                     frame_read_offset=frame_read_offset,
-                    progress=None,
+                    progress=_sample_progress,
                 )
                 if err or fids is None or b64 is None or sigs is None:
-                    self._send_error_json(err or "Failed to extract focus frames.")
+                    fail(err or "Failed to extract focus frames.")
                     return
 
         session.fids = [int(x) for x in fids]
@@ -484,6 +585,14 @@ class WizardHandler(BaseHTTPRequestHandler):
         }
 
         review = _build_review_payload(session, include_images=True)
+        _set_load_progress(
+            session,
+            running=False,
+            progress=100.0,
+            message=f"Loaded {len(session.fids)} frame(s).",
+            sample_done=len(session.fids),
+            sample_total=max(1, int(n_samp)),
+        )
         self._send_json({"ok": True, "review": review, "settings": details})
 
     def _handle_toggle_frame(self, session: SessionState, fid: int) -> None:
