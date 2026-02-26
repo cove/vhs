@@ -1,0 +1,765 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VHS Tuner Plain HTML Wizard</title>
+  <style>
+    :root {
+      --bg: #002b36;
+      --bg-soft: #073642;
+      --bg-alt: #0a3944;
+      --line: #1b5866;
+      --text: #93a1a1;
+      --text-strong: #eee8d5;
+      --accent: #268bd2;
+      --accent-soft: #2aa198;
+      --good: #859900;
+      --bad: #dc322f;
+      --warn: #b58900;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: radial-gradient(1200px 700px at 100% -10%, #0b4a56 0%, transparent 55%), var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", Tahoma, sans-serif;
+    }
+
+    .app {
+      min-height: 100vh;
+      padding: 14px;
+      display: grid;
+      grid-template-rows: auto auto auto 1fr;
+      gap: 10px;
+    }
+
+    .title {
+      font-size: 20px;
+      color: var(--text-strong);
+      letter-spacing: 0.3px;
+    }
+
+    .status {
+      min-height: 24px;
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(7, 54, 66, 0.6);
+      font-size: 13px;
+    }
+
+    .status.error {
+      border-color: var(--bad);
+      color: #f4b3a9;
+    }
+
+    .steps {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .step-pill {
+      border: 1px solid var(--line);
+      background: var(--bg-soft);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+
+    .step-pill.active {
+      border-color: var(--accent);
+      color: var(--text-strong);
+      background: #0a4050;
+    }
+
+    .page { display: none; min-height: 0; }
+    .page.active { display: block; }
+
+    .panel {
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(7,54,66,0.95), rgba(5,43,53,0.95));
+      border-radius: 10px;
+      padding: 10px;
+      min-height: 0;
+    }
+
+    .panel-title {
+      margin: 0 0 10px;
+      font-size: 14px;
+      color: var(--text-strong);
+      letter-spacing: 0.2px;
+    }
+
+    .page-load-layout {
+      height: calc(100vh - 170px);
+      display: grid;
+      gap: 10px;
+      grid-template-columns: 240px minmax(420px, 1fr);
+    }
+
+    .list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      overflow: auto;
+      max-height: 100%;
+      padding-right: 2px;
+    }
+
+    .item-btn {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: var(--bg-soft);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 8px;
+      text-align: left;
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 1.25;
+    }
+
+    .item-btn:hover { border-color: var(--accent-soft); }
+    .item-btn.active {
+      border-color: var(--accent);
+      background: #0b4150;
+      color: var(--text-strong);
+    }
+
+    .chapter-row {
+      display: grid;
+      grid-template-columns: 40px 1fr auto;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .chapter-row .meta {
+      color: #6eb9c1;
+      font-size: 11px;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .chapter-row .title {
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: inherit;
+    }
+
+    .details {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      white-space: pre-wrap;
+      background: rgba(0, 32, 41, 0.6);
+      font-family: "Consolas", "Courier New", monospace;
+      font-size: 12px;
+      min-height: 90px;
+    }
+
+    .controls {
+      margin-top: 10px;
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(4, minmax(130px, 1fr));
+    }
+
+    .field {
+      display: grid;
+      gap: 4px;
+      font-size: 12px;
+    }
+
+    .field input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #052a33;
+      color: var(--text-strong);
+      padding: 8px;
+    }
+
+    .actions {
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+      justify-content: space-between;
+    }
+
+    button.action {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #094152;
+      color: var(--text-strong);
+      padding: 8px 12px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    button.action.primary { border-color: var(--accent); background: #0f5370; }
+    button.action.warn { border-color: var(--warn); }
+    button.action:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .page-review-layout {
+      height: calc(100vh - 170px);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 10px;
+    }
+
+    .review-top {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .review-stats { font-size: 13px; }
+
+    .iqr-box {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      font-size: 12px;
+    }
+
+    .iqr-box input[type="range"] { width: 220px; }
+
+    .frame-grid {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(0, 32, 41, 0.55);
+      padding: 8px;
+      overflow: auto;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+      gap: 8px;
+      align-content: start;
+    }
+
+    .frame-card {
+      border: 2px solid var(--line);
+      border-radius: 8px;
+      background: #03232b;
+      padding: 6px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .frame-card.good { border-color: var(--good); }
+    .frame-card.bad { border-color: var(--bad); }
+
+    .frame-card img {
+      width: 100%;
+      max-height: 112px;
+      object-fit: contain;
+      background: #001c24;
+      border-radius: 4px;
+    }
+
+    .frame-label {
+      font-family: "Consolas", "Courier New", monospace;
+      font-size: 11px;
+      line-height: 1.25;
+      color: #c9d6d6;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .frame-toggle {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #0a3f4e;
+      color: var(--text-strong);
+      padding: 6px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .page-final-layout {
+      height: calc(100vh - 170px);
+      display: grid;
+      grid-template-rows: 1fr auto;
+      gap: 10px;
+    }
+
+    .summary-box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(0, 32, 41, 0.6);
+      padding: 10px;
+      white-space: pre-wrap;
+      overflow: auto;
+      font-family: "Consolas", "Courier New", monospace;
+      font-size: 12px;
+      color: #d2dfdf;
+    }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 23, 30, 0.75);
+      z-index: 1000;
+    }
+
+    .overlay.active { display: flex; }
+
+    .overlay-card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #08323c;
+      min-width: 300px;
+      padding: 12px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .spinner {
+      width: 26px;
+      height: 26px;
+      border: 3px solid #0e5564;
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (max-width: 1100px) {
+      .page-load-layout { grid-template-columns: 1fr; height: auto; }
+      .controls { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .page-review-layout, .page-final-layout { height: auto; }
+      .frame-grid { min-height: 420px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="title">VHS Tuner Plain HTML Wizard</div>
+    <div id="status" class="status"></div>
+    <div class="steps">
+      <div id="stepPill1" class="step-pill active">1/3 Load Chapter</div>
+      <div id="stepPill2" class="step-pill">2/3 Review Frames + IQR</div>
+      <div id="stepPill3" class="step-pill">3/3 Summary + Save</div>
+    </div>
+
+    <section id="page1" class="page active">
+      <div class="page-load-layout">
+        <aside class="panel">
+          <h2 class="panel-title">Archives</h2>
+          <div id="archiveList" class="list"></div>
+        </aside>
+
+        <main class="panel">
+          <h2 class="panel-title">Chapters</h2>
+          <div id="chapterList" class="list" style="max-height: 38vh;"></div>
+
+          <h2 class="panel-title" style="margin-top: 12px;">Selected Chapter</h2>
+          <div id="chapterDetails" class="details">No chapter selected.</div>
+
+          <div class="controls">
+            <label class="field">Start Frame
+              <input id="startFrame" type="number" min="0" step="1">
+            </label>
+            <label class="field">End Frame (exclusive)
+              <input id="endFrame" type="number" min="1" step="1">
+            </label>
+            <label class="field">Sample Rate (1 / N, use 1 for all frames)
+              <input id="sampleStride" type="number" min="1" step="1" value="1">
+            </label>
+            <label class="field">Bad Batch Proximity
+              <input id="context" type="number" min="0" step="1" value="10">
+            </label>
+          </div>
+
+          <div class="actions">
+            <span></span>
+            <button id="nextToReview" class="action primary">Next: Load Frames</button>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <section id="page2" class="page">
+      <div class="page-review-layout">
+        <div class="panel review-top">
+          <div id="reviewStats" class="review-stats">No frames loaded.</div>
+          <div class="iqr-box">
+            <label for="iqrK">IQR k</label>
+            <input id="iqrK" type="range" min="1" max="8" step="0.05" value="3.5">
+            <span id="iqrLabel">3.50</span>
+            <button id="applyIqr" class="action">Apply</button>
+          </div>
+        </div>
+
+        <div id="frameGrid" class="frame-grid"></div>
+
+        <div class="actions">
+          <button id="backToLoad" class="action warn">Back</button>
+          <button id="nextToSummary" class="action primary">Next: Summary</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="page3" class="page">
+      <div class="page-final-layout">
+        <div id="summaryBox" class="summary-box">No summary yet.</div>
+        <div class="actions">
+          <button id="backToReview" class="action warn">Back</button>
+          <button id="saveAndReturn" class="action primary">Save and Return to Chapters</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="overlay" class="overlay">
+    <div class="overlay-card">
+      <div style="display:flex; gap:10px; align-items:center;">
+        <div class="spinner"></div>
+        <strong style="color: var(--text-strong);">Loading</strong>
+      </div>
+      <div id="overlayMsg" style="font-size:13px;">Working...</div>
+    </div>
+  </div>
+
+  <script>
+    const state = {
+      archives: [],
+      archive: '',
+      chapters: [],
+      chapter: '',
+      review: null,
+      loadSettings: null,
+    };
+
+    const statusEl = document.getElementById('status');
+    const overlayEl = document.getElementById('overlay');
+    const overlayMsgEl = document.getElementById('overlayMsg');
+
+    const archiveListEl = document.getElementById('archiveList');
+    const chapterListEl = document.getElementById('chapterList');
+    const chapterDetailsEl = document.getElementById('chapterDetails');
+
+    const startFrameEl = document.getElementById('startFrame');
+    const endFrameEl = document.getElementById('endFrame');
+    const sampleStrideEl = document.getElementById('sampleStride');
+    const contextEl = document.getElementById('context');
+
+    const iqrEl = document.getElementById('iqrK');
+    const iqrLabelEl = document.getElementById('iqrLabel');
+    const reviewStatsEl = document.getElementById('reviewStats');
+    const frameGridEl = document.getElementById('frameGrid');
+    const summaryBoxEl = document.getElementById('summaryBox');
+
+    function setStatus(text, isError = false) {
+      statusEl.textContent = text || '';
+      statusEl.classList.toggle('error', Boolean(isError));
+    }
+
+    function setLoading(active, message = 'Working...') {
+      overlayEl.classList.toggle('active', Boolean(active));
+      overlayMsgEl.textContent = message;
+    }
+
+    async function api(path, method = 'GET', body = null) {
+      const options = { method, headers: {} };
+      if (body !== null) {
+        options.headers['Content-Type'] = 'application/json';
+        options.body = JSON.stringify(body);
+      }
+      const res = await fetch(path, options);
+      const payload = await res.json();
+      if (!res.ok || !payload.ok) {
+        throw new Error(payload.error || `HTTP ${res.status}`);
+      }
+      return payload;
+    }
+
+    function setStep(step) {
+      const pages = ['page1', 'page2', 'page3'];
+      const pills = ['stepPill1', 'stepPill2', 'stepPill3'];
+      pages.forEach((id, i) => {
+        document.getElementById(id).classList.toggle('active', i + 1 === step);
+        document.getElementById(pills[i]).classList.toggle('active', i + 1 === step);
+      });
+    }
+
+    function chapterByTitle(title) {
+      return state.chapters.find(c => c.title === title) || null;
+    }
+
+    function renderArchives() {
+      archiveListEl.innerHTML = '';
+      state.archives.forEach(name => {
+        const btn = document.createElement('button');
+        btn.className = `item-btn ${name === state.archive ? 'active' : ''}`;
+        btn.textContent = name;
+        btn.addEventListener('click', () => loadArchive(name, null));
+        archiveListEl.appendChild(btn);
+      });
+    }
+
+    function renderChapters() {
+      chapterListEl.innerHTML = '';
+      state.chapters.forEach(ch => {
+        const btn = document.createElement('button');
+        btn.className = `item-btn chapter-row ${ch.title === state.chapter ? 'active' : ''}`;
+        btn.innerHTML = `
+          <div>${String(ch.index).padStart(2, '0')}</div>
+          <div class="title" title="${escapeHtml(ch.title)}">${escapeHtml(ch.title)}</div>
+          <div class="meta">${ch.time} | b${ch.bad}</div>
+        `;
+        btn.addEventListener('click', () => {
+          state.chapter = ch.title;
+          startFrameEl.value = ch.start_frame;
+          endFrameEl.value = ch.end_frame;
+          renderChapters();
+          renderChapterDetails();
+        });
+        chapterListEl.appendChild(btn);
+      });
+    }
+
+    function renderChapterDetails() {
+      const ch = chapterByTitle(state.chapter);
+      if (!ch) {
+        chapterDetailsEl.textContent = 'Select a chapter.';
+        return;
+      }
+      chapterDetailsEl.textContent = `${ch.title}\nDuration: ${ch.time} | Frames: ${ch.frames} | BAD already: ${ch.bad}\nFrame span: ${ch.start_frame} - ${ch.end_frame} (end exclusive)`;
+    }
+
+    function statsText(stats, threshold) {
+      return `Bad: ${stats.bad} (${Math.round((100 * stats.bad) / Math.max(1, stats.total))}%) | Good: ${stats.good} | Threshold: ${threshold.toFixed(4)} | Overrides: ${stats.overrides} | n=${stats.total} | shown=${stats.shown}`;
+    }
+
+    function renderReviewFrames(frames) {
+      frameGridEl.innerHTML = '';
+      if (!frames || !frames.length) {
+        frameGridEl.textContent = 'No frames loaded.';
+        return;
+      }
+      const fragment = document.createDocumentFragment();
+      frames.forEach(frame => {
+        const card = document.createElement('div');
+        card.className = `frame-card ${frame.status}`;
+        card.dataset.fid = String(frame.fid);
+        card.innerHTML = `
+          <img src="${frame.image}" alt="frame ${frame.fid}">
+          <div class="frame-label">${escapeHtml(frame.label)}</div>
+          <button class="frame-toggle" data-fid="${frame.fid}">Toggle Good/Bad</button>
+        `;
+        fragment.appendChild(card);
+      });
+      frameGridEl.appendChild(fragment);
+    }
+
+    function applyFrameUpdates(updates) {
+      const map = new Map((updates || []).map(f => [String(f.fid), f]));
+      frameGridEl.querySelectorAll('.frame-card').forEach(card => {
+        const fid = card.dataset.fid;
+        const update = map.get(fid);
+        if (!update) return;
+        card.classList.toggle('bad', update.status === 'bad');
+        card.classList.toggle('good', update.status === 'good');
+        const label = card.querySelector('.frame-label');
+        if (label) label.textContent = update.label;
+      });
+    }
+
+    async function loadArchives() {
+      const payload = await api('/api/archives');
+      state.archives = payload.archives || [];
+      if (!state.archives.length) {
+        setStatus('No archives found.', true);
+        return;
+      }
+      state.archive = payload.selected || state.archives[0];
+      renderArchives();
+      await loadArchive(state.archive, null);
+    }
+
+    async function loadArchive(archive, chapter) {
+      setLoading(true, `Loading chapter metadata for ${archive}...`);
+      try {
+        const q = new URLSearchParams({ archive });
+        if (chapter) q.set('chapter', chapter);
+        const payload = await api(`/api/archive_state?${q.toString()}`);
+        const st = payload.archive_state;
+        state.archive = st.archive;
+        state.chapter = st.chapter;
+        state.chapters = st.chapters || [];
+        startFrameEl.value = st.start_frame;
+        endFrameEl.value = st.end_frame;
+        renderArchives();
+        renderChapters();
+        renderChapterDetails();
+        setStatus(st.status || 'Archive loaded.');
+      } catch (err) {
+        setStatus(err.message, true);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function loadFrames() {
+      if (!state.archive || !state.chapter) {
+        setStatus('Select an archive and chapter first.', true);
+        return;
+      }
+
+      const payload = {
+        archive: state.archive,
+        chapter: state.chapter,
+        start_frame: Number(startFrameEl.value || 0),
+        end_frame: Number(endFrameEl.value || 1),
+        sample_stride: Number(sampleStrideEl.value || 20),
+        context: Number(contextEl.value || 10),
+        iqr_k: Number(iqrEl.value || 3.5),
+        strict_sampling: true,
+        exact_extract: true,
+        debug_extract: false,
+      };
+
+      setLoading(true, 'Extracting chapter and sampling frames...');
+      try {
+        const result = await api('/api/load_chapter', 'POST', payload);
+        state.review = result.review;
+        state.loadSettings = result.settings || null;
+        reviewStatsEl.textContent = statsText(result.review.stats, result.review.threshold);
+        renderReviewFrames(result.review.frames);
+        iqrEl.value = String(payload.iqr_k);
+        iqrLabelEl.textContent = Number(payload.iqr_k).toFixed(2);
+        const s = state.loadSettings;
+        const strideText = s ? `1/${s.sample_stride}` : `1/${payload.sample_stride}`;
+        const totalText = s ? `${s.sampled_count}/${s.chapter_frame_count}` : `${result.review.stats.total}`;
+        setStatus(`Loaded ${totalText} frame(s) for ${state.chapter} (stride ${strideText}).`);
+        setStep(2);
+      } catch (err) {
+        setStatus(err.message, true);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function applyIqr() {
+      if (!state.review) return;
+      const k = Number(iqrEl.value || 3.5);
+      iqrLabelEl.textContent = k.toFixed(2);
+      setLoading(true, 'Applying IQR threshold...');
+      try {
+        const result = await api('/api/apply_iqr', 'POST', { iqr_k: k });
+        const review = result.review;
+        reviewStatsEl.textContent = statsText(review.stats, review.threshold);
+        applyFrameUpdates(review.frames);
+        state.review.stats = review.stats;
+        state.review.threshold = review.threshold;
+        setStatus(`Applied IQR k=${k.toFixed(2)}.`);
+      } catch (err) {
+        setStatus(err.message, true);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function toggleFrame(fid) {
+      setLoading(true, `Updating frame ${fid}...`);
+      try {
+        const result = await api('/api/toggle_frame', 'POST', { fid: Number(fid) });
+        const frame = result.frame;
+        if (frame) applyFrameUpdates([frame]);
+        reviewStatsEl.textContent = statsText(result.review.stats, result.review.threshold);
+        state.review.stats = result.review.stats;
+        state.review.threshold = result.review.threshold;
+      } catch (err) {
+        setStatus(err.message, true);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function loadSummary() {
+      setLoading(true, 'Building summary...');
+      try {
+        const result = await api('/api/summary');
+        summaryBoxEl.textContent = result.summary;
+        setStep(3);
+      } catch (err) {
+        setStatus(err.message, true);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function saveAndReturn() {
+      setLoading(true, 'Saving BAD frame selections...');
+      try {
+        const result = await api('/api/save', 'POST', {});
+        setStatus(result.message || 'Saved.');
+
+        const st = result.archive_state;
+        state.archive = st.archive;
+        state.chapter = st.chapter;
+        state.chapters = st.chapters || [];
+        startFrameEl.value = st.start_frame;
+        endFrameEl.value = st.end_frame;
+
+        renderArchives();
+        renderChapters();
+        renderChapterDetails();
+        setStep(1);
+      } catch (err) {
+        setStatus(err.message, true);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function escapeHtml(input) {
+      return String(input)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    document.getElementById('nextToReview').addEventListener('click', loadFrames);
+    document.getElementById('backToLoad').addEventListener('click', () => setStep(1));
+    document.getElementById('nextToSummary').addEventListener('click', loadSummary);
+    document.getElementById('backToReview').addEventListener('click', () => setStep(2));
+    document.getElementById('saveAndReturn').addEventListener('click', saveAndReturn);
+    document.getElementById('applyIqr').addEventListener('click', applyIqr);
+    iqrEl.addEventListener('input', () => {
+      iqrLabelEl.textContent = Number(iqrEl.value || 0).toFixed(2);
+    });
+
+    frameGridEl.addEventListener('click', (event) => {
+      const button = event.target.closest('.frame-toggle');
+      if (!button) return;
+      toggleFrame(button.dataset.fid);
+    });
+
+    window.addEventListener('load', async () => {
+      iqrLabelEl.textContent = Number(iqrEl.value).toFixed(2);
+      setStatus('Loading archives...');
+      try {
+        await loadArchives();
+      } catch (err) {
+        setStatus(err.message, true);
+      }
+    });
+  </script>
+</body>
+</html>
