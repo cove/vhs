@@ -23,7 +23,7 @@ from common import combined_score, compute_threshold
 from libs.vhs_tuner_core import (
     _chapter_bad_overrides,
     _chapter_extract_cache_path,
-    _ensure_step6_chapter_extract,
+    _ensure_render_chapter_extract,
     _env_truthy,
     _find_chapter,
     _get_archives,
@@ -34,7 +34,7 @@ from libs.vhs_tuner_core import (
     persist_bad_frames_for_chapter,
     sample_count_from_stride,
     select_focus_frame_ids,
-    STEP6_DEBUG_EXTRACT_FRAME_NUMBERS_ENV,
+    RENDER_DEBUG_EXTRACT_FRAME_NUMBERS_ENV,
     TUNER_DEBUG_EXTRACT_ENV,
 )
 
@@ -487,7 +487,7 @@ class WizardHandler(BaseHTTPRequestHandler):
         frame_read_offset = 0
 
         debug_overlay = bool(session.debug_extract) or _env_truthy(TUNER_DEBUG_EXTRACT_ENV) or _env_truthy(
-            STEP6_DEBUG_EXTRACT_FRAME_NUMBERS_ENV
+            RENDER_DEBUG_EXTRACT_FRAME_NUMBERS_ENV
         )
 
         if bool(session.exact_extract):
@@ -495,7 +495,7 @@ class WizardHandler(BaseHTTPRequestHandler):
             if cancelled():
                 return
             try:
-                read_video_p, ex_err = _ensure_step6_chapter_extract(
+                read_video_p, ex_err = _ensure_render_chapter_extract(
                     source_video=video,
                     archive=session.archive,
                     chapter_title=session.chapter,
@@ -504,10 +504,10 @@ class WizardHandler(BaseHTTPRequestHandler):
                     debug_overlay=debug_overlay,
                 )
             except Exception as exc:
-                fail(f"Step6 extract failed: {type(exc).__name__}: {exc}")
+                fail(f"Render extract failed: {type(exc).__name__}: {exc}")
                 return
             if ex_err or read_video_p is None:
-                fail(ex_err or "Step6 extract failed")
+                fail(ex_err or "Render extract failed")
                 return
             read_video = read_video_p
             frame_read_offset = session.start_frame

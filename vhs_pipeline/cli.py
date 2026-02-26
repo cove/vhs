@@ -53,7 +53,7 @@ def build_parser():
     tuner_parser.add_argument("--port", type=int, default=8092, help="Bind port (default: 8092)")
     render_parser = subparsers.add_parser(
         "render",
-        help="Run delivery render pipeline (forwards unknown args to step_6)",
+        help="Run delivery render pipeline",
     )
     render_parser.add_argument(
         "render_args",

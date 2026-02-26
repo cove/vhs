@@ -54,10 +54,24 @@
       color: var(--text-strong);
       letter-spacing: 0.8px;
     }
+    .title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
     .title-icon {
       width: 34px;
       height: 22px;
       flex: 0 0 auto;
+    }
+    .help-btn {
+      min-width: 84px;
+      border-color: var(--accent);
+      background: #2f1e0d;
+      font-size: 12px;
+      font-weight: 700;
     }
 
     .status {
@@ -407,6 +421,77 @@
       justify-content: flex-end;
     }
 
+    .help-modal {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      background: rgba(0, 10, 0, 0.82);
+      z-index: 1100;
+    }
+
+    .help-modal.active { display: flex; }
+
+    .help-card {
+      width: min(900px, 96vw);
+      max-height: 90vh;
+      border: 1px solid var(--line);
+      border-radius: 2px;
+      background: #0a140a;
+      padding: 12px;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 10px;
+    }
+
+    .help-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .help-title {
+      margin: 0;
+      font-size: 16px;
+      color: var(--text-strong);
+      letter-spacing: 0.2px;
+    }
+
+    .help-body {
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 2px;
+      padding: 10px;
+      background: rgba(7, 14, 7, 0.8);
+      color: #a9e4a9;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .help-body h3 {
+      margin: 10px 0 6px;
+      color: var(--text-strong);
+      font-size: 13px;
+    }
+
+    .help-body p {
+      margin: 0 0 8px;
+    }
+
+    .help-body ol,
+    .help-body ul {
+      margin: 6px 0 10px;
+      padding-left: 18px;
+    }
+
+    .help-body li {
+      margin: 3px 0;
+    }
+
     .spinner {
       width: 26px;
       height: 26px;
@@ -443,7 +528,7 @@
       gap: 0;
     }
 
-    body.review-fullscreen-fallback .title,
+    body.review-fullscreen-fallback .title-row,
     body.review-fullscreen-fallback .status,
     body.review-fullscreen-fallback .steps,
     body.review-fullscreen-fallback #page1,
@@ -467,19 +552,22 @@
 </head>
 <body>
   <div class="app">
-    <div class="title">
-      <svg class="title-icon" viewBox="0 0 68 44" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-        <rect x="2" y="4" width="64" height="36" rx="2" fill="#120c06" stroke="#d28f3d" stroke-width="2"/>
-        <rect x="10" y="10" width="48" height="16" rx="1.5" fill="#0b0704" stroke="#b87931" stroke-width="1.3"/>
-        <circle cx="24" cy="18" r="5.3" fill="#160f08" stroke="#d49a54" stroke-width="1.5"/>
-        <circle cx="44" cy="18" r="5.3" fill="#160f08" stroke="#d49a54" stroke-width="1.5"/>
-        <circle cx="24" cy="18" r="1.2" fill="#b88a52"/>
-        <circle cx="44" cy="18" r="1.2" fill="#b88a52"/>
-        <rect x="24" y="32" width="20" height="3" rx="1" fill="#b87931"/>
-        <rect x="6" y="8" width="3" height="28" fill="#3a2814"/>
-        <rect x="59" y="8" width="3" height="28" fill="#3a2814"/>
-      </svg>
-      <span>VHS Frame Tuner</span>
+    <div class="title-row">
+      <div class="title">
+        <svg class="title-icon" viewBox="0 0 68 44" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect x="2" y="4" width="64" height="36" rx="2" fill="#120c06" stroke="#d28f3d" stroke-width="2"/>
+          <rect x="10" y="10" width="48" height="16" rx="1.5" fill="#0b0704" stroke="#b87931" stroke-width="1.3"/>
+          <circle cx="24" cy="18" r="5.3" fill="#160f08" stroke="#d49a54" stroke-width="1.5"/>
+          <circle cx="44" cy="18" r="5.3" fill="#160f08" stroke="#d49a54" stroke-width="1.5"/>
+          <circle cx="24" cy="18" r="1.2" fill="#b88a52"/>
+          <circle cx="44" cy="18" r="1.2" fill="#b88a52"/>
+          <rect x="24" y="32" width="20" height="3" rx="1" fill="#b87931"/>
+          <rect x="6" y="8" width="3" height="28" fill="#3a2814"/>
+          <rect x="59" y="8" width="3" height="28" fill="#3a2814"/>
+        </svg>
+        <span>VHS Frame Tuner</span>
+      </div>
+      <button id="helpBtn" class="action help-btn" type="button">Help</button>
     </div>
     <div id="status" class="status"></div>
     <div class="steps">
@@ -580,6 +668,58 @@
     </div>
   </div>
 
+  <div id="helpModal" class="help-modal" role="dialog" aria-modal="true" aria-labelledby="helpTitle" aria-hidden="true">
+    <div class="help-card">
+      <div class="help-head">
+        <h2 id="helpTitle" class="help-title">How To Use The VHS Tuner</h2>
+        <button id="helpCloseBtn" class="action warn" type="button">Close</button>
+      </div>
+      <div class="help-body">
+        <p>This wizard lets you mark bad sampled frames. On save, it writes <code>BAD_FRAMES</code> metadata to <code>metadata/&lt;archive&gt;/chapters.ffmetadata</code>. During render, the AviSynth filter stage reads that metadata and applies <code>FreezeFrame</code> to replace bad frames with nearby good frames.</p>
+
+        <h3>Step 1: Load Chapter</h3>
+        <ol>
+          <li>Select an archive in the left column, then select a chapter.</li>
+          <li>Confirm or edit <code>Start Frame</code> and <code>End Frame (exclusive)</code>.</li>
+          <li>Set <code>Sample Rate (1 / N)</code>: use <code>1</code> for every frame, <code>10</code> for every 10th frame.</li>
+          <li>Set <code>Bad Batch Proximity</code>: how much context around detected bad frames is shown in review.</li>
+          <li>Click <code>Next: Load Frames</code>. The loader can be cancelled while running.</li>
+        </ol>
+
+        <h3>Step 2: Review Frames + IQR</h3>
+        <ul>
+          <li>Each frame card is color-coded: green is currently good, red is currently bad.</li>
+          <li>Click any frame to toggle its manual override between good and bad.</li>
+          <li>Use the <code>IQR k</code> slider to change the automatic threshold. Lower <code>k</code> marks more frames bad; higher <code>k</code> marks fewer.</li>
+          <li>The sparkline shows score distribution and threshold. Drag on it to jump around the grid.</li>
+          <li><code>Fullscreen</code> expands the review panel for faster triage.</li>
+        </ul>
+
+        <h3>Step 3: Summary + Save</h3>
+        <ol>
+          <li>Click <code>Next: Summary</code> to verify counts and settings.</li>
+          <li>Click <code>Save and Return to Chapters</code> to persist selected bad frames.</li>
+          <li>The chapter list refreshes with updated BAD counts after save.</li>
+        </ol>
+
+        <h3>How FreezeFrame Is Applied</h3>
+        <ul>
+          <li>The tuner does not directly edit video pixels. It only writes frame IDs into chapter metadata.</li>
+          <li>In render, the AviSynth script builds <code>FreezeFrame(start, end, source)</code> instructions from those bad-frame ranges.</li>
+          <li>The source frame is chosen automatically from nearby clean frames (usually the next clean frame, with fallback to previous clean frame when needed).</li>
+          <li>Adjacent bad-frame IDs are merged into ranges, so contiguous damage is replaced consistently.</li>
+        </ul>
+
+        <h3>Tips</h3>
+        <ul>
+          <li>Start with a coarse sample rate, then reduce it if a chapter needs finer review.</li>
+          <li>If the auto threshold is too aggressive, increase <code>IQR k</code> before manual edits.</li>
+          <li>Manual overrides in the loaded sample set are saved with the chapter when you save.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
   <script>
     const state = {
       archives: [],
@@ -602,6 +742,9 @@
     const overlayEtaTextEl = document.getElementById('overlayEtaText');
     const overlayCancelWrapEl = document.getElementById('overlayCancelWrap');
     const overlayCancelBtnEl = document.getElementById('overlayCancelBtn');
+    const helpBtnEl = document.getElementById('helpBtn');
+    const helpModalEl = document.getElementById('helpModal');
+    const helpCloseBtnEl = document.getElementById('helpCloseBtn');
 
     const archiveListEl = document.getElementById('archiveList');
     const chapterListEl = document.getElementById('chapterList');
@@ -653,6 +796,24 @@
         if (overlayProgressTextEl) overlayProgressTextEl.textContent = '';
         if (overlayEtaTextEl) overlayEtaTextEl.textContent = '';
         setLoadCancelUi(false);
+      }
+    }
+
+    function openHelpModal() {
+      if (!helpModalEl) return;
+      helpModalEl.classList.add('active');
+      helpModalEl.setAttribute('aria-hidden', 'false');
+      if (helpCloseBtnEl && typeof helpCloseBtnEl.focus === 'function') {
+        helpCloseBtnEl.focus();
+      }
+    }
+
+    function closeHelpModal() {
+      if (!helpModalEl) return;
+      helpModalEl.classList.remove('active');
+      helpModalEl.setAttribute('aria-hidden', 'true');
+      if (helpBtnEl && typeof helpBtnEl.focus === 'function') {
+        helpBtnEl.focus();
       }
     }
 
@@ -1385,6 +1546,13 @@
         overlayMsgEl.textContent = 'Cancelling load...';
       }
     });
+    helpBtnEl.addEventListener('click', openHelpModal);
+    helpCloseBtnEl.addEventListener('click', closeHelpModal);
+    helpModalEl.addEventListener('click', (event) => {
+      if (event.target === helpModalEl) {
+        closeHelpModal();
+      }
+    });
     iqrSparkEl.addEventListener('pointerdown', (event) => {
       if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) return;
       event.preventDefault();
@@ -1430,6 +1598,12 @@
     window.addEventListener('resize', () => {
       if (state.review && Array.isArray(state.review.frames) && state.review.frames.length) {
         scheduleVisibleRangeRefresh();
+      }
+    });
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && helpModalEl && helpModalEl.classList.contains('active')) {
+        event.preventDefault();
+        closeHelpModal();
       }
     });
 

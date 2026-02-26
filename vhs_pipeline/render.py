@@ -4,9 +4,9 @@ import sys
 
 
 def run_render(argv=None):
-    from legacy_steps import step_6_make_videos as step_6
+    from vhs_pipeline import render_pipeline
 
-    return int(step_6.main(list(argv or [])) or 0)
+    return int(render_pipeline.main(list(argv or [])) or 0)
 
 
 def main(argv=None):

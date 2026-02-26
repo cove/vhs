@@ -22,12 +22,11 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 ARCHIVE_DIR  = PROJECT_ROOT / "../Archive"
 METADATA_DIR = PROJECT_ROOT / "metadata"
-STEP6        = PROJECT_ROOT / "legacy_steps" / "step_6_make_videos.py"
 FPS          = 30000 / 1001
 BORDER       = 3
 TUNER_EXTRACT_DIR = PROJECT_ROOT / "tmp" / "vhs_tuner_extracts"
 TUNER_DEBUG_EXTRACT_ENV = "VHS_TUNER_DEBUG_EXTRACT_FRAMES"
-STEP6_DEBUG_EXTRACT_FRAME_NUMBERS_ENV = "STEP6_DEBUG_EXTRACT_FRAME_NUMBERS"
+RENDER_DEBUG_EXTRACT_FRAME_NUMBERS_ENV = "RENDER_DEBUG_EXTRACT_FRAME_NUMBERS"
 
 try:
     from tracking_loss import TrackingLossConfig, run_tracking_loss_classification
@@ -52,7 +51,7 @@ from common import (
 # ===============================================================================
 
 def parse_ffmetadata_chapters(path: Path) -> list[dict]:
-    # Keep chapter frame mapping identical to legacy_steps/step_6_make_videos.py.
+    # Keep chapter frame mapping identical to the render pipeline.
     _ffm, chapters = parse_chapters(Path(path))
     result = []
     for ch in chapters:
@@ -107,7 +106,7 @@ def _video_frame_count(path: Path) -> int:
     finally:
         cap.release()
 
-def _ensure_step6_chapter_extract(
+def _ensure_render_chapter_extract(
     *,
     source_video: Path,
     archive: str,
@@ -1013,7 +1012,7 @@ def apply_and_regenerate(
         logs.append(f"tracking_loss failed: {exc}")
         return "\n".join(logs)
 
-    logs.append("legacy step_6 will read BAD_FRAMES from chapters.ffmetadata")
+    logs.append("render pipeline reads BAD_FRAMES from chapters.ffmetadata")
     return "\n".join(logs)
 
 # Chapter list helpers

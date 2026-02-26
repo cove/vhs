@@ -65,6 +65,14 @@ def test_review_payload_honors_manual_overrides_after_iqr_change() -> None:
 def test_static_html_contains_live_iqr_spark_and_fullscreen_controls() -> None:
     html = INDEX_HTML.read_text(encoding="utf-8")
 
+    assert 'id="helpBtn"' in html
+    assert 'id="helpModal"' in html
+    assert 'id="helpCloseBtn"' in html
+    assert "openHelpModal()" in html
+    assert "closeHelpModal()" in html
+    assert "helpBtnEl.addEventListener('click', openHelpModal)" in html
+    assert "event.key === 'Escape'" in html
+
     assert 'id="iqrK" type="range" min="0" max="12"' in html
     assert 'id="sparkPlayBtn"' in html
     assert 'id="iqrSpark"' in html

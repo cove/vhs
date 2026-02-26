@@ -36,7 +36,7 @@ Launch the plain HTML bad-frame tuner:
 - `python vhs.py tuner`
 
 Render delivery clips/videos (forwards args to render pipeline):
-- `python vhs.py render [step_6 args]`
+- `python vhs.py render [render args]`
 
 Build original-vs-processed chapter comparison videos:
 - `python vhs.py compare [--archive ...] [--title ...] [--height ...]`
@@ -50,6 +50,7 @@ Interactive Tools
 Bad-frame tuner (plain HTML web UI):
 - `python vhs.py tuner`
 - optional: `python vhs.py tuner --host 127.0.0.1 --port 8092`
+- usage guide: `apps/plain_html_wizard/README.md`
 
 Tracking-loss classifier utility:
 - `python tracking_loss.py -h`

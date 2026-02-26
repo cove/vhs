@@ -5,12 +5,6 @@
 # with embedded metadata and subtitles for access/delivery copies.
 #
 import argparse, shutil, time, re
-try:
-    from ._bootstrap import ensure_project_root_on_path
-except ImportError:
-    from _bootstrap import ensure_project_root_on_path
-
-ensure_project_root_on_path()
 
 try:
     import whisper
@@ -24,7 +18,7 @@ ASS_NEWLINE = "\\N"
 BADFRAME_MAX_SPAN_DEFAULT = 1200
 BADFRAME_POST_QTGMC_MULTIPLIER = 1
 BADFRAME_SOURCE_CLEARANCE = 1
-STEP6_DEBUG_EXTRACT_FRAME_NUMBERS_ENV = "STEP6_DEBUG_EXTRACT_FRAME_NUMBERS"
+RENDER_DEBUG_EXTRACT_FRAME_NUMBERS_ENV = "RENDER_DEBUG_EXTRACT_FRAME_NUMBERS"
 # Bridge small clean gaps in chapter BAD_FRAMES to avoid leaving short
 # unstable islands between bad bursts un-frozen.
 BADFRAME_BRIDGE_ALWAYS_GAP = 1
@@ -95,14 +89,14 @@ def parse_args(argv=None):
     p.add_argument(
         "--no-bob",
         action="store_true",
-        help="Deprecated: bob output has been removed; step_6 always renders non-bob output.",
+        help="Deprecated: bob output has been removed; render pipeline always renders non-bob output.",
     )
     p.add_argument(
         "--debug-extracted-frames",
         action="store_true",
         help=(
             "Burn local/global frame numbers into extracted.mkv for debugging. "
-            f"Can also be enabled via {STEP6_DEBUG_EXTRACT_FRAME_NUMBERS_ENV}=1."
+            f"Can also be enabled via {RENDER_DEBUG_EXTRACT_FRAME_NUMBERS_ENV}=1."
         ),
     )
     return p.parse_args(argv)
@@ -683,6 +677,12 @@ if (c.FrameCount >= (expected_frames * 2 - 2) && c.FrameCount <= (expected_frame
 """
     no_bob_text = "c = last\nc\n"
     filter_import_path = Path(avs_filter_path).resolve().as_posix()
+    descratch_lines = []
+    for dll_name in ("Descratch64.dll", "Descratch32.dll"):
+        dll_path = Path(QTGMC_DIR) / dll_name
+        if dll_path.exists():
+            descratch_lines.append(f'LoadPlugin("{dll_path.as_posix()}")')
+    descratch_block = ("\n".join(descratch_lines) + "\n") if descratch_lines else ""
     script_text = f'''
 LoadPlugin("{QTGMC_DIR}/ffms2.dll") 
 LoadPlugin("{QTGMC_DIR}/masktools2.dll") 
@@ -695,7 +695,7 @@ LoadPlugin("{QTGMC_DIR}/yadifmod2.dll")
 LoadPlugin("{QTGMC_DIR}/fft3dfilter.dll") 
 LoadPlugin("{QTGMC_DIR}/LoadDLL64.dll")
 LoadPlugin("{QTGMC_DIR}/SmoothAdjust.dll")
-LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll") 
+{descratch_block}LoadDLL("{QTGMC_DIR}/libfftw3f-3.dll") 
 Import("{QTGMC_DIR}/Zs_RF_Shared.avsi") 
 Import("{QTGMC_DIR}/QTGMC.avsi") 
 FFmpegSource2("{temp_extracted}", atrack=-1) 
@@ -759,7 +759,7 @@ def make_extract_audio(temp_extracted, temp_transcript):
         "-y", str(temp_transcript)]
 
 def debug_extracted_frames_enabled(args):
-    env_raw = str(os.environ.get(STEP6_DEBUG_EXTRACT_FRAME_NUMBERS_ENV, "")).strip().lower()
+    env_raw = str(os.environ.get(RENDER_DEBUG_EXTRACT_FRAME_NUMBERS_ENV, "")).strip().lower()
     env_on = env_raw in {"1", "true", "yes", "on"}
     return bool(getattr(args, "debug_extracted_frames", False) or env_on)
 
@@ -973,7 +973,7 @@ def _run_with_args(args):
     if debug_extracted_frames:
         print(
             "Debug extracted-frame overlay enabled: "
-            f"{STEP6_DEBUG_EXTRACT_FRAME_NUMBERS_ENV}=1 or --debug-extracted-frames"
+            f"{RENDER_DEBUG_EXTRACT_FRAME_NUMBERS_ENV}=1 or --debug-extracted-frames"
         )
 
     archive_filters = [str(x or "").strip().lower() for x in (args.archive or []) if str(x or "").strip()]
@@ -1229,7 +1229,7 @@ def _run_with_args(args):
 
             finally:
                 os.chdir(original_cwd)
-                keep_temp = str(os.getenv("STEP6_KEEP_TEMP", "0")).strip().lower() in {
+                keep_temp = str(os.getenv("RENDER_KEEP_TEMP", "0")).strip().lower() in {
                     "1", "true", "yes", "on"
                 }
                 if keep_temp:
@@ -1262,3 +1262,4 @@ def main(argv=None):
 
 if __name__ == "__main__":
     main()
+
