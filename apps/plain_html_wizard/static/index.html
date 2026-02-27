@@ -149,6 +149,24 @@
       grid-template-columns: 240px minmax(420px, 1fr);
     }
 
+    .load-main {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .load-main .controls {
+      margin-top: auto;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+    }
+
+    .load-main #chapterList {
+      flex: 1 1 auto;
+      max-height: none;
+      min-height: 0;
+    }
+
     .list {
       display: flex;
       flex-direction: column;
@@ -180,7 +198,7 @@
 
     .chapter-row {
       display: grid;
-      grid-template-columns: 40px minmax(180px, 1fr) minmax(140px, 1fr) 160px;
+      grid-template-columns: 34px minmax(0, 1fr) 120px 96px;
       align-items: center;
       gap: 8px;
     }
@@ -194,7 +212,7 @@
 
     .chapter-row .meta-spark {
       width: 100%;
-      height: 18px;
+      height: 14px;
       border: 1px solid var(--line);
       border-radius: 2px;
       background: var(--bg-alt);
@@ -208,17 +226,6 @@
       text-overflow: ellipsis;
       white-space: nowrap;
       color: inherit;
-    }
-
-    .details {
-      border: 1px solid var(--line);
-      border-radius: 2px;
-      padding: 10px;
-      white-space: pre-wrap;
-      background: var(--overlay);
-      font-family: "Consolas", "Courier New", monospace;
-      font-size: 12px;
-      min-height: 90px;
     }
 
     .controls {
@@ -318,7 +325,7 @@
 
     .iqr-spark {
       width: 100%;
-      height: 68px;
+      height: 46px;
       border: 1px solid var(--line);
       border-radius: 2px;
       background: var(--bg-alt);
@@ -331,15 +338,15 @@
 
     .spark-panel {
       display: grid;
-      gap: 6px;
+      gap: 4px;
       align-content: start;
       min-height: 0;
     }
 
     .spark-meta {
-      font-size: 11px;
+      font-size: 10px;
       color: var(--text-muted);
-      min-height: 14px;
+      min-height: 12px;
     }
 
     .frame-grid {
@@ -353,6 +360,89 @@
       gap: 8px;
       align-content: start;
       min-height: 0;
+    }
+
+    .flipbook-preview {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: min(50vw, 820px);
+      height: min(50vh, 520px);
+      border: 2px solid var(--accent);
+      border-radius: 3px;
+      background: rgba(5, 10, 16, 0.96);
+      box-shadow: 0 0 0 1px var(--shadow-accent), 0 14px 28px rgba(0, 0, 0, 0.5);
+      display: none;
+      grid-template-rows: auto minmax(0, 1fr);
+      z-index: 980;
+      overflow: hidden;
+    }
+
+    .flipbook-preview.active {
+      display: grid;
+    }
+
+    .flipbook-head {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-1);
+      font-size: 11px;
+      color: var(--text-muted);
+      letter-spacing: 0.2px;
+    }
+
+    .flipbook-head > span {
+      justify-self: start;
+    }
+
+    .flipbook-controls {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      justify-self: center;
+    }
+
+    .flipbook-controls button.action {
+      padding: 4px 8px;
+      font-size: 11px;
+      min-width: 36px;
+      line-height: 1;
+    }
+
+    .flipbook-frame {
+      margin: 0;
+      min-height: 0;
+      display: grid;
+      place-items: center;
+      background: #02060c;
+      border: 2px solid var(--line);
+      border-radius: 2px;
+    }
+
+    .flipbook-frame.good {
+      border-color: var(--good);
+    }
+
+    .flipbook-frame.bad {
+      border-color: var(--bad);
+    }
+
+    .flipbook-frame.paused {
+      cursor: pointer;
+    }
+
+    .flipbook-frame img {
+      max-width: 100%;
+      max-height: 100%;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      image-rendering: auto;
     }
 
     .frame-card {
@@ -562,7 +652,11 @@
       .frame-grid { min-height: 420px; }
       .review-top { grid-template-columns: 1fr; }
       .iqr-box input[type="range"] { width: 180px; }
-      .chapter-row { grid-template-columns: 34px minmax(140px, 1fr) minmax(100px, 1fr) 130px; }
+      .chapter-row { grid-template-columns: 30px minmax(0, 1fr) 92px 84px; }
+      .flipbook-preview {
+        width: min(92vw, 640px);
+        height: min(45vh, 360px);
+      }
     }
 
     #page2:fullscreen {
@@ -636,12 +730,9 @@
           <div id="archiveList" class="list"></div>
         </aside>
 
-        <main class="panel">
+        <main class="panel load-main">
           <h2 class="panel-title">Chapters</h2>
-          <div id="chapterList" class="list" style="max-height: 38vh;"></div>
-
-          <h2 class="panel-title" style="margin-top: 12px;">Selected Chapter</h2>
-          <div id="chapterDetails" class="details">No chapter selected.</div>
+          <div id="chapterList" class="list"></div>
 
           <div class="controls">
             <label class="field">Start Frame
@@ -671,7 +762,7 @@
         <div class="panel review-top">
           <div id="reviewStats" class="review-stats">No frames loaded.</div>
           <div class="iqr-box">
-            <button id="sparkPlayBtn" class="action spark-play-btn" type="button" title="Play spark window">Play</button>
+            <button id="sparkPlayBtn" class="action spark-play-btn" type="button" title="Show flipbook window">Flipbook</button>
             <label for="iqrK">IQR k</label>
             <input id="iqrK" type="range" min="0" max="12" step="0.05" value="3.5">
             <span id="iqrLabel">3.50</span>
@@ -679,6 +770,7 @@
               <input id="simulateFreezeFrame" type="checkbox">
               <span>Sim FreezeFrame</span>
             </label>
+            <button id="previewRender" class="action">Preview Render</button>
             <button id="toggleFullscreen" class="action">Fullscreen</button>
           </div>
         </div>
@@ -691,7 +783,6 @@
 
         <div class="actions">
           <button id="backToLoad" class="action warn">Back</button>
-          <button id="previewRender" class="action">Preview Render</button>
           <button id="nextToSummary" class="action primary">Next: Summary</button>
         </div>
       </div>
@@ -706,6 +797,22 @@
         </div>
       </div>
     </section>
+  </div>
+
+  <div id="flipbookPreview" class="flipbook-preview" aria-hidden="true">
+    <div class="flipbook-head">
+      <span>Flipbook Preview</span>
+      <div class="flipbook-controls">
+        <button id="flipbookRevBtn" class="action" type="button" title="Previous frame">&#9664;&#9664;</button>
+        <button id="flipbookPlayBtn" class="action primary" type="button" title="Play flipbook">&#9654;</button>
+        <button id="flipbookFwdBtn" class="action" type="button" title="Next frame">&#9654;&#9654;</button>
+        <button id="flipbookCloseBtn" class="action warn" type="button" title="Close flipbook">Close</button>
+        <span id="flipbookMeta"></span>
+      </div>
+    </div>
+    <figure id="flipbookFrame" class="flipbook-frame">
+      <img id="flipbookImage" alt="Flipbook playback frame">
+    </figure>
   </div>
 
   <div id="overlay" class="overlay">
@@ -733,7 +840,7 @@
         <button id="helpCloseBtn" class="action warn" type="button">Close</button>
       </div>
       <div class="help-body">
-        <p>This wizard lets you mark bad sampled frames. On save, it writes <code>BAD_FRAMES</code> metadata to <code>metadata/&lt;archive&gt;/chapters.ffmetadata</code>. During render, the AviSynth filter stage reads that metadata and applies <code>FreezeFrame</code> to replace bad frames with nearby good frames.</p>
+        <p>This wizard lets you mark bad sampled frames. On save, it writes <code>BAD_FRAMES</code> metadata to <code>metadata/&lt;archive&gt;/render_settings.json</code>. During render, the AviSynth filter stage reads that metadata and applies <code>FreezeFrame</code> to replace bad frames with nearby good frames.</p>
 
         <h3>Step 1: Load Chapter</h3>
         <ol>
@@ -752,7 +859,7 @@
           <li>Use the <code>IQR k</code> slider to change the automatic threshold. Lower <code>k</code> marks more frames bad; higher <code>k</code> marks fewer.</li>
           <li>The sparkline shows score distribution and threshold. Drag on it to jump around the grid.</li>
           <li><code>Fullscreen</code> expands the review panel for faster triage.</li>
-          <li><code>Preview Render</code> runs a real chapter render preview from the current in-memory bad-frame selections, without writing <code>chapters.ffmetadata</code> yet.</li>
+          <li><code>Preview Render</code> runs a real chapter render preview from the current in-memory bad-frame selections, without writing <code>render_settings.json</code> yet.</li>
         </ul>
 
         <h3>Step 3: Summary + Save</h3>
@@ -816,7 +923,6 @@
 
     const archiveListEl = document.getElementById('archiveList');
     const chapterListEl = document.getElementById('chapterList');
-    const chapterDetailsEl = document.getElementById('chapterDetails');
 
     const startFrameEl = document.getElementById('startFrame');
     const endFrameEl = document.getElementById('endFrame');
@@ -835,6 +941,14 @@
     const fullscreenBtnEl = document.getElementById('toggleFullscreen');
     const simulateFreezeFrameEl = document.getElementById('simulateFreezeFrame');
     const previewRenderBtnEl = document.getElementById('previewRender');
+    const flipbookPreviewEl = document.getElementById('flipbookPreview');
+    const flipbookMetaEl = document.getElementById('flipbookMeta');
+    const flipbookFrameEl = document.getElementById('flipbookFrame');
+    const flipbookImageEl = document.getElementById('flipbookImage');
+    const flipbookRevBtnEl = document.getElementById('flipbookRevBtn');
+    const flipbookPlayBtnEl = document.getElementById('flipbookPlayBtn');
+    const flipbookFwdBtnEl = document.getElementById('flipbookFwdBtn');
+    const flipbookCloseBtnEl = document.getElementById('flipbookCloseBtn');
 
     let autoIqrTimer = null;
     let visibleRangeRefreshPending = false;
@@ -845,6 +959,9 @@
     let sparkDragRaf = null;
     let sparkDragClientX = 0;
     let sparkPlayTimer = null;
+    let sparkPlayFrames = [];
+    let sparkPlayIndex = 0;
+    let flipbookToggleInFlight = false;
 
     function setLoadCancelUi(visible, disabled = false, label = 'Cancel') {
       if (!overlayCancelWrapEl || !overlayCancelBtnEl) return;
@@ -997,16 +1114,46 @@
       loadSampleTimingStartDone = 0;
     }
 
-    async function api(path, method = 'GET', body = null) {
+    async function api(path, method = 'GET', body = null, timeoutMs = 30000) {
+      const timeoutValue = Number(timeoutMs);
+      const useTimeout = Number.isFinite(timeoutValue) && timeoutValue > 0;
+      const effectiveTimeout = useTimeout ? Math.max(1000, timeoutValue) : 0;
+      const controller = useTimeout ? new AbortController() : null;
+      const timer = useTimeout ? window.setTimeout(() => {
+        try {
+          if (controller) controller.abort();
+        } catch (_err) {}
+      }, effectiveTimeout) : null;
       const options = { method, headers: {} };
       if (body !== null) {
         options.headers['Content-Type'] = 'application/json';
         options.body = JSON.stringify(body);
       }
-      const res = await fetch(path, options);
-      const payload = await res.json();
-      if (!res.ok || !payload.ok) {
-        throw new Error(payload.error || `HTTP ${res.status}`);
+      if (controller) {
+        options.signal = controller.signal;
+      }
+      let res;
+      try {
+        res = await fetch(path, options);
+      } catch (err) {
+        if (err && err.name === 'AbortError') {
+          throw new Error(`Request timed out after ${Math.round(effectiveTimeout / 1000)}s: ${method} ${path}`);
+        }
+        throw err;
+      } finally {
+        if (timer) {
+          window.clearTimeout(timer);
+        }
+      }
+
+      let payload = null;
+      try {
+        payload = await res.json();
+      } catch (_err) {
+        throw new Error(`Invalid server response for ${method} ${path} (HTTP ${res.status}).`);
+      }
+      if (!res.ok || !payload || !payload.ok) {
+        throw new Error((payload && payload.error) || `HTTP ${res.status}`);
       }
       return payload;
     }
@@ -1031,6 +1178,7 @@
       if (step === 2 && state.review && Array.isArray(state.review.frames) && state.review.frames.length) {
         window.requestAnimationFrame(() => {
           scheduleVisibleRangeRefresh();
+          ensureFlipbookReady(false);
         });
       }
     }
@@ -1126,19 +1274,9 @@
           startFrameEl.value = ch.start_frame;
           endFrameEl.value = ch.end_frame;
           renderChapters();
-          renderChapterDetails();
         });
         chapterListEl.appendChild(btn);
       });
-    }
-
-    function renderChapterDetails() {
-      const ch = chapterByTitle(state.chapter);
-      if (!ch) {
-        chapterDetailsEl.textContent = 'Select a chapter.';
-        return;
-      }
-      chapterDetailsEl.textContent = `${ch.title}\nDuration: ${ch.time} | Frames: ${ch.frames} | BAD already: ${ch.bad}\nFrame span: ${ch.start_frame} - ${ch.end_frame} (end exclusive)`;
     }
 
     function statsText(stats, threshold) {
@@ -1294,18 +1432,150 @@
     }
 
     function updateSparkPlayButton() {
-      if (!sparkPlayBtnEl) return;
+      if (!flipbookPlayBtnEl) return;
       const playing = Boolean(sparkPlayTimer);
-      sparkPlayBtnEl.textContent = playing ? 'Stop' : 'Play';
-      sparkPlayBtnEl.title = playing ? 'Stop spark window playback' : 'Play spark window';
+      flipbookPlayBtnEl.innerHTML = playing ? '&#10074;&#10074;' : '&#9654;';
+      flipbookPlayBtnEl.title = playing ? 'Pause flipbook playback' : 'Play flipbook';
     }
 
-    function stopSparkWindowPlayback() {
+    function updateFlipbookControls() {
+      const hasFrames = sparkPlayFrames.length > 0;
+      if (flipbookRevBtnEl) {
+        flipbookRevBtnEl.disabled = !hasFrames;
+      }
+      if (flipbookPlayBtnEl) {
+        flipbookPlayBtnEl.disabled = !hasFrames;
+      }
+      if (flipbookFwdBtnEl) {
+        flipbookFwdBtnEl.disabled = !hasFrames;
+      }
+      if (flipbookFrameEl) {
+        const frame = sparkPlayFrames[sparkPlayIndex] || null;
+        flipbookFrameEl.classList.toggle('good', Boolean(frame && frame.status === 'good'));
+        flipbookFrameEl.classList.toggle('bad', Boolean(frame && frame.status === 'bad'));
+        const canToggle = Boolean(frame) && !sparkPlayTimer && !flipbookToggleInFlight;
+        flipbookFrameEl.classList.toggle('paused', canToggle);
+        if (canToggle) {
+          const nextState = frame.status === 'bad' ? 'good' : 'bad';
+          flipbookFrameEl.title = `Click to mark this frame ${nextState.toUpperCase()}`;
+        } else {
+          flipbookFrameEl.removeAttribute('title');
+        }
+      }
+    }
+
+    function setFlipbookVisible(visible) {
+      if (!flipbookPreviewEl) return;
+      const on = Boolean(visible);
+      flipbookPreviewEl.classList.toggle('active', on);
+      flipbookPreviewEl.setAttribute('aria-hidden', on ? 'false' : 'true');
+      if (!on && flipbookMetaEl) {
+        flipbookMetaEl.textContent = '';
+      }
+      if (!on) {
+        if (flipbookImageEl) flipbookImageEl.removeAttribute('src');
+      }
+      updateFlipbookControls();
+    }
+
+    function _collectFlipbookFramesFromGrid() {
+      const cards = Array.from(frameGridEl.querySelectorAll('.frame-card'));
+      return cards
+        .map(card => {
+          const imgEl = card.querySelector('img');
+          const src = String((imgEl && imgEl.src) || '').trim();
+          if (!src) return null;
+          return {
+            fid: String(card.dataset.fid || ''),
+            label: String(card.dataset.label || ''),
+            status: card.classList.contains('bad') ? 'bad' : 'good',
+            src,
+          };
+        })
+        .filter(Boolean);
+    }
+
+    function renderSparkPlaybackFrame(index) {
+      if (!sparkPlayFrames.length || !flipbookImageEl) return;
+      const idx = _clamp(Number(index), 0, sparkPlayFrames.length - 1);
+      const frame = sparkPlayFrames[idx];
+      if (!frame) return;
+      flipbookImageEl.src = frame.src;
+      flipbookImageEl.alt = `Flipbook frame ${frame.fid || idx + 1}`;
+      if (flipbookMetaEl) {
+        const statusTag = frame.status === 'bad' ? 'BAD' : 'GOOD';
+        flipbookMetaEl.textContent = `${idx + 1}/${sparkPlayFrames.length}  G:${frame.fid || '?'}  ${statusTag}`;
+      }
+      sparkPlayIndex = idx;
+      updateFlipbookControls();
+    }
+
+    function syncSparkPlayFramesFromGrid() {
+      if (!sparkPlayFrames.length) return;
+      const current = sparkPlayFrames[sparkPlayIndex] || null;
+      const currentFid = current ? String(current.fid || '') : '';
+      const updated = _collectFlipbookFramesFromGrid();
+      if (!updated.length) return;
+      let nextIndex = _clamp(Number(sparkPlayIndex || 0), 0, updated.length - 1);
+      if (currentFid) {
+        const match = updated.findIndex(f => String(f.fid || '') === currentFid);
+        if (match >= 0) nextIndex = match;
+      }
+      sparkPlayFrames = updated;
+      sparkPlayIndex = nextIndex;
+    }
+
+    function ensureFlipbookReady(resetIndex = false) {
+      if (!isReviewStepActive()) return;
+      const panelOpen = Boolean(flipbookPreviewEl && flipbookPreviewEl.classList.contains('active'));
+      const shouldSync = panelOpen || Boolean(sparkPlayTimer);
+      if (!shouldSync) return;
+      const collected = _collectFlipbookFramesFromGrid();
+      if (!collected.length) {
+        sparkPlayFrames = [];
+        sparkPlayIndex = 0;
+        setFlipbookVisible(false);
+        return;
+      }
+
+      const current = sparkPlayFrames[sparkPlayIndex] || null;
+      const currentFid = current ? String(current.fid || '') : '';
+      sparkPlayFrames = collected;
+      if (resetIndex) {
+        sparkPlayIndex = 0;
+      } else if (currentFid) {
+        const match = sparkPlayFrames.findIndex(f => String(f.fid || '') === currentFid);
+        if (match >= 0) {
+          sparkPlayIndex = match;
+        } else {
+          sparkPlayIndex = _clamp(Number(sparkPlayIndex || 0), 0, sparkPlayFrames.length - 1);
+        }
+      } else {
+        sparkPlayIndex = _clamp(Number(sparkPlayIndex || 0), 0, sparkPlayFrames.length - 1);
+      }
+
+      if (panelOpen) {
+        renderSparkPlaybackFrame(sparkPlayIndex);
+      }
+      updateSparkPlayButton();
+    }
+
+    function _pauseSparkWindowPlayback() {
       if (sparkPlayTimer) {
         window.clearInterval(sparkPlayTimer);
         sparkPlayTimer = null;
       }
       updateSparkPlayButton();
+      updateFlipbookControls();
+    }
+
+    function stopSparkWindowPlayback() {
+      _pauseSparkWindowPlayback();
+      sparkPlayFrames = [];
+      sparkPlayIndex = 0;
+      setFlipbookVisible(false);
+      updateSparkPlayButton();
+      updateFlipbookControls();
     }
 
     function stepSparkWindowRight() {
@@ -1317,39 +1587,74 @@
         stopSparkWindowPlayback();
         return;
       }
-      const maxTop = Math.max(0, frameGridEl.scrollHeight - frameGridEl.clientHeight);
-      if (maxTop <= 1) {
-        scheduleVisibleRangeRefresh();
-        return;
-      }
-
-      const cards = Array.from(frameGridEl.querySelectorAll('.frame-card'));
-      let rowStep = Math.max(24, Math.round(frameGridEl.clientHeight * 0.12));
-      if (cards.length >= 2) {
-        const firstTop = cards[0].offsetTop;
-        const nextRow = cards.find(c => c.offsetTop > firstTop + 1);
-        if (nextRow) {
-          rowStep = Math.max(12, nextRow.offsetTop - firstTop);
+      if (!sparkPlayFrames.length) {
+        sparkPlayFrames = _collectFlipbookFramesFromGrid();
+        if (!sparkPlayFrames.length) {
+          stopSparkWindowPlayback();
+          return;
         }
       }
-
-      let nextTop = frameGridEl.scrollTop + rowStep;
-      if (nextTop >= maxTop - 1) {
-        nextTop = 0;
+      if (sparkPlayIndex >= sparkPlayFrames.length - 1) {
+        sparkPlayIndex = 0;
+      } else {
+        sparkPlayIndex += 1;
       }
-      frameGridEl.scrollTo({ top: nextTop, behavior: 'auto' });
-      scheduleVisibleRangeRefresh();
+      renderSparkPlaybackFrame(sparkPlayIndex);
+    }
+
+    function stepSparkWindowLeft() {
+      if (!sparkPlayFrames.length) return;
+      if (sparkPlayIndex <= 0) {
+        sparkPlayIndex = sparkPlayFrames.length - 1;
+      } else {
+        sparkPlayIndex -= 1;
+      }
+      renderSparkPlaybackFrame(sparkPlayIndex);
+    }
+
+    function startSparkWindowPlayback() {
+      if (!sparkPlayFrames.length) {
+        sparkPlayFrames = _collectFlipbookFramesFromGrid();
+      }
+      if (!sparkPlayFrames.length) {
+        setStatus('No frame images are available for flipbook playback.', true);
+        return;
+      }
+      sparkPlayIndex = _clamp(Number(sparkPlayIndex || 0), 0, sparkPlayFrames.length - 1);
+      setFlipbookVisible(true);
+      renderSparkPlaybackFrame(sparkPlayIndex);
+      sparkPlayTimer = window.setInterval(stepSparkWindowRight, 100);
+      updateSparkPlayButton();
+      updateFlipbookControls();
+    }
+
+    function openFlipbookPanel() {
+      if (!isReviewStepActive()) return;
+      if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) {
+        setStatus('Load and review frames before opening flipbook.', true);
+        return;
+      }
+      sparkPlayFrames = _collectFlipbookFramesFromGrid();
+      if (!sparkPlayFrames.length) {
+        setStatus('No frame images are available for flipbook.', true);
+        return;
+      }
+      sparkPlayIndex = _clamp(Number(sparkPlayIndex || 0), 0, sparkPlayFrames.length - 1);
+      setFlipbookVisible(true);
+      _pauseSparkWindowPlayback();
+      renderSparkPlaybackFrame(sparkPlayIndex);
+      updateSparkPlayButton();
+      updateFlipbookControls();
     }
 
     function toggleSparkWindowPlayback() {
       if (sparkPlayTimer) {
-        stopSparkWindowPlayback();
+        _pauseSparkWindowPlayback();
         return;
       }
       if (!isReviewStepActive()) return;
       if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) return;
-      sparkPlayTimer = window.setInterval(stepSparkWindowRight, 100);
-      updateSparkPlayButton();
+      startSparkWindowPlayback();
     }
 
     function seekFrameGridFromSparkClientX(clientX) {
@@ -1648,6 +1953,7 @@
         card.classList.toggle('replaced', Boolean(replaced));
         if (noteEl) noteEl.textContent = state.simulateFreezeFrame ? note : '';
       });
+      ensureFlipbookReady(false);
     }
 
     function renderReviewFrames(frames) {
@@ -1677,6 +1983,7 @@
       refreshFreezeSimulation();
       renderSparkline(frames, state.review ? state.review.threshold : 0);
       scheduleVisibleRangeRefresh();
+      ensureFlipbookReady(true);
     }
 
     function applyFrameUpdates(updates) {
@@ -1694,10 +2001,11 @@
           card.dataset.label = String(update.label || '');
         }
       });
+      ensureFlipbookReady(false);
     }
 
     async function loadArchives() {
-      const payload = await api('/api/archives');
+      const payload = await api('/api/archives', 'GET', null, 15000);
       state.archives = payload.archives || [];
       if (!state.archives.length) {
         setStatus('No archives found.', true);
@@ -1713,7 +2021,7 @@
       try {
         const q = new URLSearchParams({ archive });
         if (chapter) q.set('chapter', chapter);
-        const payload = await api(`/api/archive_state?${q.toString()}`);
+        const payload = await api(`/api/archive_state?${q.toString()}`, 'GET', null, 20000);
         const st = payload.archive_state;
         state.archive = st.archive;
         state.chapter = st.chapter;
@@ -1722,7 +2030,6 @@
         endFrameEl.value = st.end_frame;
         renderArchives();
         renderChapters();
-        renderChapterDetails();
         setStatus(st.status || '');
       } catch (err) {
         setStatus(err.message, true);
@@ -1759,7 +2066,7 @@
       let loadFailed = false;
       startLoadProgress('Extracting chapter and sampling frames...');
       try {
-        const result = await api('/api/load_chapter', 'POST', payload);
+        const result = await api('/api/load_chapter', 'POST', payload, 0);
         state.frameImages = new Map();
         state.freezeReplacementMap = new Map();
         state.review = result.review;
@@ -1836,8 +2143,11 @@
       }
     }
 
-    async function toggleFrame(fid) {
-      setLoading(true, `Updating frame ${fid}...`);
+    async function toggleFrame(fid, options = {}) {
+      const showOverlay = options && options.showOverlay === false ? false : true;
+      if (showOverlay) {
+        setLoading(true, `Updating frame ${fid}...`);
+      }
       try {
         const result = await api('/api/toggle_frame', 'POST', { fid: Number(fid) });
         const frame = result.frame;
@@ -1854,7 +2164,9 @@
       } catch (err) {
         setStatus(err.message, true);
       } finally {
-        setLoading(false);
+        if (showOverlay) {
+          setLoading(false);
+        }
       }
     }
 
@@ -1871,6 +2183,26 @@
       }
     }
 
+    async function toggleCurrentFlipbookFrame() {
+      if (sparkPlayTimer) return;
+      if (!flipbookPreviewEl || !flipbookPreviewEl.classList.contains('active')) return;
+      if (flipbookToggleInFlight) return;
+      if (!sparkPlayFrames.length) return;
+      const current = sparkPlayFrames[sparkPlayIndex];
+      const fid = Number(current && current.fid);
+      if (!Number.isFinite(fid)) return;
+      flipbookToggleInFlight = true;
+      updateFlipbookControls();
+      try {
+        await toggleFrame(fid, { showOverlay: false });
+        syncSparkPlayFramesFromGrid();
+        renderSparkPlaybackFrame(sparkPlayIndex);
+      } finally {
+        flipbookToggleInFlight = false;
+        updateFlipbookControls();
+      }
+    }
+
     async function previewRender() {
       if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) {
         setStatus('Load and review a chapter before running preview render.', true);
@@ -1878,7 +2210,7 @@
       }
       setLoading(true, 'Rendering chapter preview from current frame selections...');
       try {
-        const result = await api('/api/preview_render', 'POST', {});
+        const result = await api('/api/preview_render', 'POST', {}, 0);
         const target = result.preview_page_url || result.preview_url || '';
         if (target) {
           window.open(target, '_blank', 'noopener');
@@ -1906,7 +2238,6 @@
 
         renderArchives();
         renderChapters();
-        renderChapterDetails();
         setStep(1);
       } catch (err) {
         setStatus(err.message, true);
@@ -1925,10 +2256,16 @@
     }
 
     document.getElementById('nextToReview').addEventListener('click', loadFrames);
-    document.getElementById('backToLoad').addEventListener('click', () => setStep(1));
+    document.getElementById('backToLoad').addEventListener('click', () => {
+      stopSparkWindowPlayback();
+      setStep(1);
+    });
     document.getElementById('nextToSummary').addEventListener('click', loadSummary);
     previewRenderBtnEl.addEventListener('click', previewRender);
-    document.getElementById('backToReview').addEventListener('click', () => setStep(2));
+    document.getElementById('backToReview').addEventListener('click', () => {
+      stopSparkWindowPlayback();
+      setStep(2);
+    });
     document.getElementById('saveAndReturn').addEventListener('click', saveAndReturn);
     fullscreenBtnEl.addEventListener('click', toggleReviewFullscreen);
     document.addEventListener('fullscreenchange', () => {
@@ -2032,7 +2369,46 @@
       }
     });
 
-    sparkPlayBtnEl.addEventListener('click', toggleSparkWindowPlayback);
+    sparkPlayBtnEl.addEventListener('click', openFlipbookPanel);
+    if (flipbookPlayBtnEl) {
+      flipbookPlayBtnEl.addEventListener('click', () => {
+        toggleSparkWindowPlayback();
+      });
+    }
+    if (flipbookRevBtnEl) {
+      flipbookRevBtnEl.addEventListener('click', () => {
+        if (!sparkPlayFrames.length) {
+          sparkPlayFrames = _collectFlipbookFramesFromGrid();
+          sparkPlayIndex = 0;
+        }
+        if (!sparkPlayFrames.length) return;
+        setFlipbookVisible(true);
+        _pauseSparkWindowPlayback();
+        stepSparkWindowLeft();
+      });
+    }
+    if (flipbookFwdBtnEl) {
+      flipbookFwdBtnEl.addEventListener('click', () => {
+        if (!sparkPlayFrames.length) {
+          sparkPlayFrames = _collectFlipbookFramesFromGrid();
+          sparkPlayIndex = 0;
+        }
+        if (!sparkPlayFrames.length) return;
+        setFlipbookVisible(true);
+        _pauseSparkWindowPlayback();
+        stepSparkWindowRight();
+      });
+    }
+    if (flipbookCloseBtnEl) {
+      flipbookCloseBtnEl.addEventListener('click', () => {
+        stopSparkWindowPlayback();
+      });
+    }
+    if (flipbookFrameEl) {
+      flipbookFrameEl.addEventListener('click', () => {
+        toggleCurrentFlipbookFrame();
+      });
+    }
 
     function normalizeWheelToPixels(event) {
       const mode = Number(event.deltaMode || 0);
@@ -2059,6 +2435,34 @@
     }
 
     window.addEventListener('wheel', relayWheelToFrameGrid, { passive: false, capture: true });
+
+    function handleFlipbookArrowStep(event) {
+      if (!isReviewStepActive()) return false;
+      if (!flipbookPreviewEl || !flipbookPreviewEl.classList.contains('active')) return false;
+      if (overlayEl && overlayEl.classList.contains('active')) return false;
+      if (event.target && event.target.closest('input, textarea, select, button, [contenteditable="true"]')) return false;
+
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return false;
+
+      if (!sparkPlayFrames.length) {
+        sparkPlayFrames = _collectFlipbookFramesFromGrid();
+        sparkPlayIndex = 0;
+      }
+      if (!sparkPlayFrames.length) return false;
+
+      event.preventDefault();
+      _pauseSparkWindowPlayback();
+      if (event.key === 'ArrowLeft') {
+        stepSparkWindowLeft();
+      } else {
+        stepSparkWindowRight();
+      }
+      return true;
+    }
+
+    window.addEventListener('keydown', (event) => {
+      handleFlipbookArrowStep(event);
+    });
   </script>
 </body>
 </html>
