@@ -142,6 +142,7 @@ def _chapter_rows_payload(chapters: list[dict[str, Any]], chapter_rows: list[lis
                 "bad": int(row[4]),
                 "start_frame": int(ch.get("start_frame", 0)),
                 "end_frame": int(ch.get("end_frame", 1)),
+                "bad_frames": [int(x) for x in (ch.get("bad_frames", []) or [])],
             }
         )
     return out

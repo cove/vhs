@@ -6,17 +6,28 @@
   <title>VHS Tuner</title>
   <style>
     :root {
-      --bg: #050705;
-      --bg-soft: #071007;
-      --bg-alt: #0a160a;
-      --line: #3a2814;
-      --text: #b88a52;
-      --text-strong: #e3b16f;
-      --accent: #d28f3d;
-      --accent-soft: #b87931;
-      --good: #5bbf5b;
-      --bad: #d36b55;
-      --warn: #ffb469;
+      --bg: #10141c;
+      --bg-soft: #151c27;
+      --bg-alt: #1a2331;
+      --panel-1: #182231;
+      --panel-2: #111923;
+      --line: #2c394d;
+      --text: #b7c2d3;
+      --text-strong: #f2f6fc;
+      --text-muted: #95a6bc;
+      --accent: #5f8dff;
+      --accent-soft: #4c77dc;
+      --accent-contrast: #dce6ff;
+      --good: #4ac28a;
+      --bad: #e16f7a;
+      --warn: #f5b96c;
+      --overlay: rgba(8, 12, 18, 0.82);
+      --shadow-accent: rgba(95, 141, 255, 0.22);
+      --spark-base: #48a5bc;
+      --spark-hot: #ff9154;
+      --spark-threshold: #ff646e;
+      --spark-window: #6ca0ff;
+      --spark-window-mid: #9dc6ff;
     }
 
     * { box-sizing: border-box; }
@@ -26,16 +37,16 @@
       background:
         repeating-linear-gradient(
           0deg,
-          rgba(130, 255, 130, 0.04) 0px,
-          rgba(130, 255, 130, 0.04) 1px,
+          rgba(124, 152, 193, 0.07) 0px,
+          rgba(124, 152, 193, 0.07) 1px,
           rgba(0, 0, 0, 0) 2px,
           rgba(0, 0, 0, 0) 4px
         ),
-        radial-gradient(1400px 800px at 50% -15%, #0f220f 0%, transparent 55%),
+        radial-gradient(1400px 800px at 50% -15%, #1d2b3f 0%, transparent 55%),
         var(--bg);
       color: var(--text);
       font-family: "Consolas", "Lucida Console", "Courier New", monospace;
-      text-shadow: 0 0 4px rgba(210, 143, 61, 0.14);
+      text-shadow: 0 0 4px rgba(41, 52, 70, 0.5);
     }
 
     .app {
@@ -69,7 +80,7 @@
     .help-btn {
       min-width: 84px;
       border-color: var(--accent);
-      background: #2f1e0d;
+      background: var(--bg-alt);
       font-size: 12px;
       font-weight: 700;
     }
@@ -79,13 +90,16 @@
       padding: 6px 10px;
       border: 1px solid var(--line);
       border-radius: 2px;
-      background: rgba(8, 16, 8, 0.8);
+      background: var(--overlay);
       font-size: 13px;
+    }
+    .status.hidden {
+      display: none;
     }
 
     .status.error {
       border-color: var(--bad);
-      color: #f4b3a9;
+      color: #ffd2d7;
     }
 
     .steps {
@@ -106,8 +120,8 @@
     .step-pill.active {
       border-color: var(--accent);
       color: var(--text-strong);
-      background: #102110;
-      box-shadow: inset 0 0 0 1px rgba(210, 143, 61, 0.2);
+      background: var(--panel-1);
+      box-shadow: inset 0 0 0 1px var(--shadow-accent);
     }
 
     .page { display: none; min-height: 0; }
@@ -115,7 +129,7 @@
 
     .panel {
       border: 1px solid var(--line);
-      background: linear-gradient(180deg, rgba(8,16,8,0.95), rgba(5,10,5,0.95));
+      background: linear-gradient(180deg, var(--panel-1), var(--panel-2));
       border-radius: 2px;
       padding: 10px;
       min-height: 0;
@@ -160,22 +174,32 @@
     .item-btn:hover { border-color: var(--accent-soft); }
     .item-btn.active {
       border-color: var(--accent);
-      background: #122412;
+      background: var(--panel-1);
       color: var(--text-strong);
     }
 
     .chapter-row {
       display: grid;
-      grid-template-columns: 40px 1fr auto;
+      grid-template-columns: 40px minmax(180px, 1fr) minmax(140px, 1fr) 160px;
       align-items: center;
       gap: 8px;
     }
 
     .chapter-row .meta {
-      color: #75b875;
+      color: var(--text-muted);
       font-size: 11px;
       text-align: right;
       white-space: nowrap;
+    }
+
+    .chapter-row .meta-spark {
+      width: 100%;
+      height: 18px;
+      border: 1px solid var(--line);
+      border-radius: 2px;
+      background: var(--bg-alt);
+      overflow: hidden;
+      display: block;
     }
 
     .chapter-row .title {
@@ -191,7 +215,7 @@
       border-radius: 2px;
       padding: 10px;
       white-space: pre-wrap;
-      background: rgba(7, 14, 7, 0.8);
+      background: var(--overlay);
       font-family: "Consolas", "Courier New", monospace;
       font-size: 12px;
       min-height: 90px;
@@ -214,7 +238,7 @@
       width: 100%;
       border: 1px solid var(--line);
       border-radius: 7px;
-      background: #071107;
+      background: var(--bg-alt);
       color: var(--text-strong);
       padding: 8px;
     }
@@ -229,14 +253,14 @@
     button.action {
       border: 1px solid var(--line);
       border-radius: 2px;
-      background: #102110;
+      background: var(--panel-1);
       color: var(--text-strong);
       padding: 8px 12px;
       cursor: pointer;
       font-size: 13px;
     }
 
-    button.action.primary { border-color: var(--accent); background: #3a240f; }
+    button.action.primary { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-contrast); }
     button.action.warn { border-color: var(--warn); }
     button.action:disabled { opacity: 0.55; cursor: not-allowed; }
 
@@ -270,25 +294,26 @@
       align-items: center;
       gap: 5px;
       margin-left: 4px;
-      color: #d0c18c;
+      color: var(--text-muted);
       user-select: none;
     }
     .sim-freeze input[type="checkbox"] {
       width: 14px;
       height: 14px;
-      accent-color: #d28f3d;
+      accent-color: var(--accent);
       cursor: pointer;
     }
     .spark-play-btn {
-      min-width: 52px;
+      min-width: 68px;
       min-height: 36px;
       padding-left: 12px;
       padding-right: 12px;
       font-weight: 700;
       line-height: 1;
-      font-size: 20px;
+      font-size: 13px;
+      letter-spacing: 0.2px;
       border-width: 2px;
-      box-shadow: inset 0 0 0 1px rgba(210, 143, 61, 0.25);
+      box-shadow: inset 0 0 0 1px var(--shadow-accent);
     }
 
     .iqr-spark {
@@ -296,7 +321,7 @@
       height: 68px;
       border: 1px solid var(--line);
       border-radius: 2px;
-      background: #050b05;
+      background: var(--bg-alt);
       display: block;
       cursor: ew-resize;
       user-select: none;
@@ -313,14 +338,14 @@
 
     .spark-meta {
       font-size: 11px;
-      color: #7cb67c;
+      color: var(--text-muted);
       min-height: 14px;
     }
 
     .frame-grid {
       border: 1px solid var(--line);
       border-radius: 2px;
-      background: rgba(7, 14, 7, 0.75);
+      background: var(--overlay);
       padding: 8px;
       overflow: auto;
       display: grid;
@@ -333,7 +358,7 @@
     .frame-card {
       border: 2px solid var(--line);
       border-radius: 2px;
-      background: #081208;
+      background: var(--bg-alt);
       padding: 6px;
       display: grid;
       gap: 4px;
@@ -344,14 +369,14 @@
     .frame-card.bad { border-color: var(--bad); }
     .frame-card.replaced {
       border-style: dashed;
-      box-shadow: inset 0 0 0 1px rgba(255, 196, 116, 0.2);
+      box-shadow: inset 0 0 0 1px rgba(245, 185, 108, 0.3);
     }
 
     .frame-card img {
       width: 100%;
       max-height: 112px;
       object-fit: contain;
-      background: #030703;
+      background: var(--bg);
       border-radius: 4px;
     }
 
@@ -359,7 +384,7 @@
       font-family: "Consolas", "Courier New", monospace;
       font-size: 11px;
       line-height: 1.25;
-      color: #9add9a;
+      color: var(--text);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -368,7 +393,7 @@
       min-height: 13px;
       font-size: 10px;
       line-height: 1.2;
-      color: #d7bc8e;
+      color: var(--warn);
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -384,13 +409,13 @@
     .summary-box {
       border: 1px solid var(--line);
       border-radius: 2px;
-      background: rgba(7, 14, 7, 0.8);
+      background: var(--overlay);
       padding: 10px;
       white-space: pre-wrap;
       overflow: auto;
       font-family: "Consolas", "Courier New", monospace;
       font-size: 12px;
-      color: #a9e4a9;
+      color: var(--text);
     }
 
     .overlay {
@@ -399,7 +424,7 @@
       display: none;
       align-items: center;
       justify-content: center;
-      background: rgba(0, 10, 0, 0.8);
+      background: var(--overlay);
       z-index: 1000;
     }
 
@@ -408,7 +433,7 @@
     .overlay-card {
       border: 1px solid var(--line);
       border-radius: 2px;
-      background: #0a140a;
+      background: var(--panel-1);
       min-width: 300px;
       padding: 12px;
       display: grid;
@@ -420,25 +445,25 @@
       height: 10px;
       border: 1px solid var(--line);
       border-radius: 2px;
-      background: #0a140a;
+      background: var(--panel-1);
       overflow: hidden;
     }
 
     .overlay-progress-fill {
       width: 0%;
       height: 100%;
-      background: linear-gradient(90deg, #b87931, #e3b16f);
+      background: linear-gradient(90deg, var(--accent-soft), var(--accent));
       transition: width 0.15s linear;
     }
 
     .overlay-progress-text {
       font-size: 11px;
-      color: #8cc48c;
+      color: var(--text-muted);
       text-align: right;
     }
     .overlay-eta-text {
       font-size: 11px;
-      color: #b88a52;
+      color: var(--text-muted);
       text-align: right;
       min-height: 14px;
     }
@@ -455,7 +480,7 @@
       align-items: center;
       justify-content: center;
       padding: 16px;
-      background: rgba(0, 10, 0, 0.82);
+      background: var(--overlay);
       z-index: 1100;
     }
 
@@ -466,7 +491,7 @@
       max-height: 90vh;
       border: 1px solid var(--line);
       border-radius: 2px;
-      background: #0a140a;
+      background: var(--panel-1);
       padding: 12px;
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
@@ -493,8 +518,8 @@
       border: 1px solid var(--line);
       border-radius: 2px;
       padding: 10px;
-      background: rgba(7, 14, 7, 0.8);
-      color: #a9e4a9;
+      background: var(--overlay);
+      color: var(--text);
       font-size: 12px;
       line-height: 1.45;
     }
@@ -522,7 +547,7 @@
     .spinner {
       width: 26px;
       height: 26px;
-      border: 3px solid #1f3f1f;
+      border: 3px solid var(--line);
       border-top-color: var(--accent);
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
@@ -537,6 +562,7 @@
       .frame-grid { min-height: 420px; }
       .review-top { grid-template-columns: 1fr; }
       .iqr-box input[type="range"] { width: 180px; }
+      .chapter-row { grid-template-columns: 34px minmax(140px, 1fr) minmax(100px, 1fr) 130px; }
     }
 
     #page2:fullscreen {
@@ -582,15 +608,15 @@
     <div class="title-row">
       <div class="title">
         <svg class="title-icon" viewBox="0 0 68 44" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <rect x="2" y="4" width="64" height="36" rx="2" fill="#120c06" stroke="#d28f3d" stroke-width="2"/>
-          <rect x="10" y="10" width="48" height="16" rx="1.5" fill="#0b0704" stroke="#b87931" stroke-width="1.3"/>
-          <circle cx="24" cy="18" r="5.3" fill="#160f08" stroke="#d49a54" stroke-width="1.5"/>
-          <circle cx="44" cy="18" r="5.3" fill="#160f08" stroke="#d49a54" stroke-width="1.5"/>
-          <circle cx="24" cy="18" r="1.2" fill="#b88a52"/>
-          <circle cx="44" cy="18" r="1.2" fill="#b88a52"/>
-          <rect x="24" y="32" width="20" height="3" rx="1" fill="#b87931"/>
-          <rect x="6" y="8" width="3" height="28" fill="#3a2814"/>
-          <rect x="59" y="8" width="3" height="28" fill="#3a2814"/>
+          <rect x="2" y="4" width="64" height="36" rx="2" fill="var(--panel-2)" stroke="var(--accent)" stroke-width="2"/>
+          <rect x="10" y="10" width="48" height="16" rx="1.5" fill="var(--bg)" stroke="var(--accent-soft)" stroke-width="1.3"/>
+          <circle cx="24" cy="18" r="5.3" fill="var(--bg-alt)" stroke="var(--accent)" stroke-width="1.5"/>
+          <circle cx="44" cy="18" r="5.3" fill="var(--bg-alt)" stroke="var(--accent)" stroke-width="1.5"/>
+          <circle cx="24" cy="18" r="1.2" fill="var(--text-muted)"/>
+          <circle cx="44" cy="18" r="1.2" fill="var(--text-muted)"/>
+          <rect x="24" y="32" width="20" height="3" rx="1" fill="var(--accent-soft)"/>
+          <rect x="6" y="8" width="3" height="28" fill="var(--line)"/>
+          <rect x="59" y="8" width="3" height="28" fill="var(--line)"/>
         </svg>
         <span>VHS Frame Tuner</span>
       </div>
@@ -645,7 +671,7 @@
         <div class="panel review-top">
           <div id="reviewStats" class="review-stats">No frames loaded.</div>
           <div class="iqr-box">
-            <button id="sparkPlayBtn" class="action spark-play-btn" type="button" title="Play spark window">▶</button>
+            <button id="sparkPlayBtn" class="action spark-play-btn" type="button" title="Play spark window">Play</button>
             <label for="iqrK">IQR k</label>
             <input id="iqrK" type="range" min="0" max="12" step="0.05" value="3.5">
             <span id="iqrLabel">3.50</span>
@@ -828,8 +854,10 @@
     }
 
     function setStatus(text, isError = false) {
-      statusEl.textContent = text || '';
+      const msg = String(text || '').trim();
+      statusEl.textContent = msg;
       statusEl.classList.toggle('error', Boolean(isError));
+      statusEl.classList.toggle('hidden', msg.length === 0);
     }
 
     function setLoading(active, message = 'Working...') {
@@ -1011,6 +1039,65 @@
       return state.chapters.find(c => c.title === title) || null;
     }
 
+    function chapterBadMeta(ch) {
+      const bad = Math.max(0, Number(ch.bad || 0));
+      const total = Math.max(1, Number(ch.frames || 0));
+      const pct = Math.max(0, Math.min(100, (100 * bad) / total));
+      const pctText = `${Math.round(pct)}%`;
+      return {
+        bad,
+        total,
+        pct,
+        text: `${ch.time} | BAD ${bad}/${total} (${pctText})`,
+      };
+    }
+
+    function chapterBadSparkSvg(ch) {
+      const badFrames = Array.isArray(ch.bad_frames) ? ch.bad_frames : [];
+      const start = Number(ch.start_frame || 0);
+      const end = Number(ch.end_frame || (start + Math.max(1, Number(ch.frames || 1))));
+      const total = Math.max(1, end - start);
+      const bucketCount = 28;
+      const buckets = new Array(bucketCount).fill(0);
+
+      badFrames.forEach((fidRaw) => {
+        const fid = Number(fidRaw);
+        if (!Number.isFinite(fid) || fid < start || fid >= end) return;
+        const local = fid - start;
+        const idx = Math.min(bucketCount - 1, Math.max(0, Math.floor((local / total) * bucketCount)));
+        buckets[idx] += 1;
+      });
+
+      const peak = Math.max(1, ...buckets);
+      const w = 140;
+      const h = 18;
+      const baseY = h - 3;
+      const topY = 2;
+      const step = w / Math.max(1, bucketCount - 1);
+      const points = buckets
+        .map((v, i) => {
+          const x = i * step;
+          const y = baseY - ((v / peak) * (baseY - topY));
+          return `${x.toFixed(2)},${y.toFixed(2)}`;
+        })
+        .join(' ');
+      const dotSvg = buckets
+        .map((v, i) => {
+          if (v <= 0) return '';
+          const x = i * step;
+          return `<circle cx="${x.toFixed(2)}" cy="${baseY.toFixed(2)}" r="1.35" fill="var(--spark-hot)" opacity="0.98"></circle>`;
+        })
+        .join('');
+
+      return `
+        <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" width="100%" height="100%" aria-hidden="true">
+          <line x1="0" y1="${baseY}" x2="${w}" y2="${baseY}" stroke="var(--line)" stroke-width="1"></line>
+          <polyline points="${points}" fill="none" stroke="var(--spark-base)" stroke-width="1.25" opacity="0.95"></polyline>
+          ${dotSvg}
+        </svg>
+      `;
+    }
+
     function renderArchives() {
       archiveListEl.innerHTML = '';
       state.archives.forEach(name => {
@@ -1025,12 +1112,14 @@
     function renderChapters() {
       chapterListEl.innerHTML = '';
       state.chapters.forEach(ch => {
+        const m = chapterBadMeta(ch);
         const btn = document.createElement('button');
         btn.className = `item-btn chapter-row ${ch.title === state.chapter ? 'active' : ''}`;
         btn.innerHTML = `
           <div>${String(ch.index).padStart(2, '0')}</div>
           <div class="title" title="${escapeHtml(ch.title)}">${escapeHtml(ch.title)}</div>
-          <div class="meta">${ch.time} | b${ch.bad}</div>
+          <div class="meta-spark" title="BAD frame distribution across chapter">${chapterBadSparkSvg(ch)}</div>
+          <div class="meta" title="Bad frames in chapter">${escapeHtml(m.text)}</div>
         `;
         btn.addEventListener('click', () => {
           state.chapter = ch.title;
@@ -1056,6 +1145,12 @@
       return `Bad: ${stats.bad} (${Math.round((100 * stats.bad) / Math.max(1, stats.total))}%) | Good: ${stats.good} | Threshold: ${threshold.toFixed(4)} | Overrides: ${stats.overrides} | n=${stats.total} | shown=${stats.shown}`;
     }
 
+    function themeVar(name, fallback) {
+      const raw = getComputedStyle(document.documentElement).getPropertyValue(name);
+      const value = String(raw || '').trim();
+      return value || fallback;
+    }
+
     function renderSparkline(frames, threshold) {
       if (!iqrSparkEl || !sparkMetaEl) return;
       const data = Array.isArray(frames) ? frames : [];
@@ -1069,7 +1164,11 @@
       const w = Math.max(320, Math.floor(iqrSparkEl.clientWidth || 320));
       const h = 68;
       const pad = 6;
-      const solarizedOrange = '#cb4b16';
+      const sparkHot = themeVar('--spark-hot', '#ff9154');
+      const sparkBase = themeVar('--spark-base', '#48a5bc');
+      const sparkThreshold = themeVar('--spark-threshold', '#ff646e');
+      const sparkWindow = themeVar('--spark-window', '#6ca0ff');
+      const sparkWindowMid = themeVar('--spark-window-mid', '#9dc6ff');
       const scores = data.map(f => Number(f.score || 0));
       const badCount = data.filter(f => f.status === 'bad').length;
       const minV = Math.min(...scores, Number(threshold || 0));
@@ -1090,7 +1189,7 @@
       const badDotsSvg = data
         .map((frame, i) => ({ frame, i }))
         .filter(({ frame }) => frame.status === 'bad')
-        .map(({ i }) => `<circle cx="${xFor(i).toFixed(2)}" cy="${(h - 2).toFixed(2)}" r="1.8" fill="${solarizedOrange}" opacity="0.95"></circle>`)
+        .map(({ i }) => `<circle cx="${xFor(i).toFixed(2)}" cy="${(h - 2).toFixed(2)}" r="1.8" fill="${sparkHot}" opacity="0.95"></circle>`)
         .join('');
 
       let viewportSvg = '';
@@ -1101,10 +1200,10 @@
         const xEnd = xFor(endIdx);
         const xMid = (xStart + xEnd) / 2;
         viewportSvg = `
-          <rect x="${Math.min(xStart, xEnd).toFixed(2)}" y="${pad}" width="${Math.max(1, Math.abs(xEnd - xStart)).toFixed(2)}" height="${(h - pad * 2).toFixed(2)}" fill="#268bd2" opacity="0.15"></rect>
-          <line x1="${xStart.toFixed(2)}" y1="${pad}" x2="${xStart.toFixed(2)}" y2="${(h - pad).toFixed(2)}" stroke="#268bd2" stroke-width="1.3" opacity="0.95"></line>
-          <line x1="${xEnd.toFixed(2)}" y1="${pad}" x2="${xEnd.toFixed(2)}" y2="${(h - pad).toFixed(2)}" stroke="#268bd2" stroke-width="1.3" opacity="0.95"></line>
-          <line x1="${xMid.toFixed(2)}" y1="${pad}" x2="${xMid.toFixed(2)}" y2="${(h - pad).toFixed(2)}" stroke="#6ec5ff" stroke-width="1.0" opacity="0.9"></line>
+          <rect x="${Math.min(xStart, xEnd).toFixed(2)}" y="${pad}" width="${Math.max(1, Math.abs(xEnd - xStart)).toFixed(2)}" height="${(h - pad * 2).toFixed(2)}" fill="${sparkWindow}" opacity="0.15"></rect>
+          <line x1="${xStart.toFixed(2)}" y1="${pad}" x2="${xStart.toFixed(2)}" y2="${(h - pad).toFixed(2)}" stroke="${sparkWindow}" stroke-width="1.3" opacity="0.95"></line>
+          <line x1="${xEnd.toFixed(2)}" y1="${pad}" x2="${xEnd.toFixed(2)}" y2="${(h - pad).toFixed(2)}" stroke="${sparkWindow}" stroke-width="1.3" opacity="0.95"></line>
+          <line x1="${xMid.toFixed(2)}" y1="${pad}" x2="${xMid.toFixed(2)}" y2="${(h - pad).toFixed(2)}" stroke="${sparkWindowMid}" stroke-width="1.0" opacity="0.9"></line>
         `;
       }
 
@@ -1114,9 +1213,9 @@
             <rect x="0" y="0" width="${w}" height="${yThrClamped.toFixed(2)}"></rect>
           </clipPath>
         </defs>
-        <polyline points="${points}" fill="none" stroke="#2aa198" stroke-width="1.6" opacity="0.95"></polyline>
-        <polyline points="${points}" fill="none" stroke="${solarizedOrange}" stroke-width="1.9" opacity="0.98" clip-path="url(#sparkAboveThresholdClip)"></polyline>
-        <line x1="${pad}" y1="${yThr.toFixed(2)}" x2="${(w - pad).toFixed(2)}" y2="${yThr.toFixed(2)}" stroke="#dc322f" stroke-width="1.4" opacity="0.95"></line>
+        <polyline points="${points}" fill="none" stroke="${sparkBase}" stroke-width="1.6" opacity="0.95"></polyline>
+        <polyline points="${points}" fill="none" stroke="${sparkHot}" stroke-width="1.9" opacity="0.98" clip-path="url(#sparkAboveThresholdClip)"></polyline>
+        <line x1="${pad}" y1="${yThr.toFixed(2)}" x2="${(w - pad).toFixed(2)}" y2="${yThr.toFixed(2)}" stroke="${sparkThreshold}" stroke-width="1.4" opacity="0.95"></line>
         ${badDotsSvg}
         ${viewportSvg}
       `;
@@ -1197,7 +1296,7 @@
     function updateSparkPlayButton() {
       if (!sparkPlayBtnEl) return;
       const playing = Boolean(sparkPlayTimer);
-      sparkPlayBtnEl.textContent = playing ? '■' : '▶';
+      sparkPlayBtnEl.textContent = playing ? 'Stop' : 'Play';
       sparkPlayBtnEl.title = playing ? 'Stop spark window playback' : 'Play spark window';
     }
 
@@ -1624,7 +1723,7 @@
         renderArchives();
         renderChapters();
         renderChapterDetails();
-        setStatus(st.status || 'Archive loaded.');
+        setStatus(st.status || '');
       } catch (err) {
         setStatus(err.message, true);
       } finally {
@@ -1670,9 +1769,12 @@
         iqrEl.value = String(payload.iqr_k);
         iqrLabelEl.textContent = Number(payload.iqr_k).toFixed(2);
         const s = state.loadSettings;
+        const sampledCount = s ? Number(s.sampled_count || 0) : Number(result.review.stats.total || 0);
+        const chapterTotal = s ? Number(s.chapter_frame_count || 0) : Number(result.review.stats.total || 0);
         const strideText = s ? `1/${s.sample_stride}` : `1/${payload.sample_stride}`;
-        const totalText = s ? `${s.sampled_count}/${s.chapter_frame_count}` : `${result.review.stats.total}`;
-        setStatus(`Loaded ${totalText} frame(s) for ${state.chapter} (stride ${strideText}).`);
+        setStatus(
+          `Loaded ${sampledCount} sampled frame(s) of ${chapterTotal} total for ${state.chapter} (stride ${strideText}).`
+        );
         setStep(2);
       } catch (err) {
         loadFailed = true;
@@ -1960,4 +2062,3 @@
   </script>
 </body>
 </html>
-

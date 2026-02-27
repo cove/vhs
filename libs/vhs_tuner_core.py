@@ -1119,10 +1119,7 @@ def build_archive_state(
     details = _chapter_details_md(picked)
 
     if chapter_titles:
-        status = (
-            f"`{len(chapter_titles)} chapter(s) found. "
-            "Select one and click Next: Review Frames.`"
-        )
+        status = ""
     elif titles and titles[0] == CHAPTER_MISSING_LABEL:
         status = "`No chapters.ffmetadata found for selected archive.`"
     else:
