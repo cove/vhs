@@ -25,7 +25,7 @@ Wizard Flow
    - click any frame to flip its manual good/bad override
 3. Summary and save
    - review settings/stats
-   - save BAD frame selections back to chapter metadata
+   - save BAD frame selections to `render_settings.json`
 
 How To Use The Tuner
 --------------------
@@ -62,14 +62,14 @@ Step 3: Summary + save
 2. Confirm counts and settings.
 3. Click `Save and Return to Chapters`.
 4. The tuner saves updated `BAD_FRAMES` to:
-   - `metadata/<archive>/chapters.ffmetadata`
+   - `metadata/<archive>/render_settings.json`
    - the render pipeline then uses AviSynth `FreezeFrame` to replace those bad frames with nearby good frames.
 
 How `BAD_FRAMES` maps to AviSynth `FreezeFrame`
 -----------------------------------------------
 
 - The tuner writes metadata only; it does not modify video pixels directly.
-- During render, the AviSynth script reads chapter `BAD_FRAMES` and converts them into repair ranges.
+- During render, the AviSynth script reads chapter `BAD_FRAMES` from `render_settings.json` and converts them into repair ranges.
 - Each repair range becomes one or more `FreezeFrame(start, end, source)` calls.
 - `source` is selected automatically from nearby clean frames:
   - prefer the next clean frame after a bad range

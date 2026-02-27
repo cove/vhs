@@ -108,7 +108,7 @@ def test_static_html_contains_live_iqr_spark_and_fullscreen_controls() -> None:
     assert "iqrSparkEl.addEventListener('pointerdown'" in html
     assert "iqrSparkEl.addEventListener('pointermove'" in html
     assert "frameGridEl.scrollTo({ top, behavior: 'auto' })" in html
-    assert "const solarizedOrange = '#cb4b16';" in html
+    assert "const sparkThreshold = themeVar('--spark-threshold', '#ff646e');" in html
     assert 'clipPath id="sparkAboveThresholdClip"' in html
     assert "frame.status === 'bad'" in html
     assert "event.target.closest('.frame-card')" in html

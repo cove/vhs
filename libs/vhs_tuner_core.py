@@ -40,10 +40,10 @@ from common import (
     chapter_frame_bounds,
     combined_score,
     compute_threshold,
+    get_bad_frames_for_chapter,
     make_extract_chapter,
-    parse_bad_frames_csv,
     parse_chapters,
-    update_chapter_bad_frames_in_ffmetadata,
+    update_chapter_bad_frames_in_render_settings,
 )
 
 # ===============================================================================
@@ -52,20 +52,23 @@ from common import (
 
 def parse_ffmetadata_chapters(path: Path) -> list[dict]:
     # Keep chapter frame mapping identical to the render pipeline.
-    _ffm, chapters = parse_chapters(Path(path))
+    path = Path(path)
+    archive = str(path.parent.name)
+    _ffm, chapters = parse_chapters(path)
     result = []
     for ch in chapters:
+        title = str(ch.get("title", "Untitled"))
         start_sec = float(ch.get("start", 0.0))
         end_sec = float(ch.get("end", 0.0))
         start_frame, end_frame = chapter_frame_bounds(ch, fps_num=30000, fps_den=1001)
         result.append(
             {
-                "title": str(ch.get("title", "Untitled")),
+                "title": title,
                 "start_sec": start_sec,
                 "end_sec": end_sec,
                 "start_frame": start_frame,
                 "end_frame": end_frame,
-                "bad_frames": parse_bad_frames_csv(ch.get("bad_frames", "")),
+                "bad_frames": get_bad_frames_for_chapter(archive, title),
             }
         )
     return result
@@ -166,7 +169,7 @@ def _chapter_bad_overrides(
     ch_start: int,
     ch_end: int,
 ) -> dict[int, str]:
-    # Manual overrides are session-only; chapter metadata stores only BAD_FRAMES.
+    # Manual overrides are session-only; persistent bad-frame lists live in render_settings.json.
     return {}
 
 
@@ -225,8 +228,11 @@ def _persist_visible_bad_frames(
             existing_global_bad.discard(int(fid_i))
 
     out_global = sorted(existing_global_bad)
-    update_chapter_bad_frames_in_ffmetadata(cf, {str(chapter_title): out_global})
-    return cf, len(out_global)
+    out_path = update_chapter_bad_frames_in_render_settings(
+        str(archive or ""),
+        {str(chapter_title): out_global},
+    )
+    return out_path, len(out_global)
 
 
 def persist_bad_frames_for_chapter(
@@ -963,7 +969,7 @@ def make_preview_video(input_path: str | Path, output_path: str | Path,
     return output_path
 
 # ===============================================================================
-# Apply: run tracking_loss and write BAD_FRAMES into chapters.ffmetadata
+# Apply: run tracking_loss and write BAD_FRAMES into render_settings.json
 # ===============================================================================
 
 def apply_and_regenerate(
@@ -1006,13 +1012,13 @@ def apply_and_regenerate(
     )
     try:
         result = run_tracking_loss_classification(config=config)  # type: ignore
-        logs.append("tracking_loss wrote BAD_FRAMES in chapters.ffmetadata")
+        logs.append("tracking_loss wrote BAD_FRAMES into render_settings.json")
         logs.append(f"Updated chapter blocks: {int(result.get('updated_chapters', 0))}")
     except Exception as exc:
         logs.append(f"tracking_loss failed: {exc}")
         return "\n".join(logs)
 
-    logs.append("render pipeline reads BAD_FRAMES from chapters.ffmetadata")
+    logs.append("render pipeline reads BAD_FRAMES from render_settings.json")
     return "\n".join(logs)
 
 # Chapter list helpers

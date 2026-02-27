@@ -58,7 +58,7 @@ Tracking-loss classifier utility:
 Directory Notes
 ---------------
 
-- `metadata/` contains per-archive metadata (`chapters.ffmetadata`, markers, etc.).
+- `metadata/` contains per-archive metadata (`chapters.ffmetadata` chapter timing/title data, `render_settings.json` bad-frame + transcript settings, markers, etc.).
 - `vhs_pipeline/` contains command implementations used by `vhs.py`.
 - `legacy_steps/` contains legacy `step_*` entrypoints and historical step docs.
 - `models/`, `software/`, `manuals/`, `screenshots/` contain model/data/tool references.
@@ -70,3 +70,14 @@ Platform Notes
 - Linux/macOS use FFmpeg fallback deinterlacing where AviSynth is unavailable.
 - Linux FFmpeg archives in `bin/` stay compressed for Git compatibility; `setup.py`
   extracts runtime binaries into `bin/`.
+
+Render Settings
+---------------
+
+Each archive now uses `metadata/<archive>/render_settings.json` for render controls.
+
+- `archive_settings`: archive-wide defaults (for example `transcript`).
+- `chapter_settings`: optional per-chapter overrides.
+- `bad_frames_by_chapter`: global BAD frame IDs keyed by exact chapter title.
+
+`render_settings.json` includes a `_comments` object describing each setting category.

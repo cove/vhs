@@ -43,7 +43,7 @@ from common import (
     parse_bad_frames_csv,
     parse_chapters,
     require_non_empty,
-    update_chapter_bad_frames_in_ffmetadata,
+    update_chapter_bad_frames_in_render_settings,
 )
 
 
@@ -645,19 +645,18 @@ def _run_with_config(config: TrackingLossConfig):
         evaluated_indices=indices,
         bad_frames=bad_frames,
     )
-    if not chapters_file.exists():
-        raise FileNotFoundError(
-            f"chapters.ffmetadata not found for metadata write: {chapters_file}"
-        )
-    touched = update_chapter_bad_frames_in_ffmetadata(chapters_file, chapter_updates)
+    archive_name = str(config.archive or "").strip()
+    touched_path = update_chapter_bad_frames_in_render_settings(archive_name, chapter_updates)
+    touched = len(chapter_updates)
     print(
-        f"Updated chapter bad_frames in metadata: {chapters_file} "
+        f"Updated chapter bad_frames in render settings: {touched_path} "
         f"({touched} chapter block(s) updated)"
     )
-    print("Outputs:                chapters.ffmetadata (BAD_FRAMES=...) only")
+    print("Outputs:                render_settings.json (bad_frames_by_chapter) only")
 
     return {
         "chapters_file":          chapters_file,
+        "render_settings_file":   touched_path,
         "updated_chapters":       int(touched),
         "evaluated_frames":       int(len(indices)),
         "bad_frames":             int(len(bad_frames)),

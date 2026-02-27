@@ -9,6 +9,7 @@
 # - Checks if chapter files are done based on size and existence.
 # - Measures media duration via ffprobe.
 #
+import json
 import os, shutil, subprocess, sys
 import hashlib
 from dataclasses import replace as dataclass_replace
@@ -458,6 +459,135 @@ def compute_threshold(scores, mode, iqr_mult, thresh_val, bad_pct):
 def format_bad_frames_csv(frame_ids):
     vals = sorted({int(x) for x in (frame_ids or []) if int(x) >= 0})
     return ",".join(str(v) for v in vals)
+
+def render_settings_path(archive: str) -> Path:
+    return METADATA_DIR / str(archive or "").strip() / "render_settings.json"
+
+def _render_settings_template() -> dict:
+    return {
+        "version": 1,
+        "_comments": {
+            "archive_settings": (
+                "Archive-wide defaults applied to render behavior for all chapters."
+            ),
+            "chapter_settings": (
+                "Optional per-chapter overrides keyed by exact chapter title."
+            ),
+            "bad_frames_by_chapter": (
+                "Per-chapter BAD frame IDs in global archive frame numbering."
+            ),
+        },
+        "archive_settings": {
+            "transcript": "off",
+        },
+        "chapter_settings": {},
+        "bad_frames_by_chapter": {},
+    }
+
+def _normalize_transcript_mode(raw: object, default: str = "off") -> str:
+    mode = str(raw if raw is not None else default).strip().lower()
+    if mode in {"off", "false", "0", "no", "skip", "none"}:
+        return "off"
+    if mode in {"on", "true", "1", "yes", "force", "auto"}:
+        return "on"
+    return str(default).strip().lower() if str(default).strip() else "off"
+
+def load_render_settings(archive: str, create: bool = False) -> tuple[Path, dict]:
+    path = render_settings_path(archive)
+    if path.exists():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                out = dict(_render_settings_template())
+                out.update(data)
+                out["archive_settings"] = dict(out.get("archive_settings") or {})
+                out["chapter_settings"] = dict(out.get("chapter_settings") or {})
+                out["bad_frames_by_chapter"] = dict(out.get("bad_frames_by_chapter") or {})
+                out["archive_settings"]["transcript"] = _normalize_transcript_mode(
+                    out["archive_settings"].get("transcript", "off"),
+                    default="off",
+                )
+                return path, out
+        except Exception:
+            pass
+    data = _render_settings_template()
+    if create:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return path, data
+
+def save_render_settings(archive: str, settings: dict) -> Path:
+    path = render_settings_path(archive)
+    payload = dict(_render_settings_template())
+    payload.update(dict(settings or {}))
+    payload["archive_settings"] = dict(payload.get("archive_settings") or {})
+    payload["chapter_settings"] = dict(payload.get("chapter_settings") or {})
+    payload["bad_frames_by_chapter"] = dict(payload.get("bad_frames_by_chapter") or {})
+    payload["archive_settings"]["transcript"] = _normalize_transcript_mode(
+        payload["archive_settings"].get("transcript", "off"),
+        default="off",
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return path
+
+def load_bad_frames_by_chapter_from_render_settings(archive: str) -> dict[str, list[int]]:
+    _path, settings = load_render_settings(archive, create=False)
+    raw_map = dict(settings.get("bad_frames_by_chapter") or {})
+    out: dict[str, list[int]] = {}
+    for title, vals in raw_map.items():
+        key = str(title or "").strip()
+        if not key:
+            continue
+        parsed = []
+        seen = set()
+        for item in list(vals or []):
+            try:
+                fid = int(item)
+            except Exception:
+                continue
+            if fid < 0 or fid in seen:
+                continue
+            seen.add(fid)
+            parsed.append(fid)
+        parsed.sort()
+        out[key] = parsed
+    return out
+
+def get_bad_frames_for_chapter(archive: str, chapter_title: str) -> list[int]:
+    title = str(chapter_title or "").strip()
+    if not title:
+        return []
+    by_title = load_bad_frames_by_chapter_from_render_settings(archive)
+    return list(by_title.get(title, []))
+
+def update_chapter_bad_frames_in_render_settings(
+    archive: str,
+    chapter_bad_frames: dict[str, list[int]],
+) -> Path:
+    path, settings = load_render_settings(archive, create=True)
+    by_title = dict(settings.get("bad_frames_by_chapter") or {})
+    for title, vals in dict(chapter_bad_frames or {}).items():
+        key = str(title or "").strip()
+        if not key:
+            continue
+        frame_vals = sorted({int(x) for x in (vals or []) if int(x) >= 0})
+        by_title[key] = frame_vals
+    settings["bad_frames_by_chapter"] = by_title
+    return save_render_settings(archive, settings)
+
+def get_transcript_mode_for_chapter(archive: str, chapter_title: str) -> str:
+    _path, settings = load_render_settings(archive, create=False)
+    archive_defaults = dict(settings.get("archive_settings") or {})
+    chapter_settings = dict(settings.get("chapter_settings") or {})
+    title = str(chapter_title or "").strip()
+    base = _normalize_transcript_mode(archive_defaults.get("transcript", "off"), default="off")
+    if not title:
+        return base
+    override = chapter_settings.get(title)
+    if isinstance(override, dict) and "transcript" in override:
+        return _normalize_transcript_mode(override.get("transcript"), default=base)
+    return base
 
 def load_bad_frames_by_chapter(path):
     bad_by_title = {}

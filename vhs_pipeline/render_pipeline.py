@@ -29,7 +29,7 @@ BADFRAME_SPLIT_BURSTS_ACROSS_NEIGHBORS = False
 # For single-frame repairs, skip a short lookahead/behind window before picking
 # source to avoid using immediately adjacent frames that are often still unstable.
 BADFRAME_SINGLE_FRAME_SOURCE_SKIP = 2
-ENABLE_DESCRATCH_PLUGIN = False
+ENABLE_DESCRATCH_PLUGIN = True
 
 def chapter_done(final_file):
     return final_file.exists() and final_file.stat().st_size > 100_000
@@ -41,14 +41,12 @@ def audio_mode(chapter):
         return "off"
     return "on"
 
-def transcript_mode(chapter):
-    raw = chapter.get("transcript")
-    mode = str(raw).strip().lower() if raw is not None else "on"
-    if mode in {"off", "false", "0", "no", "skip", "none"}:
-        return "off"
-    if mode in {"on", "true", "1", "yes", "force", "auto"}:
-        return "on"
-    return "on"
+def transcript_mode(archive_name, chapter_title):
+    mode = get_transcript_mode_for_chapter(
+        archive=str(archive_name or ""),
+        chapter_title=str(chapter_title or ""),
+    )
+    return "on" if str(mode).strip().lower() == "on" else "off"
 
 def title_selected(title, filters, exact=False):
     if not filters:
@@ -684,6 +682,7 @@ if (c.FrameCount >= (expected_frames * 2 - 2) && c.FrameCount <= (expected_frame
             dll_path = Path(QTGMC_DIR) / dll_name
             if dll_path.exists():
                 descratch_lines.append(f'LoadPlugin("{dll_path.as_posix()}")')
+                break  # only load one (64-bit preferred; skip 32-bit)
     descratch_block = ("\n".join(descratch_lines) + "\n") if descratch_lines else ""
     script_text = f'''
 LoadPlugin("{QTGMC_DIR}/ffms2.dll") 
@@ -989,6 +988,8 @@ def _run_with_args(args):
         if not chapters_file.exists():
             print(f"Skipping {src.name}: no metadata found {chapters_file}")
             continue
+        _settings_path, _render_settings = load_render_settings(archive_name, create=True)
+        bad_frames_by_chapter = load_bad_frames_by_chapter_from_render_settings(archive_name)
 
         ffm, chapters = parse_chapters(chapters_file)
         if not chapters:
@@ -1021,7 +1022,7 @@ def _run_with_args(args):
             people_ass = final_dir / f"{safe(title)}.people.ass"
             people_tsv = find_people_tsv(archive_name)
             include_audio = audio_mode(ch) == "on"
-            transcribe_dialogue = include_audio and transcript_mode(ch) == "on"
+            transcribe_dialogue = include_audio and transcript_mode(archive_name, title) == "on"
 
             if not transcribe_dialogue:
                 cleanup_stale_dialogue_files(final_srt, final_vtt, final_ass)
@@ -1082,12 +1083,7 @@ def _run_with_args(args):
                 print(f"Applying video filters...")
                 if sys.platform == "win32":
                     if filter_script.exists():
-                        if "bad_frames" not in ch:
-                            print(
-                                f"WARNING: chapter '{title}' has no BAD_FRAMES metadata; "
-                                "rendering without freeze-frame repair for this chapter."
-                            )
-                        global_bad = parse_bad_frames_csv(ch.get("bad_frames", ""))
+                        global_bad = list(bad_frames_by_chapter.get(str(title), []))
                         manual_source_frames_global = [
                             f for f in global_bad if chapter_start_frame <= int(f) < chapter_end_frame
                         ]
@@ -1100,7 +1096,7 @@ def _run_with_args(args):
                         freeze_input = extracted
                         if manual_source_frames_global:
                             print(
-                                f"Chapter metadata bad frame(s): {len(manual_source_frames)} -> "
+                                f"Render settings bad frame(s): {len(manual_source_frames)} -> "
                                 + ",".join(str(f) for f in manual_source_frames[:12])
                                 + ("..." if len(manual_source_frames) > 12 else "")
                             )
@@ -1134,7 +1130,7 @@ def _run_with_args(args):
                             )
                             freeze_input = repaired_extracted
                         else:
-                            print("No chapter bad frames listed; no freeze-frame repairs applied.")
+                            print("No bad frames listed in render_settings; no freeze-frame repairs applied.")
 
                         script = make_create_avs(
                             freeze_input,
@@ -1196,7 +1192,8 @@ def _run_with_args(args):
                     print(f"Transcribing audio...")
                     if whisper is None:
                         raise RuntimeError(
-                            "Whisper is unavailable. Install whisper, or set TRANSCRIPT=off for this chapter."
+                            "Whisper is unavailable. Install whisper, or set "
+                            "archive_settings.transcript=off (or chapter override) in render_settings.json."
                         )
                     if model is None:
                         model = whisper.load_model("turbo", download_root=WHISPER_MODEL_DIR)
@@ -1205,7 +1202,7 @@ def _run_with_args(args):
                     srt_to_ass(final_srt, final_ass)
                     subtitle_tracks.append({"path": final_ass, "title": "Dialogue", "forced": True})
                 elif include_audio:
-                    print("Skipping dialogue transcription (TRANSCRIPT=off).")
+                    print("Skipping dialogue transcription (render_settings transcript=off).")
                 else:
                     print("Skipping audio and transcription (AUDIO=off).")
 
@@ -1264,4 +1261,3 @@ def main(argv=None):
 
 if __name__ == "__main__":
     main()
-

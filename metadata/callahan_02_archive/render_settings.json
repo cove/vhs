@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "_comments": {
+    "archive_settings": "Archive-wide defaults applied to render behavior for all chapters.",
+    "chapter_settings": "Optional per-chapter overrides keyed by exact chapter title.",
+    "bad_frames_by_chapter": "Per-chapter BAD frame IDs in global archive frame numbering."
+  },
+  "archive_settings": {
+    "transcript": "off"
+  },
+  "chapter_settings": {},
+  "bad_frames_by_chapter": {}
+}
