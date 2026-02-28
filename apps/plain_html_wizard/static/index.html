@@ -1100,6 +1100,19 @@
       statusEl.classList.toggle('hidden', msg.length === 0);
     }
 
+    function sortFramesByFid(frames) {
+      const arr = Array.isArray(frames) ? frames.slice() : [];
+      arr.sort((a, b) => {
+        const fa = Number(a && a.fid);
+        const fb = Number(b && b.fid);
+        if (!Number.isFinite(fa) && !Number.isFinite(fb)) return 0;
+        if (!Number.isFinite(fa)) return 1;
+        if (!Number.isFinite(fb)) return -1;
+        return fa - fb;
+      });
+      return arr;
+    }
+
     function setLoading(active, message = 'Working...') {
       overlayEl.classList.toggle('active', Boolean(active));
       overlayMsgEl.textContent = message;
@@ -1201,7 +1214,7 @@
 
         const live = await api('/api/load_review');
         const liveReview = live.review || null;
-        const liveFrames = (liveReview && Array.isArray(liveReview.frames)) ? liveReview.frames : [];
+        const liveFrames = sortFramesByFid((liveReview && Array.isArray(liveReview.frames)) ? liveReview.frames : []);
         if (liveFrames.length > 0) {
           state.review = {
             ...(state.review || {}),
@@ -2240,17 +2253,18 @@
     }
 
     function renderReviewFrames(frames) {
+      const orderedFrames = sortFramesByFid(frames);
       frameGridEl.innerHTML = '';
       syncFrameGridPlaybackCursor(-1);
-      if (!frames || !frames.length) {
+      if (!orderedFrames.length) {
         state.freezeReplacementMap = new Map();
         frameGridEl.textContent = 'No frames loaded.';
         renderSparkline([], 0);
         return;
       }
-      rememberFrameImages(frames);
+      rememberFrameImages(orderedFrames);
       const fragment = document.createDocumentFragment();
-      frames.forEach(frame => {
+      orderedFrames.forEach(frame => {
         const frameImage = String(frame.image || state.frameImages.get(String(frame.fid)) || '');
         const card = document.createElement('div');
         card.className = `frame-card ${frame.status}`;
@@ -2265,7 +2279,7 @@
       });
       frameGridEl.appendChild(fragment);
       refreshFreezeSimulation();
-      renderSparkline(frames, state.review ? state.review.threshold : 0);
+      renderSparkline(orderedFrames, state.review ? state.review.threshold : 0);
       scheduleVisibleRangeRefresh();
       ensureFlipbookReady(true);
     }
@@ -2361,10 +2375,14 @@
         const result = await api('/api/load_chapter', 'POST', payload, 0);
         state.frameImages = new Map();
         state.freezeReplacementMap = new Map();
-        state.review = result.review;
+        const finalFrames = sortFramesByFid((result.review && result.review.frames) || []);
+        state.review = {
+          ...result.review,
+          frames: finalFrames,
+        };
         state.loadSettings = result.settings || null;
-        reviewStatsEl.textContent = statsText(result.review.stats, result.review.threshold);
-        renderReviewFrames(result.review.frames);
+        reviewStatsEl.textContent = statsText(state.review.stats, state.review.threshold);
+        renderReviewFrames(state.review.frames);
         iqrEl.value = String(payload.iqr_k);
         iqrLabelEl.textContent = Number(payload.iqr_k).toFixed(2);
         const s = state.loadSettings;
@@ -2407,7 +2425,10 @@
       try {
         const result = await api('/api/apply_iqr', 'POST', { iqr_k: k });
         if (callSeq !== state.iqrApplySeq) return;
-        const review = result.review;
+        const review = {
+          ...result.review,
+          frames: sortFramesByFid((result.review && result.review.frames) || []),
+        };
         const previous = new Map((state.review.frames || []).map(f => [String(f.fid), f.status]));
         let changed = 0;
         for (const f of (review.frames || [])) {
