@@ -8,7 +8,7 @@ ARCHIVE = "callahan_01_archive"
 RICE_TOSS_TITLE = "1995 - Jim & Linda Wedding - 10 Rice Toss Send-Off (March 18, 1995)"
 
 
-def test_rice_toss_render_settings_sources_stay_forward() -> None:
+def test_rice_toss_render_settings_sources_are_clean_and_in_bounds() -> None:
     root = Path(__file__).resolve().parents[1]
     meta_dir = root / "metadata" / ARCHIVE
     chapters_path = meta_dir / "chapters.ffmetadata"
@@ -41,11 +41,13 @@ def test_rice_toss_render_settings_sources_stay_forward() -> None:
     )
     assert resolved, "No resolved FreezeFrame repairs were produced for Rice Toss."
 
-    backward = [(a, b, src) for (a, b, src) in resolved if int(src) < int(a)]
-    assert not backward, f"Rice Toss has backward FreezeFrame sources: {backward[:8]}"
+    bad_set = set(local_bad)
+    for a, b, src in resolved:
+        assert 0 <= int(src) <= max_local
+        assert int(src) not in bad_set
 
 
-def test_forward_only_policy_uses_next_clean_source_for_singleton() -> None:
+def test_auto_policy_uses_next_clean_source_for_singleton() -> None:
     resolved = render_pipeline._resolve_badframe_repair_ranges(
         bad_repair_ranges=[(10, 10, None)],
         max_source_frame=30,
@@ -54,16 +56,16 @@ def test_forward_only_policy_uses_next_clean_source_for_singleton() -> None:
     assert resolved == [(10, 10, 11)]
 
 
-def test_forward_only_policy_does_not_fallback_to_previous_source() -> None:
+def test_auto_policy_falls_back_to_previous_source_at_chapter_end() -> None:
     resolved = render_pipeline._resolve_badframe_repair_ranges(
         bad_repair_ranges=[(8, 10, None)],
         max_source_frame=10,
         source_clearance=render_pipeline.BADFRAME_SOURCE_CLEARANCE,
     )
-    assert resolved == []
+    assert resolved == [(8, 10, 7)]
 
 
-def test_forward_policy_does_not_bridge_across_clean_gap() -> None:
+def test_auto_policy_does_not_bridge_across_clean_gap() -> None:
     local_bad = [31021, 31024, 31025]
     repairs = render_pipeline.local_bad_frames_to_repairs(local_bad, max_frame=40000)
     assert repairs == [(31021, 31021, None), (31024, 31025, None)]

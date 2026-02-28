@@ -20,11 +20,11 @@ BADFRAME_POST_QTGMC_MULTIPLIER = 1
 BADFRAME_SOURCE_CLEARANCE = 0
 RENDER_DEBUG_EXTRACT_FRAME_NUMBERS_ENV = "RENDER_DEBUG_EXTRACT_FRAME_NUMBERS"
 # Do not bridge clean gaps between bad bursts; keep each contiguous bad run
-# independent so source selection uses the immediate next clean frame.
+# independent so source selection stays local to nearby clean frames.
 BADFRAME_BRIDGE_ALWAYS_GAP = 0
 BADFRAME_BRIDGE_SINGLETON_GAP = 0
-# Avoid pulling from prior frames in auto mode; this reduces risk when the
-# frame immediately before a burst is also visually unstable.
+# Auto source selection prefers forward clean frames and falls back to prior
+# clean frames when a bad run reaches the chapter end.
 BADFRAME_SPLIT_BURSTS_ACROSS_NEIGHBORS = False
 # For single-frame repairs, skip a short lookahead/behind window before picking
 # source to avoid using immediately adjacent frames that are often still unstable.
@@ -183,6 +183,18 @@ def _resolve_badframe_repair_ranges(
                 return src
             src += 1
 
+    def choose_repair_source_before(a, extra_skip=0):
+        src = a - 1 - max(0, int(extra_skip))
+        while src >= 0:
+            while src in bad_set and src >= 0:
+                src -= 1
+            if src < 0:
+                return None
+            if source_is_clear(src):
+                return src
+            src -= 1
+        return None
+
     resolved_ranges = []
     for a, b, src_override in sorted(ranges, key=lambda x: (x[0], x[1])):
         src = src_override
@@ -203,14 +215,16 @@ def _resolve_badframe_repair_ranges(
         source_skip = BADFRAME_SINGLE_FRAME_SOURCE_SKIP if span == 1 else 0
         next_src = choose_repair_source_after(b, extra_skip=source_skip)
 
-        # Forward-only source policy: use next clean frame, otherwise leave unrepaired.
         src = next_src
         if src is None:
-            print(
-                f"Unable to find forward clean source frame for bad range {a}-{b}; "
-                "leaving this range unrepaired."
-            )
-            continue
+            prev_src = choose_repair_source_before(a, extra_skip=source_skip)
+            if prev_src is None:
+                print(
+                    f"Unable to find clean source frame for bad range {a}-{b}; "
+                    "leaving this range unrepaired."
+                )
+                continue
+            src = prev_src
         resolved_ranges.append((int(a), int(b), int(src)))
 
     return _merge_badframe_repairs(resolved_ranges)

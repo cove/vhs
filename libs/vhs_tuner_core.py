@@ -343,6 +343,7 @@ def extract_frames(
     frame_read_offset: int = 0,
     progress=None,
     should_cancel=None,
+    frame_callback=None,
 ) -> tuple[list[int] | None, list[str] | None, dict | None, str]:
     start_i, end_i = _normalize_frame_span(start, end)
     if frame_ids is None:
@@ -386,15 +387,33 @@ def extract_frames(
                 bgr = np.zeros((240, 320, 3), dtype=np.uint8)
         if include_thumbs:
             frames_b64.append(_bgr_to_jpeg_b64(bgr))
+            frame_thumb = frames_b64[-1]
+        else:
+            frame_thumb = ""
 
         if fid in cached_lookup:
             c = cached_lookup[fid]
-            chroma_s.append(c["chroma"]); noise_s.append(c["noise"])
-            tear_s.append(c["tear"]);     wave_s.append(c["wave"])
+            ch = float(c["chroma"])
+            no = float(c["noise"])
+            te = float(c["tear"])
+            wa = float(c["wave"])
+            chroma_s.append(ch); noise_s.append(no)
+            tear_s.append(te);   wave_s.append(wa)
         else:
             ch, no, te, wa = _compute_signals(bgr)
             chroma_s.append(ch); noise_s.append(no)
             tear_s.append(te);   wave_s.append(wa)
+        if callable(frame_callback):
+            frame_callback(
+                int(fid),
+                frame_thumb,
+                float(ch),
+                float(no),
+                float(te),
+                float(wa),
+                idx + 1,
+                len(frame_ids),
+            )
 
     cap.release()
 

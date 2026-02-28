@@ -84,6 +84,11 @@ class SessionState:
     load_sample_total: int = 0
     load_cancel_requested: bool = False
     preview_video_path: str = ""
+    partial_fids: list[int] = field(default_factory=list)
+    partial_b64: list[str] = field(default_factory=list)
+    partial_sigs: dict[str, list[float]] = field(
+        default_factory=lambda: {"chroma": [], "noise": [], "tear": [], "wave": []}
+    )
 
 
 _SESSION_LOCK = threading.Lock()
@@ -223,6 +228,43 @@ def _build_review_payload(session: SessionState, include_images: bool) -> dict[s
         },
         "frames": frames,
     }
+
+
+def _build_partial_review_payload(session: SessionState, include_images: bool) -> dict[str, Any]:
+    total = min(
+        len(session.partial_fids),
+        len(session.partial_b64),
+        len(session.partial_sigs.get("chroma", [])),
+        len(session.partial_sigs.get("noise", [])),
+        len(session.partial_sigs.get("tear", [])),
+        len(session.partial_sigs.get("wave", [])),
+    )
+    if total <= 0:
+        return {
+            "threshold": 0.0,
+            "stats": {"total": 0, "bad": 0, "good": 0, "shown": 0, "overrides": 0},
+            "frames": [],
+        }
+    tmp = SessionState()
+    tmp.start_frame = int(session.start_frame)
+    tmp.fids = [int(x) for x in session.partial_fids[:total]]
+    tmp.b64 = list(session.partial_b64[:total])
+    tmp.sigs = {
+        "chroma": np.asarray(session.partial_sigs["chroma"][:total], dtype=np.float64),
+        "noise": np.asarray(session.partial_sigs["noise"][:total], dtype=np.float64),
+        "tear": np.asarray(session.partial_sigs["tear"][:total], dtype=np.float64),
+        "wave": np.asarray(session.partial_sigs["wave"][:total], dtype=np.float64),
+    }
+    tmp.overrides = dict(session.overrides)
+    tmp.wc = float(session.wc)
+    tmp.wn = float(session.wn)
+    tmp.wt = float(session.wt)
+    tmp.ww = float(session.ww)
+    tmp.t_mode = str(session.t_mode)
+    tmp.iqr_k = float(session.iqr_k)
+    tmp.tval = float(session.tval)
+    tmp.bpct = float(session.bpct)
+    return _build_review_payload(tmp, include_images=include_images)
 
 
 def _selected_bad_frame_ids(session: SessionState) -> list[int]:
@@ -466,6 +508,16 @@ class WizardHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if parsed.path == "/api/load_review":
+            self._send_json(
+                {
+                    "ok": True,
+                    "running": bool(session.load_running),
+                    "review": _build_partial_review_payload(session, include_images=True),
+                }
+            )
+            return
+
         self._send_error_json("Not found", code=HTTPStatus.NOT_FOUND)
 
     def do_POST(self) -> None:
@@ -596,6 +648,13 @@ class WizardHandler(BaseHTTPRequestHandler):
         session.debug_extract = bool(payload.get("debug_extract", session.debug_extract))
         session.iqr_k = iqr_k
         session.preview_video_path = ""
+        session.fids = []
+        session.b64 = []
+        session.sigs = {}
+        session.overrides = {}
+        session.partial_fids = []
+        session.partial_b64 = []
+        session.partial_sigs = {"chroma": [], "noise": [], "tear": [], "wave": []}
 
         video = _resolve_archive_video(session.archive)
         if not video:
@@ -667,6 +726,23 @@ class WizardHandler(BaseHTTPRequestHandler):
                 sample_total=sample_target,
             )
 
+        def _sample_frame(
+            fid: int,
+            frame_b64: str,
+            chroma: float,
+            noise: float,
+            tear: float,
+            wave: float,
+            _done: int,
+            _total: int,
+        ) -> None:
+            session.partial_fids.append(int(fid))
+            session.partial_b64.append(str(frame_b64 or ""))
+            session.partial_sigs["chroma"].append(float(chroma))
+            session.partial_sigs["noise"].append(float(noise))
+            session.partial_sigs["tear"].append(float(tear))
+            session.partial_sigs["wave"].append(float(wave))
+
         fids, b64, sigs, err = extract_frames(
             str(read_video),
             session.start_frame,
@@ -677,6 +753,7 @@ class WizardHandler(BaseHTTPRequestHandler):
             frame_read_offset=frame_read_offset,
             progress=_sample_progress,
             should_cancel=lambda: bool(session.load_cancel_requested),
+            frame_callback=_sample_frame,
         )
         if err or fids is None or b64 is None or sigs is None:
             fail(err or "Failed to extract frames.")
@@ -702,6 +779,9 @@ class WizardHandler(BaseHTTPRequestHandler):
                 burst_radius=4,
             )
             if focus_fids != fids:
+                session.partial_fids = []
+                session.partial_b64 = []
+                session.partial_sigs = {"chroma": [], "noise": [], "tear": [], "wave": []}
                 fids, b64, sigs, err = extract_frames(
                     str(read_video),
                     session.start_frame,
@@ -713,6 +793,7 @@ class WizardHandler(BaseHTTPRequestHandler):
                     frame_read_offset=frame_read_offset,
                     progress=_sample_progress,
                     should_cancel=lambda: bool(session.load_cancel_requested),
+                    frame_callback=_sample_frame,
                 )
                 if err or fids is None or b64 is None or sigs is None:
                     fail(err or "Failed to extract focus frames.")
