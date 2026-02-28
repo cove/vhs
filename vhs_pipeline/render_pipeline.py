@@ -17,18 +17,18 @@ from common import *
 ASS_NEWLINE = "\\N"
 BADFRAME_MAX_SPAN_DEFAULT = 1200
 BADFRAME_POST_QTGMC_MULTIPLIER = 1
-BADFRAME_SOURCE_CLEARANCE = 1
+BADFRAME_SOURCE_CLEARANCE = 0
 RENDER_DEBUG_EXTRACT_FRAME_NUMBERS_ENV = "RENDER_DEBUG_EXTRACT_FRAME_NUMBERS"
-# Bridge small clean gaps in chapter BAD_FRAMES to avoid leaving short
-# unstable islands between bad bursts un-frozen.
-BADFRAME_BRIDGE_ALWAYS_GAP = 1
-BADFRAME_BRIDGE_SINGLETON_GAP = 5
+# Do not bridge clean gaps between bad bursts; keep each contiguous bad run
+# independent so source selection uses the immediate next clean frame.
+BADFRAME_BRIDGE_ALWAYS_GAP = 0
+BADFRAME_BRIDGE_SINGLETON_GAP = 0
 # Avoid pulling from prior frames in auto mode; this reduces risk when the
 # frame immediately before a burst is also visually unstable.
 BADFRAME_SPLIT_BURSTS_ACROSS_NEIGHBORS = False
 # For single-frame repairs, skip a short lookahead/behind window before picking
 # source to avoid using immediately adjacent frames that are often still unstable.
-BADFRAME_SINGLE_FRAME_SOURCE_SKIP = 2
+BADFRAME_SINGLE_FRAME_SOURCE_SKIP = 0
 ENABLE_DESCRATCH_PLUGIN = True
 
 def chapter_done(final_file):
@@ -183,19 +183,6 @@ def _resolve_badframe_repair_ranges(
                 return src
             src += 1
 
-    def choose_repair_source_before(a, extra_skip=0):
-        src = a - 1 - max(0, int(extra_skip))
-        if max_allowed_src is not None:
-            src = min(src, max_allowed_src)
-        while src >= 0:
-            while src >= 0 and src in bad_set:
-                src -= 1
-            if src < 0:
-                return None
-            if source_is_clear(src):
-                return src
-            src -= 1
-
     resolved_ranges = []
     for a, b, src_override in sorted(ranges, key=lambda x: (x[0], x[1])):
         src = src_override
@@ -214,37 +201,16 @@ def _resolve_badframe_repair_ranges(
 
         span = int(b) - int(a) + 1
         source_skip = BADFRAME_SINGLE_FRAME_SOURCE_SKIP if span == 1 else 0
-        prev_src = choose_repair_source_before(a, extra_skip=source_skip)
         next_src = choose_repair_source_after(b, extra_skip=source_skip)
 
-        # Optional split mode: split a burst across previous/next neighbors.
-        if (
-            BADFRAME_SPLIT_BURSTS_ACROSS_NEIGHBORS
-            and span >= 2
-            and prev_src is not None
-            and next_src is not None
-        ):
-            first_half_len = span // 2
-            if first_half_len > 0:
-                left_end = int(a) + first_half_len - 1
-                resolved_ranges.append((int(a), left_end, int(prev_src)))
-            right_start = int(a) + first_half_len
-            resolved_ranges.append((right_start, int(b), int(next_src)))
-            continue
-
-        # Single-frame ranges or edge-bound bursts fall back to one side.
-        src = next_src if next_src is not None else prev_src
+        # Forward-only source policy: use next clean frame, otherwise leave unrepaired.
+        src = next_src
         if src is None:
             print(
-                f"Unable to find any clean source frame for bad range {a}-{b}; "
+                f"Unable to find forward clean source frame for bad range {a}-{b}; "
                 "leaving this range unrepaired."
             )
             continue
-        if next_src is None and prev_src is not None:
-            print(
-                f"No forward clean source within bounds for bad range {a}-{b}; "
-                f"falling back to previous clean frame {src}."
-            )
         resolved_ranges.append((int(a), int(b), int(src)))
 
     return _merge_badframe_repairs(resolved_ranges)

@@ -169,8 +169,19 @@ def _chapter_bad_overrides(
     ch_start: int,
     ch_end: int,
 ) -> dict[int, str]:
-    # Manual overrides are session-only; persistent bad-frame lists live in render_settings.json.
-    return {}
+    # Seed per-session overrides from persisted chapter BAD_FRAMES so a chapter
+    # reload reflects previously saved decisions in the sampled frame view.
+    start, end = _normalize_frame_span(ch_start, ch_end)
+    bad_frames = get_bad_frames_for_chapter(str(archive or ""), str(chapter_title or ""))
+    out: dict[int, str] = {}
+    for fid in (bad_frames or []):
+        try:
+            fi = int(fid)
+        except Exception:
+            continue
+        if start <= fi < end:
+            out[fi] = "bad"
+    return out
 
 
 def _persist_visible_bad_frames(

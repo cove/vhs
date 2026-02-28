@@ -1,7 +1,10 @@
 from pathlib import Path
+import shutil
 
 import numpy as np
 
+from common import update_chapter_bad_frames_in_render_settings
+from libs.vhs_tuner_core import _chapter_bad_overrides
 from apps.plain_html_wizard.server import (
     SessionState,
     _build_review_payload,
@@ -137,3 +140,23 @@ def test_set_load_progress_updates_and_clamps_state() -> None:
     assert session.load_progress == 0.0
     assert session.load_sample_done == 0
     assert session.load_sample_total == 0
+
+
+def test_chapter_bad_overrides_load_saved_bad_frames_from_render_settings() -> None:
+    archive = "__plain_wizard_unit_archive"
+    title = "Unit Chapter"
+    archive_meta_dir = ROOT / "metadata" / archive
+    try:
+        update_chapter_bad_frames_in_render_settings(
+            archive,
+            {title: [100, 105, 205]},
+        )
+        overrides = _chapter_bad_overrides(
+            archive=archive,
+            chapter_title=title,
+            ch_start=100,
+            ch_end=200,
+        )
+        assert overrides == {100: "bad", 105: "bad"}
+    finally:
+        shutil.rmtree(archive_meta_dir, ignore_errors=True)

@@ -165,6 +165,8 @@
       flex: 1 1 auto;
       max-height: none;
       min-height: 0;
+      overflow-x: hidden;
+      overflow-y: auto;
     }
 
     .list {
@@ -198,16 +200,19 @@
 
     .chapter-row {
       display: grid;
-      grid-template-columns: 34px minmax(0, 1fr) 120px 96px;
+      grid-template-columns: 34px minmax(0, 1fr) minmax(78px, 24%) minmax(64px, 18%);
       align-items: center;
       gap: 8px;
+      min-width: 0;
     }
 
     .chapter-row .meta {
       color: var(--text-muted);
       font-size: 11px;
       text-align: right;
-      white-space: nowrap;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      line-height: 1.15;
     }
 
     .chapter-row .meta-spark {
@@ -415,13 +420,26 @@
     }
 
     .flipbook-frame {
-      margin: 0;
+      margin: 8px;
       min-height: 0;
       display: grid;
       place-items: center;
       background: #02060c;
       border: 2px solid var(--line);
       border-radius: 2px;
+      position: relative;
+      overflow: visible;
+    }
+
+    .flipbook-frame::after {
+      content: "";
+      position: absolute;
+      inset: -3px;
+      border-radius: 5px;
+      pointer-events: none;
+      box-shadow:
+        0 0 14px 4px rgba(95, 141, 255, 0.45),
+        0 0 28px 10px rgba(95, 141, 255, 0.26);
     }
 
     .flipbook-frame.good {
@@ -453,10 +471,36 @@
       display: grid;
       gap: 4px;
       cursor: pointer;
+      position: relative;
     }
 
     .frame-card.good { border-color: var(--good); }
     .frame-card.bad { border-color: var(--bad); }
+    .frame-card.playback-current {
+      z-index: 1;
+      outline: 2px solid rgba(110, 170, 255, 1);
+      outline-offset: 2px;
+    }
+    .frame-card.playback-current::before {
+      content: "";
+      position: absolute;
+      inset: -3px;
+      border-radius: 6px;
+      border: 2px solid rgba(95, 141, 255, 0.95);
+      pointer-events: none;
+    }
+    .frame-card.playback-current::after {
+      content: "";
+      position: absolute;
+      inset: -8px;
+      border-radius: 9px;
+      pointer-events: none;
+      box-shadow:
+        0 0 12px 4px rgba(95, 141, 255, 0.7),
+        0 0 24px 10px rgba(95, 141, 255, 0.4),
+        0 0 36px 14px rgba(95, 141, 255, 0.24);
+      animation: frame-current-pulse 1.1s ease-in-out infinite;
+    }
     .frame-card.replaced {
       border-style: dashed;
       box-shadow: inset 0 0 0 1px rgba(245, 185, 108, 0.3);
@@ -644,6 +688,11 @@
     }
 
     @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes frame-current-pulse {
+      0% { opacity: 0.55; }
+      50% { opacity: 1; }
+      100% { opacity: 0.55; }
+    }
 
     @media (max-width: 1100px) {
       .page-load-layout { grid-template-columns: 1fr; height: auto; }
@@ -652,7 +701,7 @@
       .frame-grid { min-height: 420px; }
       .review-top { grid-template-columns: 1fr; }
       .iqr-box input[type="range"] { width: 180px; }
-      .chapter-row { grid-template-columns: 30px minmax(0, 1fr) 92px 84px; }
+      .chapter-row { grid-template-columns: 30px minmax(0, 1fr) minmax(70px, 26%) minmax(58px, 20%); }
       .flipbook-preview {
         width: min(92vw, 640px);
         height: min(45vh, 360px);
@@ -667,6 +716,55 @@
 
     #page2:fullscreen .page-review-layout {
       height: calc(100vh - 20px);
+    }
+
+    #page2.flipbook-focus .page-review-layout {
+      height: 100%;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 0;
+    }
+
+    #page2.flipbook-focus .review-top,
+    #page2.flipbook-focus .spark-panel,
+    #page2.flipbook-focus .actions {
+      display: none !important;
+    }
+
+    #page2.flipbook-focus .flipbook-preview {
+      position: static;
+      left: auto;
+      top: auto;
+      transform: none;
+      width: min(100%, 640px);
+      max-width: 640px;
+      height: min(52vh, 480px);
+      max-height: 480px;
+      margin: 0 auto;
+      border-width: 1px;
+      border-style: solid;
+      border-color: var(--line);
+      border-left: none;
+      border-right: none;
+      border-top: none;
+      border-radius: 0;
+      box-shadow: none;
+      z-index: auto;
+    }
+
+    #page2.flipbook-focus .frame-grid {
+      border-left: none;
+      border-right: none;
+      border-bottom: none;
+      border-top: 1px solid var(--line);
+      border-radius: 0;
+    }
+
+    #page2.flipbook-focus:fullscreen {
+      padding: 0;
+    }
+
+    #page2.flipbook-focus:fullscreen .page-review-layout {
+      height: 100vh;
     }
 
     body.review-fullscreen-fallback .app {
@@ -694,6 +792,14 @@
 
     body.review-fullscreen-fallback #page2 .page-review-layout {
       height: calc(100vh - 24px);
+    }
+
+    body.review-fullscreen-fallback #page2.flipbook-focus {
+      padding: 0;
+    }
+
+    body.review-fullscreen-fallback #page2.flipbook-focus .page-review-layout {
+      height: 100vh;
     }
   </style>
 </head>
@@ -762,7 +868,7 @@
         <div class="panel review-top">
           <div id="reviewStats" class="review-stats">No frames loaded.</div>
           <div class="iqr-box">
-            <button id="sparkPlayBtn" class="action spark-play-btn" type="button" title="Show flipbook window">Flipbook</button>
+            <button id="sparkPlayBtn" class="action spark-play-btn" type="button" title="Open fullscreen flipbook">Flipbook</button>
             <label for="iqrK">IQR k</label>
             <input id="iqrK" type="range" min="0" max="12" step="0.05" value="3.5">
             <span id="iqrLabel">3.50</span>
@@ -777,6 +883,22 @@
         <div class="panel spark-panel">
           <svg id="iqrSpark" class="iqr-spark" viewBox="0 0 320 68" preserveAspectRatio="none"></svg>
           <div id="sparkMeta" class="spark-meta"></div>
+        </div>
+
+        <div id="flipbookPreview" class="flipbook-preview" aria-hidden="true">
+          <div class="flipbook-head">
+            <span>Flipbook Preview</span>
+            <div class="flipbook-controls">
+              <button id="flipbookRevBtn" class="action" type="button" title="Previous frame">&#9664;&#9664;</button>
+              <button id="flipbookPlayBtn" class="action primary" type="button" title="Play flipbook">&#9654;</button>
+              <button id="flipbookFwdBtn" class="action" type="button" title="Next frame">&#9654;&#9654;</button>
+              <button id="flipbookCloseBtn" class="action warn" type="button" title="Close flipbook">Close</button>
+              <span id="flipbookMeta"></span>
+            </div>
+          </div>
+          <figure id="flipbookFrame" class="flipbook-frame">
+            <img id="flipbookImage" alt="Flipbook playback frame">
+          </figure>
         </div>
 
         <div id="frameGrid" class="frame-grid"></div>
@@ -797,22 +919,6 @@
         </div>
       </div>
     </section>
-  </div>
-
-  <div id="flipbookPreview" class="flipbook-preview" aria-hidden="true">
-    <div class="flipbook-head">
-      <span>Flipbook Preview</span>
-      <div class="flipbook-controls">
-        <button id="flipbookRevBtn" class="action" type="button" title="Previous frame">&#9664;&#9664;</button>
-        <button id="flipbookPlayBtn" class="action primary" type="button" title="Play flipbook">&#9654;</button>
-        <button id="flipbookFwdBtn" class="action" type="button" title="Next frame">&#9654;&#9654;</button>
-        <button id="flipbookCloseBtn" class="action warn" type="button" title="Close flipbook">Close</button>
-        <span id="flipbookMeta"></span>
-      </div>
-    </div>
-    <figure id="flipbookFrame" class="flipbook-frame">
-      <img id="flipbookImage" alt="Flipbook playback frame">
-    </figure>
   </div>
 
   <div id="overlay" class="overlay">
@@ -873,7 +979,7 @@
         <ul>
           <li>The tuner does not directly edit video pixels. It only writes frame IDs into chapter metadata.</li>
           <li>In render, the AviSynth script builds <code>FreezeFrame(start, end, source)</code> instructions from those bad-frame ranges.</li>
-          <li>The source frame is chosen automatically from nearby clean frames (usually the next clean frame, with fallback to previous clean frame when needed).</li>
+          <li>The source frame is chosen from the next clean frame only; if none exists in-range, that bad range remains unrepaired.</li>
           <li>Adjacent bad-frame IDs are merged into ranges, so contiguous damage is replaced consistently.</li>
         </ul>
 
@@ -904,10 +1010,10 @@
       simulateFreezeFrame: false,
     };
 
-    const FREEZE_BRIDGE_ALWAYS_GAP = 1;
-    const FREEZE_BRIDGE_SINGLETON_GAP = 5;
-    const FREEZE_SINGLE_FRAME_SOURCE_SKIP = 2;
-    const FREEZE_SOURCE_CLEARANCE = 1;
+    const FREEZE_BRIDGE_ALWAYS_GAP = 0;
+    const FREEZE_BRIDGE_SINGLETON_GAP = 0;
+    const FREEZE_SINGLE_FRAME_SOURCE_SKIP = 0;
+    const FREEZE_SOURCE_CLEARANCE = 0;
 
     const statusEl = document.getElementById('status');
     const overlayEl = document.getElementById('overlay');
@@ -961,6 +1067,7 @@
     let sparkPlayTimer = null;
     let sparkPlayFrames = [];
     let sparkPlayIndex = 0;
+    let flipbookGridCursorIndex = -1;
     let flipbookToggleInFlight = false;
 
     function setLoadCancelUi(visible, disabled = false, label = 'Cancel') {
@@ -1162,13 +1269,11 @@
       const pages = ['page1', 'page2', 'page3'];
       const pills = ['stepPill1', 'stepPill2', 'stepPill3'];
       if (step !== 2) {
+        setFlipbookFocusMode(false);
         stopSparkWindowPlayback();
       }
-      if (step !== 2 && document.fullscreenElement === page2El && document.exitFullscreen) {
-        document.exitFullscreen().catch(() => {});
-      }
-      if (step !== 2 && document.body.classList.contains('review-fullscreen-fallback')) {
-        document.body.classList.remove('review-fullscreen-fallback');
+      if (step !== 2 && isReviewFullscreenActive()) {
+        exitReviewFullscreenIfActive();
       }
       pages.forEach((id, i) => {
         document.getElementById(id).classList.toggle('active', i + 1 === step);
@@ -1406,6 +1511,40 @@
       return page2El && page2El.classList.contains('active');
     }
 
+    function isReviewFullscreenActive() {
+      return document.fullscreenElement === page2El || document.body.classList.contains('review-fullscreen-fallback');
+    }
+
+    function setFlipbookFocusMode(active) {
+      if (!page2El) return;
+      page2El.classList.toggle('flipbook-focus', Boolean(active));
+      if (!active) {
+        syncFrameGridPlaybackCursor(-1);
+      }
+    }
+
+    async function ensureReviewFullscreenActive() {
+      if (!page2El || isReviewFullscreenActive()) return;
+      if (document.fullscreenEnabled && page2El.requestFullscreen) {
+        try {
+          await page2El.requestFullscreen();
+          return;
+        } catch (_err) {}
+      }
+      document.body.classList.add('review-fullscreen-fallback');
+    }
+
+    async function exitReviewFullscreenIfActive() {
+      if (document.fullscreenElement === page2El && document.exitFullscreen) {
+        try {
+          await document.exitFullscreen();
+        } catch (_err) {}
+      }
+      if (document.body.classList.contains('review-fullscreen-fallback')) {
+        document.body.classList.remove('review-fullscreen-fallback');
+      }
+    }
+
     function _clamp(value, minValue, maxValue) {
       return Math.max(minValue, Math.min(maxValue, Number(value)));
     }
@@ -1429,6 +1568,63 @@
       const top = Math.max(0, target.offsetTop - Math.floor(frameGridEl.clientHeight * 0.12));
       frameGridEl.scrollTo({ top, behavior: 'auto' });
       scheduleVisibleRangeRefresh();
+    }
+
+    function _centerFrameCardInGrid(card) {
+      if (!frameGridEl || !card) return;
+
+      const viewportH = Math.max(1, window.innerHeight || document.documentElement.clientHeight || 1);
+      const gridRect = frameGridEl.getBoundingClientRect();
+      if (gridRect.bottom < 0 || gridRect.top > viewportH) {
+        frameGridEl.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+      }
+
+      const cardRect = card.getBoundingClientRect();
+      const padY = Math.max(18, Math.floor(gridRect.height * 0.2));
+      const padX = Math.max(18, Math.floor(gridRect.width * 0.12));
+      const inViewY = cardRect.top >= (gridRect.top + padY) && cardRect.bottom <= (gridRect.bottom - padY);
+      const inViewX = cardRect.left >= (gridRect.left + padX) && cardRect.right <= (gridRect.right - padX);
+      if (inViewY && inViewX) return;
+
+      if (typeof card.scrollIntoView === 'function') {
+        card.scrollIntoView({ block: 'center', inline: 'center', behavior: 'auto' });
+      } else {
+        const top = Math.max(0, card.offsetTop - Math.floor((frameGridEl.clientHeight - card.offsetHeight) / 2));
+        const left = Math.max(0, card.offsetLeft - Math.floor((frameGridEl.clientWidth - card.offsetWidth) / 2));
+        frameGridEl.scrollTo({ top, left, behavior: 'auto' });
+      }
+      scheduleVisibleRangeRefresh();
+    }
+
+    function syncFrameGridPlaybackCursor(index, keepVisible = false) {
+      const cards = Array.from(frameGridEl.querySelectorAll('.frame-card'));
+      if (!cards.length) {
+        flipbookGridCursorIndex = -1;
+        return;
+      }
+      for (const c of cards) c.classList.remove('playback-current');
+      const next = Number(index);
+      if (!Number.isFinite(next) || next < 0) {
+        flipbookGridCursorIndex = -1;
+        return;
+      }
+      const idx = _clamp(next, 0, cards.length - 1);
+      const currentFrame = sparkPlayFrames[idx] || null;
+      const currentFid = currentFrame ? String(currentFrame.fid || '') : '';
+      let gridIdx = idx;
+      if (currentFid) {
+        const byFid = cards.findIndex(c => String(c.dataset.fid || '') === currentFid);
+        if (byFid >= 0) gridIdx = byFid;
+      }
+      const card = cards[gridIdx];
+      if (!card) {
+        flipbookGridCursorIndex = -1;
+        return;
+      }
+      card.classList.add('playback-current');
+      flipbookGridCursorIndex = gridIdx;
+      if (!keepVisible) return;
+      _centerFrameCardInGrid(card);
     }
 
     function updateSparkPlayButton() {
@@ -1474,6 +1670,7 @@
       }
       if (!on) {
         if (flipbookImageEl) flipbookImageEl.removeAttribute('src');
+        syncFrameGridPlaybackCursor(-1);
       }
       updateFlipbookControls();
     }
@@ -1495,8 +1692,9 @@
         .filter(Boolean);
     }
 
-    function renderSparkPlaybackFrame(index) {
+    function renderSparkPlaybackFrame(index, options = {}) {
       if (!sparkPlayFrames.length || !flipbookImageEl) return;
+      const keepVisible = !(options && options.keepVisible === false);
       const idx = _clamp(Number(index), 0, sparkPlayFrames.length - 1);
       const frame = sparkPlayFrames[idx];
       if (!frame) return;
@@ -1507,6 +1705,7 @@
         flipbookMetaEl.textContent = `${idx + 1}/${sparkPlayFrames.length}  G:${frame.fid || '?'}  ${statusTag}`;
       }
       sparkPlayIndex = idx;
+      syncFrameGridPlaybackCursor(idx, keepVisible);
       updateFlipbookControls();
     }
 
@@ -1523,6 +1722,28 @@
       }
       sparkPlayFrames = updated;
       sparkPlayIndex = nextIndex;
+    }
+
+    function seekFlipbookToFrameId(fid, options = {}) {
+      const fidKey = String(fid || '').trim();
+      if (!fidKey) return false;
+      const keepVisible = !(options && options.keepVisible === false);
+
+      if (sparkPlayFrames.length) {
+        syncSparkPlayFramesFromGrid();
+      } else {
+        sparkPlayFrames = _collectFlipbookFramesFromGrid();
+      }
+      if (!sparkPlayFrames.length) return false;
+
+      const idx = sparkPlayFrames.findIndex(f => String(f.fid || '') === fidKey);
+      if (idx < 0) return false;
+
+      sparkPlayIndex = idx;
+      if (flipbookPreviewEl && flipbookPreviewEl.classList.contains('active')) {
+        renderSparkPlaybackFrame(idx, { keepVisible });
+      }
+      return true;
     }
 
     function ensureFlipbookReady(resetIndex = false) {
@@ -1555,7 +1776,7 @@
       }
 
       if (panelOpen) {
-        renderSparkPlaybackFrame(sparkPlayIndex);
+        renderSparkPlaybackFrame(sparkPlayIndex, { keepVisible: false });
       }
       updateSparkPlayButton();
     }
@@ -1574,6 +1795,7 @@
       sparkPlayFrames = [];
       sparkPlayIndex = 0;
       setFlipbookVisible(false);
+      syncFrameGridPlaybackCursor(-1);
       updateSparkPlayButton();
       updateFlipbookControls();
     }
@@ -1628,18 +1850,20 @@
       updateFlipbookControls();
     }
 
-    function openFlipbookPanel() {
+    async function openFlipbookPanel() {
       if (!isReviewStepActive()) return;
       if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) {
-        setStatus('Load and review frames before opening flipbook.', true);
+        setStatus('Load and review frames before opening fullscreen flipbook.', true);
         return;
       }
       sparkPlayFrames = _collectFlipbookFramesFromGrid();
       if (!sparkPlayFrames.length) {
-        setStatus('No frame images are available for flipbook.', true);
+        setStatus('No frame images are available for fullscreen flipbook.', true);
         return;
       }
       sparkPlayIndex = _clamp(Number(sparkPlayIndex || 0), 0, sparkPlayFrames.length - 1);
+      setFlipbookFocusMode(true);
+      await ensureReviewFullscreenActive();
       setFlipbookVisible(true);
       _pauseSparkWindowPlayback();
       renderSparkPlaybackFrame(sparkPlayIndex);
@@ -1655,6 +1879,13 @@
       if (!isReviewStepActive()) return;
       if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) return;
       startSparkWindowPlayback();
+    }
+
+    async function closeFlipbookPanel() {
+      stopSparkWindowPlayback();
+      setFlipbookFocusMode(false);
+      await exitReviewFullscreenIfActive();
+      updateFullscreenButton();
     }
 
     function seekFrameGridFromSparkClientX(clientX) {
@@ -1695,24 +1926,18 @@
     }
 
     function updateFullscreenButton() {
-      const active = document.fullscreenElement === page2El || document.body.classList.contains('review-fullscreen-fallback');
+      if (!fullscreenBtnEl) return;
+      const active = isReviewFullscreenActive();
       fullscreenBtnEl.textContent = active ? 'Exit Fullscreen' : 'Fullscreen';
     }
 
     async function toggleReviewFullscreen() {
       if (!page2El) return;
-      try {
-        if (document.fullscreenEnabled && page2El.requestFullscreen) {
-          if (document.fullscreenElement === page2El) {
-            await document.exitFullscreen();
-          } else {
-            await page2El.requestFullscreen();
-          }
-        } else {
-          document.body.classList.toggle('review-fullscreen-fallback');
-        }
-      } catch (err) {
-        document.body.classList.toggle('review-fullscreen-fallback');
+      if (isReviewFullscreenActive()) {
+        setFlipbookFocusMode(false);
+        await exitReviewFullscreenIfActive();
+      } else {
+        await ensureReviewFullscreenActive();
       }
       updateFullscreenButton();
     }
@@ -1869,27 +2094,14 @@
         return null;
       }
 
-      function chooseSourceBefore(a, extraSkip = 0) {
-        const maxSource = Number(a) - 1 - Math.max(0, Number(extraSkip) || 0);
-        for (let i = sourceCandidates.length - 1; i >= 0; i -= 1) {
-          const src = sourceCandidates[i];
-          if (src > maxSource) continue;
-          if (src < 0) return null;
-          if (maxSourceFrame !== null && src > maxSourceFrame) continue;
-          if (sourceIsClear(src)) return src;
-        }
-        return null;
-      }
-
       const resolved = [];
       for (const [aRaw, bRaw] of baseRanges) {
         const a = Number(aRaw);
         const b = Number(bRaw);
         const span = b - a + 1;
         const sourceSkip = span === 1 ? FREEZE_SINGLE_FRAME_SOURCE_SKIP : 0;
-        const prevSrc = chooseSourceBefore(a, sourceSkip);
         const nextSrc = chooseSourceAfter(b, sourceSkip);
-        const src = nextSrc !== null ? nextSrc : prevSrc;
+        const src = nextSrc;
         if (src === null) continue;
         resolved.push([a, b, src]);
       }
@@ -1958,6 +2170,7 @@
 
     function renderReviewFrames(frames) {
       frameGridEl.innerHTML = '';
+      syncFrameGridPlaybackCursor(-1);
       if (!frames || !frames.length) {
         state.freezeReplacementMap = new Map();
         frameGridEl.textContent = 'No frames loaded.';
@@ -2196,7 +2409,7 @@
       try {
         await toggleFrame(fid, { showOverlay: false });
         syncSparkPlayFramesFromGrid();
-        renderSparkPlaybackFrame(sparkPlayIndex);
+        renderSparkPlaybackFrame(sparkPlayIndex, { keepVisible: false });
       } finally {
         flipbookToggleInFlight = false;
         updateFlipbookControls();
@@ -2269,6 +2482,10 @@
     document.getElementById('saveAndReturn').addEventListener('click', saveAndReturn);
     fullscreenBtnEl.addEventListener('click', toggleReviewFullscreen);
     document.addEventListener('fullscreenchange', () => {
+      if (page2El && page2El.classList.contains('flipbook-focus') && !isReviewFullscreenActive()) {
+        stopSparkWindowPlayback();
+        setFlipbookFocusMode(false);
+      }
       updateFullscreenButton();
       scheduleVisibleRangeRefresh();
     });
@@ -2289,7 +2506,16 @@
     frameGridEl.addEventListener('click', (event) => {
       const card = event.target.closest('.frame-card');
       if (!card) return;
-      toggleFrame(card.dataset.fid);
+      const fid = String(card.dataset.fid || '').trim();
+      const flipbookOn = Boolean(flipbookPreviewEl && flipbookPreviewEl.classList.contains('active'));
+      if (sparkPlayTimer) {
+        _pauseSparkWindowPlayback();
+      }
+      if (flipbookOn && fid) {
+        seekFlipbookToFrameId(fid, { keepVisible: false });
+      }
+      const showOverlay = !(page2El && page2El.classList.contains('flipbook-focus'));
+      toggleFrame(fid, { showOverlay });
     });
     frameGridEl.addEventListener('scroll', () => {
       scheduleVisibleRangeRefresh();
@@ -2401,7 +2627,7 @@
     }
     if (flipbookCloseBtnEl) {
       flipbookCloseBtnEl.addEventListener('click', () => {
-        stopSparkWindowPlayback();
+        closeFlipbookPanel();
       });
     }
     if (flipbookFrameEl) {
