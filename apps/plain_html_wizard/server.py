@@ -241,9 +241,7 @@ def _selected_bad_frame_ids(session: SessionState) -> list[int]:
 def _summary_payload(session: SessionState) -> dict[str, Any]:
     review = _build_review_payload(session, include_images=False)
     bad_ids = [str(f["fid"]) for f in review["frames"] if f["status"] == "bad"]
-    preview = ", ".join(bad_ids[:28])
-    if len(bad_ids) > 28:
-        preview += f", ... (+{len(bad_ids) - 28} more)"
+    preview = ", ".join(bad_ids)
     summary_text = (
         f"Archive: {session.archive}\n"
         f"Chapter: {session.chapter}\n"
