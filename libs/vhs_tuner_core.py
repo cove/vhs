@@ -50,7 +50,7 @@ from common import (
 # Chapter / metadata helpers
 # ===============================================================================
 
-def parse_ffmetadata_chapters(path: Path) -> list[dict]:
+def load_archive_chapters(path: Path) -> list[dict]:
     # Keep chapter frame mapping identical to the render pipeline.
     path = Path(path)
     archive = str(path.parent.name)
@@ -72,6 +72,9 @@ def parse_ffmetadata_chapters(path: Path) -> list[dict]:
             }
         )
     return result
+
+# Backward-compatible alias for older callers.
+parse_ffmetadata_chapters = load_archive_chapters
 
 
 def _normalize_frame_span(ch_start: int, ch_end: int) -> tuple[int, int]:
@@ -207,7 +210,7 @@ def _persist_visible_bad_frames(
     cf = _chapters_file_path(archive)
     if not cf.exists():
         return None, 0
-    chapters = parse_ffmetadata_chapters(cf)
+    chapters = load_archive_chapters(cf)
     ch = _find_chapter(chapters, chapter_title)
     if not ch:
         return None, 0
@@ -1072,7 +1075,7 @@ def _get_chapter_titles(archive: str) -> list[str]:
     cf = METADATA_DIR / archive / "chapters.ffmetadata"
     if not cf.exists():
         return [CHAPTER_MISSING_LABEL]
-    chapters = parse_ffmetadata_chapters(cf)
+    chapters = load_archive_chapters(cf)
     return [CHAPTER_SELECT_LABEL] + [ch["title"] for ch in chapters]
 
 def _find_chapter(chapters: list[dict], title: str) -> dict | None:
@@ -1140,7 +1143,7 @@ def build_archive_state(
 ) -> dict:
     titles = _get_chapter_titles(archive)
     cf = METADATA_DIR / archive / "chapters.ffmetadata" if archive else None
-    chapters = parse_ffmetadata_chapters(cf) if cf and cf.exists() else []
+    chapters = load_archive_chapters(cf) if cf and cf.exists() else []
     chapter_titles = [str(ch.get("title", "")) for ch in chapters if str(ch.get("title", ""))]
     chapter_rows, compact_rows = _chapter_rows(chapters)
 

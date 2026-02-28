@@ -969,7 +969,6 @@ def _run_with_args(args):
             print(f"Skipping {src.name}: no metadata found {chapters_file}")
             continue
         _settings_path, _render_settings = load_render_settings(archive_name, create=True)
-        bad_frames_by_chapter = load_bad_frames_by_chapter_from_render_settings(archive_name)
 
         ffm, chapters = parse_chapters(chapters_file)
         if not chapters:
@@ -1063,7 +1062,7 @@ def _run_with_args(args):
                 print(f"Applying video filters...")
                 if sys.platform == "win32":
                     if filter_script.exists():
-                        global_bad = list(bad_frames_by_chapter.get(str(title), []))
+                        global_bad = get_bad_frames_for_chapter(archive_name, str(title))
                         manual_source_frames_global = [
                             f for f in global_bad if chapter_start_frame <= int(f) < chapter_end_frame
                         ]

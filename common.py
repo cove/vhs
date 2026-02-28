@@ -479,6 +479,7 @@ def _render_settings_template() -> dict:
         },
         "archive_settings": {
             "transcript": "off",
+            "inherit_bad_frames_from_overlaps": False,
         },
         "chapter_settings": {},
         "bad_frames_by_chapter": {},
@@ -491,6 +492,18 @@ def _normalize_transcript_mode(raw: object, default: str = "off") -> str:
     if mode in {"on", "true", "1", "yes", "force", "auto"}:
         return "on"
     return str(default).strip().lower() if str(default).strip() else "off"
+
+def _normalize_bool(raw: object, default: bool = False) -> bool:
+    if isinstance(raw, bool):
+        return bool(raw)
+    if raw is None:
+        return bool(default)
+    text = str(raw).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
 
 def load_render_settings(archive: str, create: bool = False) -> tuple[Path, dict]:
     path = render_settings_path(archive)
@@ -506,6 +519,10 @@ def load_render_settings(archive: str, create: bool = False) -> tuple[Path, dict
                 out["archive_settings"]["transcript"] = _normalize_transcript_mode(
                     out["archive_settings"].get("transcript", "off"),
                     default="off",
+                )
+                out["archive_settings"]["inherit_bad_frames_from_overlaps"] = _normalize_bool(
+                    out["archive_settings"].get("inherit_bad_frames_from_overlaps", False),
+                    default=False,
                 )
                 return path, out
         except Exception:
@@ -526,6 +543,10 @@ def save_render_settings(archive: str, settings: dict) -> Path:
     payload["archive_settings"]["transcript"] = _normalize_transcript_mode(
         payload["archive_settings"].get("transcript", "off"),
         default="off",
+    )
+    payload["archive_settings"]["inherit_bad_frames_from_overlaps"] = _normalize_bool(
+        payload["archive_settings"].get("inherit_bad_frames_from_overlaps", False),
+        default=False,
     )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
@@ -554,12 +575,45 @@ def load_bad_frames_by_chapter_from_render_settings(archive: str) -> dict[str, l
         out[key] = parsed
     return out
 
+def inherit_bad_frames_from_overlaps_enabled(archive: str) -> bool:
+    _path, settings = load_render_settings(archive, create=False)
+    archive_settings = dict(settings.get("archive_settings") or {})
+    return _normalize_bool(
+        archive_settings.get("inherit_bad_frames_from_overlaps", False),
+        default=False,
+    )
+
 def get_bad_frames_for_chapter(archive: str, chapter_title: str) -> list[int]:
     title = str(chapter_title or "").strip()
     if not title:
         return []
     by_title = load_bad_frames_by_chapter_from_render_settings(archive)
-    return list(by_title.get(title, []))
+    direct = list(by_title.get(title, []))
+    if not inherit_bad_frames_from_overlaps_enabled(archive):
+        return direct
+
+    chapters_path = METADATA_DIR / str(archive or "").strip() / "chapters.ffmetadata"
+    if not chapters_path.exists():
+        return direct
+    _ffm, chapters = parse_chapters(chapters_path)
+    chapter_obj = next(
+        (ch for ch in chapters if str(ch.get("title", "")).strip() == title),
+        None,
+    )
+    if chapter_obj is None:
+        return direct
+
+    start_frame, end_frame = chapter_frame_bounds(chapter_obj, fps_num=30000, fps_den=1001)
+    merged = {int(x) for x in direct if int(x) >= 0}
+    for vals in by_title.values():
+        for item in list(vals or []):
+            try:
+                fid = int(item)
+            except Exception:
+                continue
+            if start_frame <= fid < end_frame:
+                merged.add(fid)
+    return sorted(merged)
 
 def update_chapter_bad_frames_in_render_settings(
     archive: str,

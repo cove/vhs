@@ -75,6 +75,11 @@ How `BAD_FRAMES` maps to AviSynth `FreezeFrame`
   - prefer the next clean frame after a bad range
   - fall back to a previous clean frame if needed
 - Contiguous/near-contiguous bad frames are merged so replacements are stable across bursts.
+- By default BAD frames are stored per chapter title. To have a larger chapter
+  (for example "01 Full Wedding") inherit bad frames that were marked in
+  overlapping subchapters, set:
+  - `archive_settings.inherit_bad_frames_from_overlaps = true`
+    in `metadata/<archive>/render_settings.json`.
 
 Status and cancellation
 -----------------------

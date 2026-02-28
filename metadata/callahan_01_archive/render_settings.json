@@ -6,9 +6,23 @@
     "bad_frames_by_chapter": "Per-chapter BAD frame IDs in global archive frame numbering."
   },
   "archive_settings": {
-    "transcript": "off"
+    "transcript": "off",
+    "inherit_bad_frames_from_overlaps": true
   },
-  "chapter_settings": {},
+  "chapter_settings": {
+    "1995 - Jim & Linda Wedding - 06 Nuptials (March 18, 1995)": {
+      "transcript": "on"
+    },
+    "1995 - Jim & Linda Wedding - 12 Reception Wedding Cake with Gloria Dilbeck & Beverly Callahan (March 18, 1995)": {
+      "transcript": "on"
+    },
+    "1995 - Jim & Linda Wedding - 15 Reception Speech by Kevin Callahan (March 18, 1995)": {
+      "transcript": "on"
+    },
+    "1995 - Jim & Linda Wedding - 25 Reception Removing Wedding Garter (March 18, 1995)": {
+      "transcript": "on"
+    }
+  },
   "bad_frames_by_chapter": {
     "1995 - Jim & Linda Wedding - 04 Family Processional (March 18, 1995)": [
       646,

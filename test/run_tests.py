@@ -1766,7 +1766,7 @@ def test_vhs_tuner_manual_click_persists_bad_frames():
                 last_click_event={"fid": -1, "ts": -1},
             )
             assert overrides.get(1000) == "bad", dbg
-            chapters = vhs_tuner.parse_ffmetadata_chapters(cf)
+            chapters = vhs_tuner.load_archive_chapters(cf)
             ch = vhs_tuner._find_chapter(chapters, "Unit Chapter")
             assert ch is not None
             assert ch.get("bad_frames", []) == []
@@ -1782,7 +1782,7 @@ def test_vhs_tuner_manual_click_persists_bad_frames():
                 wc=1.0, wn=0.0, wt=0.0, ww=0.0,
                 tm="value", ik=3.5, tv=1.0, bp=10.0,
             )
-            chapters = vhs_tuner.parse_ffmetadata_chapters(cf)
+            chapters = vhs_tuner.load_archive_chapters(cf)
             ch = vhs_tuner._find_chapter(chapters, "Unit Chapter")
             assert ch is not None
             assert ch.get("bad_frames", []) == [1000]
@@ -1813,7 +1813,7 @@ def test_vhs_tuner_manual_click_persists_bad_frames():
                 wc=1.0, wn=0.0, wt=0.0, ww=0.0,
                 tm="value", ik=3.5, tv=1.0, bp=10.0,
             )
-            chapters = vhs_tuner.parse_ffmetadata_chapters(cf)
+            chapters = vhs_tuner.load_archive_chapters(cf)
             ch = vhs_tuner._find_chapter(chapters, "Unit Chapter")
             assert ch is not None
             assert ch.get("bad_frames", []) == []
@@ -1921,7 +1921,7 @@ def test_vhs_tuner_manual_click_modes_bad_and_good():
                 wc=1.0, wn=0.0, wt=0.0, ww=0.0,
                 tm="value", ik=3.5, tv=1.0, bp=10.0,
             )
-            ch = vhs_tuner._find_chapter(vhs_tuner.parse_ffmetadata_chapters(cf), "Unit Chapter")
+            ch = vhs_tuner._find_chapter(vhs_tuner.load_archive_chapters(cf), "Unit Chapter")
             assert ch is not None
             assert ch.get("bad_frames", []) == [1000]
             text = cf.read_text(encoding="utf-8")
@@ -1955,7 +1955,7 @@ def test_vhs_tuner_manual_click_modes_bad_and_good():
                 wc=1.0, wn=0.0, wt=0.0, ww=0.0,
                 tm="value", ik=3.5, tv=1.0, bp=10.0,
             )
-            ch = vhs_tuner._find_chapter(vhs_tuner.parse_ffmetadata_chapters(cf), "Unit Chapter")
+            ch = vhs_tuner._find_chapter(vhs_tuner.load_archive_chapters(cf), "Unit Chapter")
             assert ch is not None
             assert ch.get("bad_frames", []) == []
             text = cf.read_text(encoding="utf-8")
@@ -2027,7 +2027,7 @@ def test_vhs_tuner_auto_and_manual_persist_to_bad_frames():
                 wc=1.0, wn=0.0, wt=0.0, ww=0.0,
                 tm="value", ik=3.5, tv=0.0, bp=10.0,
             )
-            chapters = vhs_tuner.parse_ffmetadata_chapters(cf)
+            chapters = vhs_tuner.load_archive_chapters(cf)
             ch = vhs_tuner._find_chapter(chapters, "Unit Chapter")
             assert ch is not None
             out = set(int(x) for x in ch.get("bad_frames", []))
@@ -2081,7 +2081,7 @@ def test_vhs_tuner_persist_loaded_frame_set_mode():
             assert analyzed == 2
             assert count == 2
 
-            chapters = vhs_tuner.parse_ffmetadata_chapters(cf)
+            chapters = vhs_tuner.load_archive_chapters(cf)
             ch = vhs_tuner._find_chapter(chapters, "Unit Chapter")
             assert ch is not None
             assert ch.get("bad_frames", []) == [1000, 1001]
