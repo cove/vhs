@@ -276,3 +276,4 @@ cython_debug/
 
 /test/Archive/00-archive-manifest-sha3-256sums.txt
 metadata/callahan_01_archive/corner_black_candidates/
+tmp/
