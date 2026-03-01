@@ -3,12 +3,193 @@ title=Callahan 03 Archive (VHS Tape)
 
 [CHAPTER]
 TIMEBASE=1001/30000
-START=461
-END=12258
-title=1995 - Lynda & Jim's Wedding - 01 Rehearsal (March 18, 1995)
-DATE_RECORDED=1995; UTC
+START=340
+END=8745
+title=2000 - Ryan 4 to 11 Months - 01 Ryan Rollovers with Lynda
+DATE_RECORDED=2000; UTC
 DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
-RECORDING_LOCATION=US, California, Pasadena
-location=+34.15756-118.13637+274.03/Church of Truth, 690 E Orange Grove Blvd, Pasadena, CA 91104
-creation_time=1995
-comment=Church of Truth, 690 E Orange Grove Blvd, Pasadena, CA 91104
+RECORDING_LOCATION=US, California, Altadena
+location=+38.0794477-122.2095686/1993 Beverly Dr, Pasadena, CA 91104
+creation_time=2000
+comment=Extensive drop outs and loss of tracking
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=8997
+END=9591
+title=2000 - Ryan 4 to 11 Months - 02 Jim Holding Ryan on Sofa
+DATE_RECORDED=2000; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+RECORDING_LOCATION=US
+location=/
+creation_time=2000
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=8997
+END=16105
+title=2000 - Ryan 4 to 11 Months - 03 Valentine's Day with Ryan
+DATE_RECORDED=2000; UTC
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+RECORDING_LOCATION=US
+location=/
+creation_time=2000
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=16370
+END=17878
+title=2000 - Ryan 4 to 11 Months - 04 Ryan in Playpen with Toys
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+RECORDING_LOCATION=US
+location=/
+creation_time=2000
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=18131
+END=21417
+title=2000 - Ryan 4 to 11 Months - 05 Jim holding Ryan on Sofa
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+RECORDING_LOCATION=US
+location=/
+creation_time=2000
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=21610
+END=25379
+title=2000 - Ryan 4 to 11 Months - 06 Lynda playing with Ryan on floor
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+RECORDING_LOCATION=US
+location=/
+creation_time=2000
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=21610
+END=25379
+title=2000 - Ryan 4 to 11 Months - 07 Lynda playing with Ryan on floor
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+RECORDING_LOCATION=US
+location=/
+creation_time=2000
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=25641
+END=27312
+title=2000 - Ryan 4 to 11 Months - 08 Ryan in Rocker
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+RECORDING_LOCATION=US
+location=/
+creation_time=2000
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=27400
+END=31745
+title=2000 - Ryan 4 to 11 Months - 09 June Cordell holding Ryan
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+RECORDING_LOCATION=US
+location=/
+creation_time=2000
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=31980
+END=34570
+title=2000 - Ryan 4 to 11 Months - 10 Jim entertaining Ryan with his feet
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+RECORDING_LOCATION=US
+location=/
+creation_time=2000
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=34830
+END=39062
+title=2000 - Ryan 4 to 11 Months - 11 Ryan sitting on Sofa
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+RECORDING_LOCATION=US
+location=/
+creation_time=2000
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=39294
+END=41815
+title=2000 - Ryan 4 to 11 Months - 12 June Cordell holding Ryan
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+RECORDING_LOCATION=US
+location=/
+creation_time=2000
+comment=Gloria, Jim
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=42178
+END=44617
+title=2000 - Ryan 4 to 11 Months - 13 Linda playing with Ryan on Sofa
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+RECORDING_LOCATION=US
+location=/
+creation_time=2000
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=44820
+END=48096
+title=2000 - Ryan 4 to 11 Months - 14 Jim & Ryan playing with Ball
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+RECORDING_LOCATION=US
+location=/
+creation_time=2000
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=48333
+END=51787
+title=2000 - Ryan 4 to 11 Months - 15 Bill playing with Ryan on Mother's Day 
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+RECORDING_LOCATION=US
+location=/
+creation_time=2000
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=51788
+END=55314
+title=2000 - Ryan 4 to 11 Months - 16 Gloria playing with Ryan on Mother's Day 
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+RECORDING_LOCATION=US
+location=/
+creation_time=2000
+comment=
+
+[CHAPTER]
+TIMEBASE=1001/30000
+START=
+END=55314
+title=2000 - Ryan 4 to 11 Months - 16 Gloria playing with Ryan on Mother's Day 
+DATE_DIGITIZED=2026-02-13 06:47:44.756 ; UTC
+RECORDING_LOCATION=US
+location=/
+creation_time=2000
+comment=
+
+
+
