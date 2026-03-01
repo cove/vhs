@@ -23,7 +23,15 @@ _HERE = Path(__file__).resolve().parent
 PROJECT_ROOT = _HERE.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from common import ARCHIVE_DIR, FFMPEG_BIN, METADATA_DIR, combined_score, compute_threshold
+from common import (
+    ARCHIVE_DIR,
+    FFMPEG_BIN,
+    METADATA_DIR,
+    combined_score,
+    compute_threshold,
+    get_gamma_profile_for_chapter,
+    update_chapter_gamma_in_render_settings,
+)
 from libs.vhs_tuner_core import (
     _chapter_bad_overrides,
     _chapter_extract_cache_path,
@@ -84,6 +92,8 @@ class SessionState:
     load_sample_total: int = 0
     load_cancel_requested: bool = False
     preview_video_path: str = ""
+    gamma_default: float = 1.0
+    gamma_ranges: list[dict[str, Any]] = field(default_factory=list)
     partial_fids: list[int] = field(default_factory=list)
     partial_b64: list[str] = field(default_factory=list)
     partial_sigs: dict[str, list[float]] = field(
@@ -122,6 +132,77 @@ def _normalize_iqr_k(raw: Any, default: float = 3.5) -> float:
     except Exception:
         value = float(default)
     return max(0.0, min(12.0, float(value)))
+
+def _normalize_gamma_value(raw: Any, default: float = 1.0) -> float:
+    try:
+        value = float(raw)
+    except Exception:
+        value = float(default)
+    if not (value == value):
+        value = float(default)
+    return max(0.05, min(8.0, float(value)))
+
+def _normalize_gamma_ranges_payload(
+    raw_ranges: Any,
+    *,
+    ch_start: int | None = None,
+    ch_end: int | None = None,
+) -> list[dict[str, Any]]:
+    rows: list[tuple[int, int, float, int]] = []
+    for idx, item in enumerate(list(raw_ranges or [])):
+        start = end = gamma = None
+        if isinstance(item, dict):
+            start = item.get("start_frame")
+            end = item.get("end_frame")
+            gamma = item.get("gamma")
+        elif isinstance(item, (list, tuple)) and len(item) >= 3:
+            start, end, gamma = item[0], item[1], item[2]
+        try:
+            a = int(start)
+            b = int(end)
+        except Exception:
+            continue
+        if b <= a:
+            continue
+        if ch_start is not None and ch_end is not None:
+            a = max(int(ch_start), a)
+            b = min(int(ch_end), b)
+            if b <= a:
+                continue
+        g = _normalize_gamma_value(gamma, default=1.0)
+        rows.append((a, b, g, idx))
+    if not rows:
+        return []
+
+    boundaries = set()
+    for a, b, _g, _idx in rows:
+        boundaries.add(int(a))
+        boundaries.add(int(b))
+    cuts = sorted(boundaries)
+    out: list[tuple[int, int, float]] = []
+    for i in range(len(cuts) - 1):
+        seg_a = int(cuts[i])
+        seg_b = int(cuts[i + 1])
+        if seg_b <= seg_a:
+            continue
+        winner_idx = -1
+        winner_gamma = None
+        for a, b, g, idx in rows:
+            if a <= seg_a and seg_b <= b and idx >= winner_idx:
+                winner_idx = idx
+                winner_gamma = float(g)
+        if winner_gamma is None:
+            continue
+        if out and out[-1][1] == seg_a and abs(float(out[-1][2]) - float(winner_gamma)) < 1e-6:
+            prev_a, _prev_b, prev_g = out[-1]
+            out[-1] = (prev_a, seg_b, prev_g)
+        else:
+            out.append((seg_a, seg_b, float(winner_gamma)))
+    return [
+        {"start_frame": int(a), "end_frame": int(b), "gamma": round(float(g), 4)}
+        for a, b, g in out
+        if int(b) > int(a)
+    ]
 
 
 def _details_text(chapter_row: dict[str, Any] | None) -> str:
@@ -284,6 +365,21 @@ def _summary_payload(session: SessionState) -> dict[str, Any]:
     review = _build_review_payload(session, include_images=False)
     bad_ids = [str(f["fid"]) for f in review["frames"] if f["status"] == "bad"]
     preview = ", ".join(bad_ids)
+    gamma_ranges = _normalize_gamma_ranges_payload(
+        session.gamma_ranges,
+        ch_start=session.start_frame,
+        ch_end=session.end_frame,
+    )
+    gamma_lines = []
+    if gamma_ranges:
+        gamma_lines.append("Gamma ranges:")
+        for item in gamma_ranges:
+            gamma_lines.append(
+                f"- {int(item['start_frame'])}-{int(item['end_frame'])} (end exclusive): gamma {float(item['gamma']):.3f}"
+            )
+    else:
+        gamma_lines.append("Gamma ranges: (none)")
+    gamma_text = "\n".join(gamma_lines)
     summary_text = (
         f"Archive: {session.archive}\n"
         f"Chapter: {session.chapter}\n"
@@ -295,7 +391,9 @@ def _summary_payload(session: SessionState) -> dict[str, Any]:
         f"Analyzed samples: {review['stats']['total']}\n"
         f"Marked bad: {review['stats']['bad']}\n"
         f"Marked good: {review['stats']['good']}\n"
-        f"Manual overrides: {review['stats']['overrides']}\n\n"
+        f"Manual overrides: {review['stats']['overrides']}\n"
+        f"Gamma default: {float(session.gamma_default):.3f}\n"
+        f"{gamma_text}\n\n"
         f"BAD frame IDs (sampled set):\n{preview or '(none)'}"
     )
     return {"summary": summary_text, "review": review}
@@ -576,11 +674,11 @@ class WizardHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/preview_render":
-            self._handle_preview_render(session)
+            self._handle_preview_render(session, payload)
             return
 
         if parsed.path == "/api/save":
-            self._handle_save(session)
+            self._handle_save(session, payload)
             return
 
         self._send_error_json("Not found", code=HTTPStatus.NOT_FOUND)
@@ -652,6 +750,8 @@ class WizardHandler(BaseHTTPRequestHandler):
         session.b64 = []
         session.sigs = {}
         session.overrides = {}
+        session.gamma_default = 1.0
+        session.gamma_ranges = []
         session.partial_fids = []
         session.partial_b64 = []
         session.partial_sigs = {"chroma": [], "noise": [], "tear": [], "wave": []}
@@ -808,6 +908,18 @@ class WizardHandler(BaseHTTPRequestHandler):
             ch_start=session.start_frame,
             ch_end=session.end_frame,
         )
+        gamma_profile = get_gamma_profile_for_chapter(
+            archive=session.archive,
+            chapter_title=session.chapter,
+            ch_start=session.start_frame,
+            ch_end=session.end_frame,
+        )
+        session.gamma_default = _normalize_gamma_value(gamma_profile.get("default_gamma", 1.0), default=1.0)
+        session.gamma_ranges = _normalize_gamma_ranges_payload(
+            gamma_profile.get("ranges", []),
+            ch_start=session.start_frame,
+            ch_end=session.end_frame,
+        )
 
         details = {
             "archive": session.archive,
@@ -831,6 +943,11 @@ class WizardHandler(BaseHTTPRequestHandler):
             )
             if bool(session.exact_extract)
             else "",
+            "gamma_profile": {
+                "default_gamma": float(session.gamma_default),
+                "ranges": list(session.gamma_ranges),
+                "source": str(gamma_profile.get("source", "default")),
+            },
         }
 
         review = _build_review_payload(session, include_images=True)
@@ -877,13 +994,28 @@ class WizardHandler(BaseHTTPRequestHandler):
             detail = f"{label} failed: {detail}"
         return False, detail
 
-    def _handle_preview_render(self, session: SessionState) -> None:
+    def _handle_preview_render(self, session: SessionState, payload: dict[str, Any] | None = None) -> None:
         if not session.fids or not session.sigs:
             self._send_error_json("No loaded chapter data yet.")
             return
         if not session.archive or not session.chapter:
             self._send_error_json("Archive and chapter context are missing.")
             return
+
+        payload = payload or {}
+        raw_gamma_profile = payload.get("gamma_profile")
+        if raw_gamma_profile is None:
+            raw_gamma_profile = payload.get("gamma")
+        if isinstance(raw_gamma_profile, dict):
+            session.gamma_default = _normalize_gamma_value(
+                raw_gamma_profile.get("default_gamma", session.gamma_default),
+                default=session.gamma_default,
+            )
+            session.gamma_ranges = _normalize_gamma_ranges_payload(
+                raw_gamma_profile.get("ranges", session.gamma_ranges),
+                ch_start=session.start_frame,
+                ch_end=session.end_frame,
+            )
 
         try:
             from vhs_pipeline.render_pipeline import (
@@ -984,6 +1116,12 @@ class WizardHandler(BaseHTTPRequestHandler):
                     freeze_input = repaired_extracted
 
                 if filter_script.exists():
+                    gamma_default = _normalize_gamma_value(session.gamma_default, default=1.0)
+                    gamma_ranges = _normalize_gamma_ranges_payload(
+                        session.gamma_ranges,
+                        ch_start=start_frame,
+                        ch_end=end_frame,
+                    )
                     script_text = make_create_avs(
                         freeze_input,
                         filter_script,
@@ -991,6 +1129,8 @@ class WizardHandler(BaseHTTPRequestHandler):
                         bad_repair_ranges=[],
                         chapter_start_frame=start_frame,
                         chapter_end_frame=end_frame,
+                        gamma_default=gamma_default,
+                        gamma_ranges=gamma_ranges,
                         no_bob=False,
                         source_clearance=0,
                     )
@@ -1083,10 +1223,25 @@ class WizardHandler(BaseHTTPRequestHandler):
             }
         )
 
-    def _handle_save(self, session: SessionState) -> None:
+    def _handle_save(self, session: SessionState, payload: dict[str, Any] | None = None) -> None:
         if not session.fids:
             self._send_error_json("No loaded chapter data yet.")
             return
+
+        payload = payload or {}
+        raw_gamma_profile = payload.get("gamma_profile")
+        if raw_gamma_profile is None:
+            raw_gamma_profile = payload.get("gamma")
+        if isinstance(raw_gamma_profile, dict):
+            session.gamma_default = _normalize_gamma_value(
+                raw_gamma_profile.get("default_gamma", session.gamma_default),
+                default=session.gamma_default,
+            )
+            session.gamma_ranges = _normalize_gamma_ranges_payload(
+                raw_gamma_profile.get("ranges", session.gamma_ranges),
+                ch_start=session.start_frame,
+                ch_end=session.end_frame,
+            )
 
         out_path, count, analyzed, err = persist_bad_frames_for_chapter(
             archive=session.archive,
@@ -1110,15 +1265,24 @@ class WizardHandler(BaseHTTPRequestHandler):
             self._send_error_json(err)
             return
 
+        gamma_path = update_chapter_gamma_in_render_settings(
+            archive=session.archive,
+            chapter_title=session.chapter,
+            gamma_ranges=session.gamma_ranges,
+            default_gamma=session.gamma_default,
+        )
+        gamma_count = len(session.gamma_ranges)
+
         archive_state = _archive_state(session, session.archive, selected_title=session.chapter)
         self._send_json(
             {
                 "ok": True,
                 "message": (
                     f"Saved BAD_FRAMES for {session.chapter} "
-                    f"({int(analyzed)} analyzed, {int(count)} bad)."
+                    f"({int(analyzed)} analyzed, {int(count)} bad). "
+                    f"Saved gamma ranges: {int(gamma_count)}."
                 ),
-                "metadata_path": str(out_path) if out_path else "",
+                "metadata_path": str(gamma_path or out_path) if (gamma_path or out_path) else "",
                 "archive_state": archive_state,
             }
         )

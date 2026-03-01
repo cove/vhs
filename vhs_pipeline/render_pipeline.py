@@ -30,6 +30,7 @@ BADFRAME_SPLIT_BURSTS_ACROSS_NEIGHBORS = False
 # source to avoid using immediately adjacent frames that are often still unstable.
 BADFRAME_SINGLE_FRAME_SOURCE_SKIP = 0
 ENABLE_DESCRATCH_PLUGIN = True
+GAMMA_DEFAULT = 1.0
 
 def chapter_done(final_file):
     return final_file.exists() and final_file.stat().st_size > 100_000
@@ -258,6 +259,131 @@ def _build_badframe_freezeframe_lines(resolved_ranges, frame_multiplier=1):
         last_target_end = ib
     fix_lines.append("c")
     return "\n".join(fix_lines) + "\n"
+
+def _normalize_gamma_value(raw, default=GAMMA_DEFAULT):
+    try:
+        value = float(raw)
+    except Exception:
+        value = float(default)
+    if not (value == value):
+        value = float(default)
+    return max(0.05, min(8.0, float(value)))
+
+def _normalize_gamma_range_entries(gamma_ranges):
+    out = []
+    for idx, item in enumerate(list(gamma_ranges or [])):
+        start = end = gamma = None
+        if isinstance(item, dict):
+            start = item.get("start_frame")
+            end = item.get("end_frame")
+            gamma = item.get("gamma")
+        elif isinstance(item, (list, tuple)) and len(item) >= 3:
+            start, end, gamma = item[0], item[1], item[2]
+        try:
+            a = int(start)
+            b = int(end)
+        except Exception:
+            continue
+        if b <= a:
+            continue
+        g = _normalize_gamma_value(gamma, default=GAMMA_DEFAULT)
+        out.append((a, b, g, idx))
+    return out
+
+def _resolve_gamma_segments_for_chapter(
+    *,
+    chapter_start_frame=0,
+    chapter_end_frame=0,
+    gamma_default=GAMMA_DEFAULT,
+    gamma_ranges=None,
+):
+    chapter_start = int(chapter_start_frame)
+    chapter_end = int(chapter_end_frame)
+    chapter_len = max(1, chapter_end - chapter_start)
+
+    default_gamma = _normalize_gamma_value(gamma_default, default=GAMMA_DEFAULT)
+    raw_entries = _normalize_gamma_range_entries(gamma_ranges)
+    entries = []
+    for a, b, g, idx in raw_entries:
+        ra = max(chapter_start, int(a))
+        rb = min(chapter_end, int(b))
+        if rb <= ra:
+            continue
+        entries.append((ra - chapter_start, rb - chapter_start, float(g), idx))
+
+    boundaries = {0, chapter_len}
+    for a, b, _g, _idx in entries:
+        boundaries.add(int(a))
+        boundaries.add(int(b))
+    cuts = sorted(boundaries)
+
+    segments = []
+    for i in range(len(cuts) - 1):
+        seg_a = int(cuts[i])
+        seg_b = int(cuts[i + 1])
+        if seg_b <= seg_a:
+            continue
+        gamma = float(default_gamma)
+        winner_idx = -1
+        for a, b, g, idx in entries:
+            if a <= seg_a and seg_b <= b and idx >= winner_idx:
+                gamma = float(g)
+                winner_idx = idx
+        if segments and segments[-1][1] == seg_a and abs(float(segments[-1][2]) - float(gamma)) < 1e-6:
+            prev_a, _prev_b, prev_g = segments[-1]
+            segments[-1] = (prev_a, seg_b, prev_g)
+        else:
+            segments.append((seg_a, seg_b, gamma))
+    return segments
+
+def _build_gamma_adjustment_lines(
+    *,
+    chapter_start_frame=0,
+    chapter_end_frame=0,
+    gamma_default=GAMMA_DEFAULT,
+    gamma_ranges=None,
+):
+    segments = _resolve_gamma_segments_for_chapter(
+        chapter_start_frame=chapter_start_frame,
+        chapter_end_frame=chapter_end_frame,
+        gamma_default=gamma_default,
+        gamma_ranges=gamma_ranges,
+    )
+    chapter_len = max(1, int(chapter_end_frame) - int(chapter_start_frame))
+    if not segments:
+        return ""
+    if all(abs(float(gamma) - 1.0) < 1e-6 for _a, _b, gamma in segments):
+        return ""
+
+    if len(segments) == 1 and int(segments[0][0]) == 0 and int(segments[0][1]) >= chapter_len:
+        gamma = float(segments[0][2])
+        if abs(gamma - 1.0) < 1e-6:
+            return ""
+        return (
+            "c = last\n"
+            f"c = c.SmoothLevels(16, {gamma:.4f}, 255, 16, 235, limiter=1, tvrange=true, dither=0)\n"
+            "c\n"
+        )
+
+    out = [
+        "c = last",
+        "g_out = BlankClip(c, length=0)",
+    ]
+    for a, b, gamma in segments:
+        ia = int(a)
+        ib = int(b) - 1
+        if ib < ia:
+            continue
+        if abs(float(gamma) - 1.0) < 1e-6:
+            out.append(f"g_out = g_out ++ c.Trim({ia},{ib})")
+        else:
+            out.append(
+                "g_out = g_out ++ "
+                f"c.Trim({ia},{ib}).SmoothLevels(16, {float(gamma):.4f}, 255, 16, 235, limiter=1, tvrange=true, dither=0)"
+            )
+    out.append("c = g_out")
+    out.append("c")
+    return "\n".join(out) + "\n"
 
 def build_badframe_prefilter_lines(bad_source_frames=None, bad_repair_ranges=None):
     resolved_ranges = _resolve_badframe_repair_ranges(
@@ -628,6 +754,8 @@ def make_create_avs(
     bad_repair_ranges=None,
     chapter_start_frame=0,
     chapter_end_frame=0,
+    gamma_default=GAMMA_DEFAULT,
+    gamma_ranges=None,
     no_bob=False,
     source_clearance=0,
 ):
@@ -654,6 +782,12 @@ if (c.FrameCount >= (expected_frames * 2 - 2) && c.FrameCount <= (expected_frame
     c = c.SelectEven()
 }}
 """
+    gamma_adjust_text = _build_gamma_adjustment_lines(
+        chapter_start_frame=chapter_start_frame,
+        chapter_end_frame=chapter_end_frame,
+        gamma_default=gamma_default,
+        gamma_ranges=gamma_ranges,
+    )
     no_bob_text = "c = last\nc\n"
     filter_import_path = Path(avs_filter_path).resolve().as_posix()
     descratch_lines = []
@@ -685,6 +819,7 @@ chapter_end_frame = {int(chapter_end_frame)}
 {prefilter_text}
 Import("{filter_import_path}")
 {cadence_guard_text}
+{gamma_adjust_text}
 {no_bob_text}
 '''
     import_marker = f'Import("{filter_import_path}")'
@@ -1111,6 +1246,15 @@ def _run_with_args(args):
                         else:
                             print("No bad frames listed in render_settings; no freeze-frame repairs applied.")
 
+                        gamma_profile = get_gamma_profile_for_chapter(
+                            archive=str(archive_name or ""),
+                            chapter_title=str(title or ""),
+                            ch_start=chapter_start_frame,
+                            ch_end=chapter_end_frame,
+                        )
+                        gamma_default = float(gamma_profile.get("default_gamma", GAMMA_DEFAULT))
+                        gamma_ranges = list(gamma_profile.get("ranges", []))
+
                         script = make_create_avs(
                             freeze_input,
                             filter_script,
@@ -1118,6 +1262,8 @@ def _run_with_args(args):
                             bad_repair_ranges=[],
                             chapter_start_frame=chapter_start_frame,
                             chapter_end_frame=chapter_end_frame,
+                            gamma_default=gamma_default,
+                            gamma_ranges=gamma_ranges,
                             no_bob=args.no_bob,
                             source_clearance=0,
                         )

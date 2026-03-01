@@ -77,6 +77,9 @@ def test_static_html_contains_live_iqr_spark_and_fullscreen_controls() -> None:
     assert "event.key === 'Escape'" in html
 
     assert 'id="iqrK" type="range" min="0" max="12"' in html
+    assert 'id="gammaLevel" type="range" min="0.05" max="8.00"' in html
+    assert 'id="gammaMode"' in html
+    assert 'id="nextToGamma"' in html
     assert 'id="sparkPlayBtn"' in html
     assert 'id="iqrSpark"' in html
     assert 'id="toggleFullscreen"' in html
@@ -98,7 +101,7 @@ def test_static_html_contains_live_iqr_spark_and_fullscreen_controls() -> None:
     assert "finishLoadProgress(" in html
     assert "pollLoadProgressOnce()" in html
     assert "api('/api/load_progress')" in html
-    assert "api('/api/preview_render', 'POST', {})" in html
+    assert "api('/api/preview_render', 'POST'" in html
     assert "renderReadyAtFromSamples(" in html
     assert "Estimated ready at" in html
     assert "20 frame sample" in html
@@ -107,7 +110,7 @@ def test_static_html_contains_live_iqr_spark_and_fullscreen_controls() -> None:
     assert "queueSparkDragSeek(" in html
     assert "toggleSparkWindowPlayback(" in html
     assert "window.setInterval(stepSparkWindowRight, 100)" in html
-    assert "sparkPlayBtnEl.addEventListener('click', toggleSparkWindowPlayback)" in html
+    assert "sparkPlayBtnEl.addEventListener('click', openFlipbookPanel)" in html
     assert "iqrSparkEl.addEventListener('pointerdown'" in html
     assert "iqrSparkEl.addEventListener('pointermove'" in html
     assert "frameGridEl.scrollTo({ top, behavior: 'auto' })" in html

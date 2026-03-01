@@ -476,10 +476,15 @@ def _render_settings_template() -> dict:
             "bad_frames_by_chapter": (
                 "Per-chapter BAD frame IDs in global archive frame numbering."
             ),
+            "gamma_ranges": (
+                "Gamma ranges use global frame IDs: start_frame inclusive, end_frame exclusive."
+            ),
         },
         "archive_settings": {
             "transcript": "off",
             "inherit_bad_frames_from_overlaps": False,
+            "gamma_default": 1.0,
+            "gamma_ranges": [],
         },
         "chapter_settings": {},
         "bad_frames_by_chapter": {},
@@ -505,6 +510,103 @@ def _normalize_bool(raw: object, default: bool = False) -> bool:
         return False
     return bool(default)
 
+def _normalize_gamma_value(raw: object, default: float = 1.0) -> float:
+    try:
+        value = float(raw)
+    except Exception:
+        value = float(default)
+    if not (value == value):  # NaN
+        value = float(default)
+    return max(0.05, min(8.0, float(value)))
+
+def _canonicalize_gamma_ranges(raw_ranges) -> list[dict[str, float | int]]:
+    entries: list[tuple[int, int, float, int]] = []
+    for idx, item in enumerate(list(raw_ranges or [])):
+        start = end = None
+        gamma = None
+        if isinstance(item, dict):
+            start = item.get("start_frame")
+            end = item.get("end_frame")
+            gamma = item.get("gamma")
+        elif isinstance(item, (list, tuple)) and len(item) >= 3:
+            start = item[0]
+            end = item[1]
+            gamma = item[2]
+        try:
+            a = int(start)
+            b = int(end)
+        except Exception:
+            continue
+        if b <= a:
+            continue
+        g = _normalize_gamma_value(gamma, default=1.0)
+        entries.append((a, b, g, idx))
+    if not entries:
+        return []
+
+    boundaries = set()
+    for a, b, _g, _idx in entries:
+        boundaries.add(int(a))
+        boundaries.add(int(b))
+    cuts = sorted(boundaries)
+    if len(cuts) < 2:
+        return []
+
+    resolved: list[tuple[int, int, float]] = []
+    for i in range(len(cuts) - 1):
+        seg_a = int(cuts[i])
+        seg_b = int(cuts[i + 1])
+        if seg_b <= seg_a:
+            continue
+        winner_idx = -1
+        winner_gamma = None
+        for a, b, g, idx in entries:
+            if a <= seg_a and seg_b <= b and idx >= winner_idx:
+                winner_idx = idx
+                winner_gamma = g
+        if winner_gamma is None:
+            continue
+        if resolved and resolved[-1][1] == seg_a and abs(float(resolved[-1][2]) - float(winner_gamma)) < 1e-6:
+            prev_a, _prev_b, prev_g = resolved[-1]
+            resolved[-1] = (prev_a, seg_b, prev_g)
+        else:
+            resolved.append((seg_a, seg_b, float(winner_gamma)))
+
+    return [
+        {
+            "start_frame": int(a),
+            "end_frame": int(b),
+            "gamma": round(float(g), 4),
+        }
+        for a, b, g in resolved
+        if int(b) > int(a)
+    ]
+
+def _clip_gamma_ranges_to_span(
+    ranges,
+    *,
+    start_frame: int | None = None,
+    end_frame: int | None = None,
+) -> list[dict[str, float | int]]:
+    if start_frame is None or end_frame is None:
+        return _canonicalize_gamma_ranges(ranges)
+
+    start = int(start_frame)
+    end = int(end_frame)
+    if end <= start:
+        return []
+    clipped = []
+    for item in _canonicalize_gamma_ranges(ranges):
+        a = int(item["start_frame"])
+        b = int(item["end_frame"])
+        g = float(item["gamma"])
+        ra = max(start, a)
+        rb = min(end, b)
+        if rb <= ra:
+            continue
+        clipped.append({"start_frame": int(ra), "end_frame": int(rb), "gamma": float(g)})
+    return _canonicalize_gamma_ranges(clipped)
+
 def load_render_settings(archive: str, create: bool = False) -> tuple[Path, dict]:
     path = render_settings_path(archive)
     if path.exists():
@@ -524,6 +626,36 @@ def load_render_settings(archive: str, create: bool = False) -> tuple[Path, dict
                     out["archive_settings"].get("inherit_bad_frames_from_overlaps", False),
                     default=False,
                 )
+                out["archive_settings"]["gamma_default"] = _normalize_gamma_value(
+                    out["archive_settings"].get("gamma_default", 1.0),
+                    default=1.0,
+                )
+                out["archive_settings"]["gamma_ranges"] = _canonicalize_gamma_ranges(
+                    out["archive_settings"].get("gamma_ranges", []),
+                )
+                normalized_chapter_settings = {}
+                archive_gamma_default = float(out["archive_settings"]["gamma_default"])
+                for raw_title, raw_cfg in dict(out["chapter_settings"] or {}).items():
+                    title = str(raw_title or "").strip()
+                    if not title:
+                        continue
+                    cfg = dict(raw_cfg or {}) if isinstance(raw_cfg, dict) else {}
+                    if "transcript" in cfg:
+                        cfg["transcript"] = _normalize_transcript_mode(
+                            cfg.get("transcript"),
+                            default=out["archive_settings"]["transcript"],
+                        )
+                    if "gamma_default" in cfg or "gamma_ranges" in cfg:
+                        cfg["gamma_default"] = _normalize_gamma_value(
+                            cfg.get("gamma_default", archive_gamma_default),
+                            default=archive_gamma_default,
+                        )
+                        cfg["gamma_ranges"] = _canonicalize_gamma_ranges(cfg.get("gamma_ranges", []))
+                        if not cfg["gamma_ranges"] and abs(float(cfg["gamma_default"]) - archive_gamma_default) < 1e-6:
+                            cfg.pop("gamma_default", None)
+                            cfg.pop("gamma_ranges", None)
+                    normalized_chapter_settings[title] = cfg
+                out["chapter_settings"] = normalized_chapter_settings
                 return path, out
         except Exception:
             pass
@@ -548,6 +680,38 @@ def save_render_settings(archive: str, settings: dict) -> Path:
         payload["archive_settings"].get("inherit_bad_frames_from_overlaps", False),
         default=False,
     )
+    payload["archive_settings"]["gamma_default"] = _normalize_gamma_value(
+        payload["archive_settings"].get("gamma_default", 1.0),
+        default=1.0,
+    )
+    payload["archive_settings"]["gamma_ranges"] = _canonicalize_gamma_ranges(
+        payload["archive_settings"].get("gamma_ranges", []),
+    )
+
+    archive_gamma_default = float(payload["archive_settings"]["gamma_default"])
+    cleaned_chapter_settings = {}
+    for raw_title, raw_cfg in dict(payload.get("chapter_settings") or {}).items():
+        title = str(raw_title or "").strip()
+        if not title:
+            continue
+        cfg = dict(raw_cfg or {}) if isinstance(raw_cfg, dict) else {}
+        if "transcript" in cfg:
+            cfg["transcript"] = _normalize_transcript_mode(
+                cfg.get("transcript"),
+                default=payload["archive_settings"]["transcript"],
+            )
+        if "gamma_default" in cfg or "gamma_ranges" in cfg:
+            cfg["gamma_default"] = _normalize_gamma_value(
+                cfg.get("gamma_default", archive_gamma_default),
+                default=archive_gamma_default,
+            )
+            cfg["gamma_ranges"] = _canonicalize_gamma_ranges(cfg.get("gamma_ranges", []))
+            if not cfg["gamma_ranges"] and abs(float(cfg["gamma_default"]) - archive_gamma_default) < 1e-6:
+                cfg.pop("gamma_default", None)
+                cfg.pop("gamma_ranges", None)
+        cleaned_chapter_settings[title] = cfg
+    payload["chapter_settings"] = cleaned_chapter_settings
+
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return path
@@ -628,6 +792,99 @@ def update_chapter_bad_frames_in_render_settings(
         frame_vals = sorted({int(x) for x in (vals or []) if int(x) >= 0})
         by_title[key] = frame_vals
     settings["bad_frames_by_chapter"] = by_title
+    return save_render_settings(archive, settings)
+
+def get_gamma_profile_for_chapter(
+    archive: str,
+    chapter_title: str,
+    *,
+    ch_start: int | None = None,
+    ch_end: int | None = None,
+) -> dict[str, object]:
+    _path, settings = load_render_settings(archive, create=False)
+    archive_settings = dict(settings.get("archive_settings") or {})
+    chapter_settings = dict(settings.get("chapter_settings") or {})
+    title = str(chapter_title or "").strip()
+
+    archive_default = _normalize_gamma_value(archive_settings.get("gamma_default", 1.0), default=1.0)
+    archive_ranges = _canonicalize_gamma_ranges(archive_settings.get("gamma_ranges", []))
+    effective_default = float(archive_default)
+    effective_ranges = list(archive_ranges)
+    source = "archive"
+
+    chapter_cfg = chapter_settings.get(title) if title else None
+    if isinstance(chapter_cfg, dict):
+        has_gamma_default = "gamma_default" in chapter_cfg
+        has_gamma_ranges = "gamma_ranges" in chapter_cfg
+        if has_gamma_default:
+            effective_default = _normalize_gamma_value(
+                chapter_cfg.get("gamma_default", archive_default),
+                default=archive_default,
+            )
+            source = "chapter"
+        if has_gamma_ranges:
+            effective_ranges = _canonicalize_gamma_ranges(chapter_cfg.get("gamma_ranges", []))
+            source = "chapter"
+
+    if ch_start is not None and ch_end is not None:
+        effective_ranges = _clip_gamma_ranges_to_span(
+            effective_ranges,
+            start_frame=int(ch_start),
+            end_frame=int(ch_end),
+        )
+    else:
+        effective_ranges = _canonicalize_gamma_ranges(effective_ranges)
+
+    if source == "archive" and not effective_ranges and abs(float(effective_default) - float(archive_default)) < 1e-6:
+        source = "default"
+
+    return {
+        "default_gamma": float(effective_default),
+        "ranges": effective_ranges,
+        "source": source,
+    }
+
+def update_chapter_gamma_in_render_settings(
+    archive: str,
+    chapter_title: str,
+    *,
+    gamma_ranges,
+    default_gamma: float | None = None,
+) -> Path:
+    path, settings = load_render_settings(archive, create=True)
+    title = str(chapter_title or "").strip()
+    if not title:
+        return save_render_settings(archive, settings)
+
+    archive_settings = dict(settings.get("archive_settings") or {})
+    archive_default = _normalize_gamma_value(archive_settings.get("gamma_default", 1.0), default=1.0)
+    chapter_settings = dict(settings.get("chapter_settings") or {})
+    chapter_cfg = dict(chapter_settings.get(title) or {})
+
+    normalized_ranges = _canonicalize_gamma_ranges(gamma_ranges)
+    if default_gamma is None:
+        if "gamma_default" in chapter_cfg:
+            next_default = _normalize_gamma_value(chapter_cfg.get("gamma_default"), default=archive_default)
+        else:
+            next_default = float(archive_default)
+    else:
+        next_default = _normalize_gamma_value(default_gamma, default=archive_default)
+
+    if normalized_ranges:
+        chapter_cfg["gamma_ranges"] = normalized_ranges
+    else:
+        chapter_cfg.pop("gamma_ranges", None)
+
+    if abs(float(next_default) - float(archive_default)) < 1e-6:
+        chapter_cfg.pop("gamma_default", None)
+    else:
+        chapter_cfg["gamma_default"] = float(next_default)
+
+    if chapter_cfg:
+        chapter_settings[title] = chapter_cfg
+    else:
+        chapter_settings.pop(title, None)
+    settings["chapter_settings"] = chapter_settings
     return save_render_settings(archive, settings)
 
 def get_transcript_mode_for_chapter(archive: str, chapter_title: str) -> str:

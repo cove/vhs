@@ -18,15 +18,8 @@ function WobbleFix(clip c) { c.TurnLeft().Blur(0.3).TurnRight() }
 wobble_fix = false
 gamma_level = 1.0
 
-# chapter-specific exposure by archive-global chapter START frame
-# chapter 21: START=63773, END=64654
-if (chapter_start_frame >= 63773 && chapter_start_frame < 64654) {
-    gamma_level = 1.3
-}
-# chapters 22-23: START=64704/65100, END up to 65638
-if (chapter_start_frame >= 64704 && chapter_start_frame < 65639) {
-    gamma_level = 1.5
-}
+# Gamma range tuning is now managed by metadata/<archive>/render_settings.json
+# via the VHS tuner gamma step. Keep this filter default-neutral.
 
 c = last
 # after deinterlace / capture / conversion

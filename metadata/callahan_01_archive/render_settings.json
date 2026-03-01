@@ -3,11 +3,25 @@
   "_comments": {
     "archive_settings": "Archive-wide defaults applied to render behavior for all chapters.",
     "chapter_settings": "Optional per-chapter overrides keyed by exact chapter title.",
-    "bad_frames_by_chapter": "Per-chapter BAD frame IDs in global archive frame numbering."
+    "bad_frames_by_chapter": "Per-chapter BAD frame IDs in global archive frame numbering.",
+    "gamma_ranges": "Gamma ranges use global frame IDs (start inclusive, end exclusive)."
   },
   "archive_settings": {
     "transcript": "off",
-    "inherit_bad_frames_from_overlaps": true
+    "inherit_bad_frames_from_overlaps": true,
+    "gamma_default": 1.0,
+    "gamma_ranges": [
+      {
+        "start_frame": 63773,
+        "end_frame": 64654,
+        "gamma": 1.3
+      },
+      {
+        "start_frame": 64704,
+        "end_frame": 65639,
+        "gamma": 1.5
+      }
+    ]
   },
   "chapter_settings": {
     "1995 - Jim & Linda Wedding - 06 Nuptials (March 18, 1995)": {

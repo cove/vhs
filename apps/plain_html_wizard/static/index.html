@@ -96,6 +96,9 @@
     .status.hidden {
       display: none;
     }
+    .hidden-ui {
+      display: none !important;
+    }
 
     .status.error {
       border-color: var(--bad);
@@ -301,6 +304,15 @@
     }
 
     .iqr-box input[type="range"] { width: 220px; }
+    .iqr-box select {
+      border: 1px solid var(--line);
+      border-radius: 2px;
+      background: var(--bg-alt);
+      color: var(--text-strong);
+      padding: 6px 8px;
+      font-family: inherit;
+      font-size: 12px;
+    }
     .sim-freeze {
       display: inline-flex;
       align-items: center;
@@ -379,7 +391,7 @@
       background: rgba(5, 10, 16, 0.96);
       box-shadow: 0 0 0 1px var(--shadow-accent), 0 14px 28px rgba(0, 0, 0, 0.5);
       display: none;
-      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr) auto;
       z-index: 980;
       overflow: hidden;
     }
@@ -389,27 +401,30 @@
     }
 
     .flipbook-head {
-      display: grid;
-      grid-template-columns: 1fr auto 1fr;
+      display: flex;
       align-items: center;
+      justify-content: space-between;
       gap: 8px;
       padding: 6px 8px;
-      border-bottom: 1px solid var(--line);
+      border-top: 1px solid var(--line);
       background: var(--panel-1);
       font-size: 11px;
       color: var(--text-muted);
       letter-spacing: 0.2px;
+      min-height: 42px;
     }
 
     .flipbook-head > span {
-      justify-self: start;
+      flex: 0 0 auto;
     }
 
     .flipbook-controls {
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      justify-self: center;
+      flex: 1 1 auto;
+      justify-content: flex-end;
+      flex-wrap: wrap;
     }
 
     .flipbook-controls button.action {
@@ -418,9 +433,19 @@
       min-width: 36px;
       line-height: 1;
     }
+    .flipbook-gamma {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .flipbook-gamma input[type="range"] {
+      width: 130px;
+    }
 
     .flipbook-frame {
-      margin: 8px;
+      margin: 8px 8px 4px 8px;
       min-height: 0;
       display: grid;
       place-items: center;
@@ -828,9 +853,10 @@
     </div>
     <div id="status" class="status"></div>
     <div class="steps">
-      <div id="stepPill1" class="step-pill active">1/3 Load Chapter</div>
-      <div id="stepPill2" class="step-pill">2/3 Review Frames + IQR</div>
-      <div id="stepPill3" class="step-pill">3/3 Summary + Save</div>
+      <div id="stepPill1" class="step-pill active">1/4 Load Chapter</div>
+      <div id="stepPill2" class="step-pill">2/4 Bad Frames + IQR</div>
+      <div id="stepPill3" class="step-pill">3/4 Gamma</div>
+      <div id="stepPill4" class="step-pill">4/4 Summary + Save</div>
     </div>
 
     <section id="page1" class="page active">
@@ -873,13 +899,27 @@
           <div id="reviewStats" class="review-stats">No frames loaded.</div>
           <div class="iqr-box">
             <button id="sparkPlayBtn" class="action spark-play-btn" type="button" title="Open fullscreen flipbook">Flipbook</button>
-            <label for="iqrK">IQR k</label>
-            <input id="iqrK" type="range" min="0" max="12" step="0.05" value="3.5">
-            <span id="iqrLabel">3.50</span>
-            <label class="sim-freeze" for="simulateFreezeFrame">
-              <input id="simulateFreezeFrame" type="checkbox">
-              <span>Sim FreezeFrame</span>
-            </label>
+            <div id="reviewControls" class="iqr-box">
+              <label for="iqrK">IQR k</label>
+              <input id="iqrK" type="range" min="0" max="12" step="0.05" value="3.5">
+              <span id="iqrLabel">3.50</span>
+              <label class="sim-freeze" for="simulateFreezeFrame">
+                <input id="simulateFreezeFrame" type="checkbox">
+                <span>Sim FreezeFrame</span>
+              </label>
+            </div>
+            <div id="gammaControls" class="iqr-box hidden-ui">
+              <label for="gammaLevel">Gamma</label>
+              <input id="gammaLevel" type="range" min="0.05" max="8.00" step="0.01" value="1.00">
+              <span id="gammaLabel">1.00</span>
+              <label for="gammaMode">Mode</label>
+              <select id="gammaMode">
+                <option value="whole">Whole Chapter</option>
+                <option value="regions">Visible Range Regions</option>
+              </select>
+              <button id="gammaApplyVisible" class="action" type="button">Apply Visible Range</button>
+              <button id="gammaClear" class="action warn" type="button">Clear</button>
+            </div>
             <button id="previewRender" class="action">Preview Render</button>
             <button id="toggleFullscreen" class="action">Fullscreen</button>
           </div>
@@ -887,15 +927,24 @@
         <div class="panel spark-panel">
           <svg id="iqrSpark" class="iqr-spark" viewBox="0 0 320 68" preserveAspectRatio="none"></svg>
           <div id="sparkMeta" class="spark-meta"></div>
+          <div id="gammaRangeMeta" class="spark-meta hidden-ui"></div>
         </div>
 
         <div id="flipbookPreview" class="flipbook-preview" aria-hidden="true">
+          <figure id="flipbookFrame" class="flipbook-frame">
+            <img id="flipbookImage" alt="Flipbook playback frame">
+          </figure>
           <div class="flipbook-head">
             <span>Flipbook Preview</span>
             <div class="flipbook-controls">
               <button id="flipbookRevBtn" class="action" type="button" title="Previous frame">&#9664;&#9664;</button>
               <button id="flipbookPlayBtn" class="action primary" type="button" title="Play flipbook">&#9654;</button>
               <button id="flipbookFwdBtn" class="action" type="button" title="Next frame">&#9654;&#9654;</button>
+              <label id="flipbookGammaControls" class="flipbook-gamma hidden-ui" for="flipbookGammaLevel" title="Adjust gamma while in flipbook">
+                <span>Gamma</span>
+                <input id="flipbookGammaLevel" type="range" min="0.05" max="8.00" step="0.01" value="1.00">
+                <span id="flipbookGammaLabel">1.00</span>
+              </label>
               <label class="sim-freeze" for="flipbookSimFreezeFrame" title="Simulate FreezeFrame replacements in flipbook">
                 <input id="flipbookSimFreezeFrame" type="checkbox">
                 <span>Sim FreezeFrame</span>
@@ -904,15 +953,16 @@
               <span id="flipbookMeta"></span>
             </div>
           </div>
-          <figure id="flipbookFrame" class="flipbook-frame">
-            <img id="flipbookImage" alt="Flipbook playback frame">
-          </figure>
         </div>
 
         <div id="frameGrid" class="frame-grid"></div>
 
-        <div class="actions">
+        <div id="reviewActions" class="actions">
           <button id="backToLoad" class="action warn">Back</button>
+          <button id="nextToGamma" class="action primary">Next: Gamma</button>
+        </div>
+        <div id="gammaActions" class="actions hidden-ui">
+          <button id="backToReviewFromGamma" class="action warn">Back: Bad Frames</button>
           <button id="nextToSummary" class="action primary">Next: Summary</button>
         </div>
       </div>
@@ -922,7 +972,7 @@
       <div class="page-final-layout">
         <div id="summaryBox" class="summary-box">No summary yet.</div>
         <div class="actions">
-          <button id="backToReview" class="action warn">Back</button>
+          <button id="backToReview" class="action warn">Back: Gamma</button>
           <button id="saveAndReturn" class="action primary">Save and Return to Chapters</button>
         </div>
       </div>
@@ -954,7 +1004,7 @@
         <button id="helpCloseBtn" class="action warn" type="button">Close</button>
       </div>
       <div class="help-body">
-        <p>This wizard lets you mark bad sampled frames. On save, it writes <code>BAD_FRAMES</code> metadata to <code>metadata/&lt;archive&gt;/render_settings.json</code>. During render, the AviSynth filter stage reads that metadata and applies <code>FreezeFrame</code> to replace bad frames with nearby good frames.</p>
+        <p>This wizard lets you mark bad sampled frames and tune gamma. On save, it writes <code>BAD_FRAMES</code> and gamma range metadata to <code>metadata/&lt;archive&gt;/render_settings.json</code>. During render, the AviSynth filter stage reads that metadata and applies <code>FreezeFrame</code> and gamma correction ranges.</p>
 
         <h3>Step 1: Load Chapter</h3>
         <ol>
@@ -965,7 +1015,7 @@
           <li>Click <code>Next: Load Frames</code>. The loader can be cancelled while running.</li>
         </ol>
 
-        <h3>Step 2: Review Frames + IQR</h3>
+        <h3>Step 2: Bad Frames + IQR</h3>
         <ul>
           <li>Each frame card is color-coded: green is currently good, red is currently bad.</li>
           <li>Click any frame to toggle its manual override between good and bad.</li>
@@ -976,10 +1026,18 @@
           <li><code>Preview Render</code> runs a real chapter render preview from the current in-memory bad-frame selections, without writing <code>render_settings.json</code> yet.</li>
         </ul>
 
-        <h3>Step 3: Summary + Save</h3>
+        <h3>Step 3: Gamma</h3>
+        <ul>
+          <li>The frame grid and flipbook stay the same, with FreezeFrame simulation applied.</li>
+          <li>The sparkline switches to gamma score mode; the horizontal bar is your selected gamma level.</li>
+          <li>Use <code>Mode = Whole Chapter</code> to apply one gamma value to the full chapter.</li>
+          <li>Use <code>Mode = Visible Range Regions</code> then click <code>Apply Visible Range</code> to add per-range gamma values.</li>
+        </ul>
+
+        <h3>Step 4: Summary + Save</h3>
         <ol>
-          <li>Click <code>Next: Summary</code> to verify counts and settings.</li>
-          <li>Click <code>Save and Return to Chapters</code> to persist selected bad frames.</li>
+          <li>Click <code>Next: Summary</code> to verify bad-frame and gamma settings.</li>
+          <li>Click <code>Save and Return to Chapters</code> to persist selected bad frames and gamma ranges.</li>
           <li>The chapter list refreshes with updated BAD counts after save.</li>
         </ol>
 
@@ -1007,6 +1065,7 @@
       archive: '',
       chapters: [],
       chapter: '',
+      wizardStep: 1,
       review: null,
       loadSettings: null,
       iqrApplySeq: 0,
@@ -1016,6 +1075,15 @@
       frameImages: new Map(),
       freezeReplacementMap: new Map(),
       simulateFreezeFrame: false,
+      simulateFreezeFrameReviewPref: false,
+      gammaScores: new Map(),
+      gammaProfile: {
+        mode: 'whole',
+        defaultGamma: 1.0,
+        level: 1.0,
+        ranges: [],
+        source: 'default',
+      },
     };
 
     const FREEZE_BRIDGE_ALWAYS_GAP = 0;
@@ -1045,16 +1113,30 @@
 
     const iqrEl = document.getElementById('iqrK');
     const iqrLabelEl = document.getElementById('iqrLabel');
+    const gammaLevelEl = document.getElementById('gammaLevel');
+    const gammaLabelEl = document.getElementById('gammaLabel');
+    const flipbookGammaControlsEl = document.getElementById('flipbookGammaControls');
+    const flipbookGammaLevelEl = document.getElementById('flipbookGammaLevel');
+    const flipbookGammaLabelEl = document.getElementById('flipbookGammaLabel');
+    const gammaModeEl = document.getElementById('gammaMode');
+    const gammaApplyVisibleBtnEl = document.getElementById('gammaApplyVisible');
+    const gammaClearBtnEl = document.getElementById('gammaClear');
     const reviewStatsEl = document.getElementById('reviewStats');
     const frameGridEl = document.getElementById('frameGrid');
     const summaryBoxEl = document.getElementById('summaryBox');
     const iqrSparkEl = document.getElementById('iqrSpark');
     const sparkMetaEl = document.getElementById('sparkMeta');
+    const gammaRangeMetaEl = document.getElementById('gammaRangeMeta');
     const sparkPlayBtnEl = document.getElementById('sparkPlayBtn');
     const page2El = document.getElementById('page2');
     const fullscreenBtnEl = document.getElementById('toggleFullscreen');
+    const reviewControlsEl = document.getElementById('reviewControls');
+    const gammaControlsEl = document.getElementById('gammaControls');
+    const reviewActionsEl = document.getElementById('reviewActions');
+    const gammaActionsEl = document.getElementById('gammaActions');
     const simulateFreezeFrameEl = document.getElementById('simulateFreezeFrame');
     const flipbookSimFreezeFrameEl = document.getElementById('flipbookSimFreezeFrame');
+    const flipbookSimFreezeWrapEl = flipbookSimFreezeFrameEl ? flipbookSimFreezeFrameEl.closest('label.sim-freeze') : null;
     const previewRenderBtnEl = document.getElementById('previewRender');
     const flipbookPreviewEl = document.getElementById('flipbookPreview');
     const flipbookMetaEl = document.getElementById('flipbookMeta');
@@ -1065,9 +1147,11 @@
     const flipbookFwdBtnEl = document.getElementById('flipbookFwdBtn');
     const flipbookCloseBtnEl = document.getElementById('flipbookCloseBtn');
     const nextToReviewBtnEl = document.getElementById('nextToReview');
+    const nextToGammaBtnEl = document.getElementById('nextToGamma');
     const nextToSummaryBtnEl = document.getElementById('nextToSummary');
     const saveAndReturnBtnEl = document.getElementById('saveAndReturn');
     const backToLoadBtnEl = document.getElementById('backToLoad');
+    const backToReviewFromGammaBtnEl = document.getElementById('backToReviewFromGamma');
     const backToReviewBtnEl = document.getElementById('backToReview');
 
     let autoIqrTimer = null;
@@ -1222,7 +1306,7 @@
             stats: liveReview.stats || {},
             frames: liveFrames,
           };
-          reviewStatsEl.textContent = statsText(state.review.stats, state.review.threshold);
+          updateReviewStatsDisplay();
           if (liveFrames.length !== progressiveReviewFrameCount) {
             renderReviewFrames(liveFrames);
             progressiveReviewFrameCount = liveFrames.length;
@@ -1234,7 +1318,8 @@
     }
 
     function setSimFreezeFrame(enabled) {
-      state.simulateFreezeFrame = Boolean(enabled);
+      const next = isGammaStepActive() ? true : Boolean(enabled);
+      state.simulateFreezeFrame = next;
       if (simulateFreezeFrameEl) {
         simulateFreezeFrameEl.checked = state.simulateFreezeFrame;
       }
@@ -1247,11 +1332,15 @@
     function updateActionLocks() {
       const locked = Boolean(isChapterLoadInFlight);
       if (nextToReviewBtnEl) nextToReviewBtnEl.disabled = locked;
+      if (nextToGammaBtnEl) nextToGammaBtnEl.disabled = locked;
       if (nextToSummaryBtnEl) nextToSummaryBtnEl.disabled = locked;
       if (saveAndReturnBtnEl) saveAndReturnBtnEl.disabled = locked;
       if (previewRenderBtnEl) previewRenderBtnEl.disabled = locked;
       if (backToLoadBtnEl) backToLoadBtnEl.disabled = locked;
+      if (backToReviewFromGammaBtnEl) backToReviewFromGammaBtnEl.disabled = locked;
       if (backToReviewBtnEl) backToReviewBtnEl.disabled = locked;
+      if (gammaApplyVisibleBtnEl) gammaApplyVisibleBtnEl.disabled = locked;
+      if (gammaClearBtnEl) gammaClearBtnEl.disabled = locked;
     }
 
     function startLoadProgress(message) {
@@ -1339,21 +1428,52 @@
     }
 
     function setStep(step) {
+      const target = Math.trunc(_clamp(Number(step || 1), 1, 4));
+      const previousStep = Number(state.wizardStep || 1);
+      state.wizardStep = target;
+
+      const pageForStep = target === 1 ? 1 : (target === 4 ? 3 : 2);
       const pages = ['page1', 'page2', 'page3'];
-      const pills = ['stepPill1', 'stepPill2', 'stepPill3'];
-      if (step !== 2) {
+      const pills = ['stepPill1', 'stepPill2', 'stepPill3', 'stepPill4'];
+      if (target !== 2 && target !== 3) {
         setFlipbookFocusMode(false);
         stopSparkWindowPlayback();
       }
-      if (step !== 2 && isReviewFullscreenActive()) {
+      if (target !== 2 && target !== 3 && isReviewFullscreenActive()) {
         exitReviewFullscreenIfActive();
       }
       pages.forEach((id, i) => {
-        document.getElementById(id).classList.toggle('active', i + 1 === step);
-        document.getElementById(pills[i]).classList.toggle('active', i + 1 === step);
+        document.getElementById(id).classList.toggle('active', i + 1 === pageForStep);
       });
+      pills.forEach((id, i) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.classList.toggle('active', i + 1 === target);
+      });
+      const gammaMode = target === 3;
+      if (reviewControlsEl) reviewControlsEl.classList.toggle('hidden-ui', gammaMode);
+      if (gammaControlsEl) gammaControlsEl.classList.toggle('hidden-ui', !gammaMode);
+      if (reviewActionsEl) reviewActionsEl.classList.toggle('hidden-ui', gammaMode);
+      if (gammaActionsEl) gammaActionsEl.classList.toggle('hidden-ui', !gammaMode);
+      if (gammaRangeMetaEl) gammaRangeMetaEl.classList.toggle('hidden-ui', !gammaMode);
+      if (flipbookGammaControlsEl) flipbookGammaControlsEl.classList.toggle('hidden-ui', !gammaMode);
+      if (flipbookSimFreezeWrapEl) flipbookSimFreezeWrapEl.classList.toggle('hidden-ui', gammaMode);
+
+      if (gammaMode && previousStep !== 3) {
+        state.simulateFreezeFrameReviewPref = Boolean(state.simulateFreezeFrame);
+        setSimFreezeFrame(true);
+      } else if (!gammaMode && previousStep === 3) {
+        setSimFreezeFrame(Boolean(state.simulateFreezeFrameReviewPref));
+      }
+
+      if (gammaMode) {
+        updateGammaControls();
+        updateGammaRangeMeta();
+      }
       updateFullscreenButton();
-      if (step === 2 && state.review && Array.isArray(state.review.frames) && state.review.frames.length) {
+      refreshGammaVisuals();
+      updateReviewStatsDisplay();
+      if ((target === 2 || target === 3) && state.review && Array.isArray(state.review.frames) && state.review.frames.length) {
         window.requestAnimationFrame(() => {
           scheduleVisibleRangeRefresh();
           ensureFlipbookReady(false);
@@ -1461,6 +1581,304 @@
       return `Bad: ${stats.bad} (${Math.round((100 * stats.bad) / Math.max(1, stats.total))}%) | Good: ${stats.good} | Threshold: ${threshold.toFixed(4)} | Overrides: ${stats.overrides} | n=${stats.total} | shown=${stats.shown}`;
     }
 
+    function normalizeGammaValue(raw, fallback = 1.0) {
+      const n = Number(raw);
+      const base = Number.isFinite(n) ? n : Number(fallback);
+      return _clamp(base, 0.05, 8.0);
+    }
+
+    function chapterFrameSpan() {
+      const startRaw = Number((state.loadSettings && state.loadSettings.start_frame) ?? startFrameEl.value ?? 0);
+      const endRaw = Number((state.loadSettings && state.loadSettings.end_frame) ?? endFrameEl.value ?? (startRaw + 1));
+      const start = Math.max(0, Math.trunc(Number.isFinite(startRaw) ? startRaw : 0));
+      const end = Math.max(start + 1, Math.trunc(Number.isFinite(endRaw) ? endRaw : (start + 1)));
+      return { start, end };
+    }
+
+    function canonicalizeGammaRanges(rawRanges, options = {}) {
+      const span = chapterFrameSpan();
+      const clampToChapter = options && options.clampToChapter !== false;
+      const rows = [];
+      (Array.isArray(rawRanges) ? rawRanges : []).forEach((item, idx) => {
+        const start = Number(item && item.start_frame);
+        const end = Number(item && item.end_frame);
+        const gamma = normalizeGammaValue(item && item.gamma, 1.0);
+        if (!Number.isFinite(start) || !Number.isFinite(end)) return;
+        let a = Math.trunc(start);
+        let b = Math.trunc(end);
+        if (b <= a) return;
+        if (clampToChapter) {
+          a = Math.max(span.start, a);
+          b = Math.min(span.end, b);
+          if (b <= a) return;
+        }
+        rows.push({ a, b, gamma, idx });
+      });
+      if (!rows.length) return [];
+
+      const cuts = new Set();
+      rows.forEach(r => {
+        cuts.add(Number(r.a));
+        cuts.add(Number(r.b));
+      });
+      const ordered = Array.from(cuts).sort((a, b) => a - b);
+      const resolved = [];
+      for (let i = 0; i < ordered.length - 1; i += 1) {
+        const segA = Math.trunc(ordered[i]);
+        const segB = Math.trunc(ordered[i + 1]);
+        if (segB <= segA) continue;
+        let bestIdx = -1;
+        let bestGamma = null;
+        rows.forEach(r => {
+          if (r.a <= segA && segB <= r.b && r.idx >= bestIdx) {
+            bestIdx = r.idx;
+            bestGamma = r.gamma;
+          }
+        });
+        if (bestGamma === null) continue;
+        if (resolved.length) {
+          const prev = resolved[resolved.length - 1];
+          if (prev.end_frame === segA && Math.abs(Number(prev.gamma) - Number(bestGamma)) < 0.0001) {
+            prev.end_frame = segB;
+            continue;
+          }
+        }
+        resolved.push({
+          start_frame: segA,
+          end_frame: segB,
+          gamma: Number(bestGamma.toFixed(4)),
+        });
+      }
+      return resolved;
+    }
+
+    function normalizeGammaProfile(rawProfile) {
+      const span = chapterFrameSpan();
+      const raw = (rawProfile && typeof rawProfile === 'object') ? rawProfile : {};
+      const defaultGamma = normalizeGammaValue(raw.default_gamma, 1.0);
+      const ranges = canonicalizeGammaRanges(raw.ranges || []);
+      let mode = 'whole';
+      let level = defaultGamma;
+      if (ranges.length === 1 && ranges[0].start_frame <= span.start && ranges[0].end_frame >= span.end) {
+        mode = 'whole';
+        level = normalizeGammaValue(ranges[0].gamma, defaultGamma);
+      } else if (ranges.length > 0) {
+        mode = 'regions';
+        level = normalizeGammaValue(ranges[0].gamma, defaultGamma);
+      }
+      return {
+        mode,
+        defaultGamma,
+        level,
+        ranges,
+        source: String(raw.source || 'default'),
+      };
+    }
+
+    function gammaRangesForSave() {
+      const span = chapterFrameSpan();
+      if (!state.gammaProfile || typeof state.gammaProfile !== 'object') return [];
+      const mode = String(state.gammaProfile.mode || 'whole');
+      if (mode === 'whole') {
+        const g = normalizeGammaValue(state.gammaProfile.level, state.gammaProfile.defaultGamma || 1.0);
+        if (Math.abs(g - 1.0) < 0.001) return [];
+        return [{ start_frame: span.start, end_frame: span.end, gamma: Number(g.toFixed(4)) }];
+      }
+      return canonicalizeGammaRanges(state.gammaProfile.ranges || []);
+    }
+
+    function updateGammaRangeMeta() {
+      if (!gammaRangeMetaEl) return;
+      if (!isGammaStepActive()) {
+        gammaRangeMetaEl.textContent = '';
+        return;
+      }
+      const mode = String((state.gammaProfile && state.gammaProfile.mode) || 'whole');
+      const ranges = gammaRangesForSave();
+      if (mode === 'whole') {
+        const g = normalizeGammaValue(state.gammaProfile.level, 1.0);
+        gammaRangeMetaEl.textContent = `Whole chapter gamma ${g.toFixed(3)} (${ranges.length ? 'active' : 'no-op at 1.0'})`;
+        return;
+      }
+      if (!ranges.length) {
+        gammaRangeMetaEl.textContent = 'Region mode: no ranges set.';
+        return;
+      }
+      const preview = ranges
+        .slice(0, 3)
+        .map(r => `${r.start_frame}-${r.end_frame}:${Number(r.gamma).toFixed(2)}`)
+        .join(' | ');
+      const suffix = ranges.length > 3 ? ` | +${ranges.length - 3} more` : '';
+      gammaRangeMetaEl.textContent = `Region mode: ${ranges.length} range(s) | ${preview}${suffix}`;
+    }
+
+    function updateGammaControls() {
+      if (!gammaLevelEl || !gammaLabelEl || !gammaModeEl) return;
+      const profile = state.gammaProfile || {};
+      const level = normalizeGammaValue(profile.level, profile.defaultGamma || 1.0);
+      gammaLevelEl.value = level.toFixed(2);
+      gammaLabelEl.textContent = level.toFixed(2);
+      if (flipbookGammaLevelEl) {
+        flipbookGammaLevelEl.value = level.toFixed(2);
+      }
+      if (flipbookGammaLabelEl) {
+        flipbookGammaLabelEl.textContent = level.toFixed(2);
+      }
+      gammaModeEl.value = String(profile.mode || 'whole');
+      const regionMode = gammaModeEl.value === 'regions';
+      if (gammaApplyVisibleBtnEl) gammaApplyVisibleBtnEl.disabled = !regionMode || isChapterLoadInFlight;
+      if (gammaClearBtnEl) gammaClearBtnEl.disabled = isChapterLoadInFlight;
+      updateGammaRangeMeta();
+    }
+
+    function updateReviewStatsDisplay() {
+      if (!reviewStatsEl) return;
+      if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) {
+        reviewStatsEl.textContent = 'No frames loaded.';
+        return;
+      }
+      if (isGammaStepActive()) {
+        const mode = String((state.gammaProfile && state.gammaProfile.mode) || 'whole');
+        const ranges = gammaRangesForSave();
+        const gammaLevel = normalizeGammaValue(state.gammaProfile && state.gammaProfile.level, 1.0);
+        reviewStatsEl.textContent = `Gamma step | mode ${mode} | level ${gammaLevel.toFixed(3)} | ranges ${ranges.length} | sampled ${state.review.frames.length}`;
+        return;
+      }
+      reviewStatsEl.textContent = statsText(state.review.stats, state.review.threshold);
+    }
+
+    async function estimateGammaScoreFromImage(src) {
+      const imageSrc = String(src || '').trim();
+      if (!imageSrc) return 1.0;
+      return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          try {
+            const w = Math.max(1, Math.min(96, Number(img.naturalWidth || img.width || 96)));
+            const h = Math.max(1, Math.min(72, Number(img.naturalHeight || img.height || 72)));
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            if (!ctx) {
+              resolve(1.0);
+              return;
+            }
+            ctx.drawImage(img, 0, 0, w, h);
+            const data = ctx.getImageData(0, 0, w, h).data || [];
+            let sum = 0;
+            let count = 0;
+            for (let i = 0; i < data.length; i += 4) {
+              const r = Number(data[i] || 0);
+              const g = Number(data[i + 1] || 0);
+              const b = Number(data[i + 2] || 0);
+              const y = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0;
+              sum += y;
+              count += 1;
+            }
+            const avgLuma = count > 0 ? (sum / count) : 0.55;
+            const gammaScore = normalizeGammaValue(0.55 / Math.max(0.05, avgLuma), 1.0);
+            resolve(gammaScore);
+          } catch (_err) {
+            resolve(1.0);
+          }
+        };
+        img.onerror = () => resolve(1.0);
+        img.decoding = 'async';
+        img.src = imageSrc;
+      });
+    }
+
+    async function ensureGammaScores() {
+      if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) return;
+      const pending = [];
+      for (const frame of state.review.frames) {
+        const fidKey = String(frame && frame.fid);
+        if (!fidKey) continue;
+        if (state.gammaScores.has(fidKey)) continue;
+        let src = String((frame && frame.image) || state.frameImages.get(fidKey) || '').trim();
+        if (frame && frame.status === 'bad') {
+          const replacementFid = state.freezeReplacementMap.get(fidKey);
+          if (replacementFid !== undefined && replacementFid !== null) {
+            const replacementSrc = String(state.frameImages.get(String(replacementFid)) || '').trim();
+            if (replacementSrc) src = replacementSrc;
+          }
+        }
+        if (!src) continue;
+        pending.push({ fidKey, src });
+      }
+      if (!pending.length) return;
+      for (let i = 0; i < pending.length; i += 1) {
+        const item = pending[i];
+        const score = await estimateGammaScoreFromImage(item.src);
+        state.gammaScores.set(item.fidKey, score);
+        if ((i + 1) % 24 === 0) {
+          await new Promise(resolve => window.setTimeout(resolve, 0));
+        }
+      }
+    }
+
+    function gammaScoreForFrame(frame) {
+      const fidKey = String(frame && frame.fid);
+      if (!fidKey) return 1.0;
+      const cached = Number(state.gammaScores.get(fidKey));
+      if (Number.isFinite(cached) && cached > 0) return cached;
+      return 1.0;
+    }
+
+    function gammaLevelForFrameId(fidRaw) {
+      const fid = Number(fidRaw);
+      if (!Number.isFinite(fid)) return 1.0;
+      const profile = state.gammaProfile || {};
+      const mode = String(profile.mode || 'whole');
+      const defaultGamma = normalizeGammaValue(profile.defaultGamma, 1.0);
+      if (mode === 'whole') {
+        return normalizeGammaValue(profile.level, defaultGamma);
+      }
+      const ranges = canonicalizeGammaRanges(profile.ranges || []);
+      for (const range of ranges) {
+        const start = Number(range.start_frame);
+        const end = Number(range.end_frame);
+        if (fid >= start && fid < end) {
+          return normalizeGammaValue(range.gamma, defaultGamma);
+        }
+      }
+      return defaultGamma;
+    }
+
+    function refreshGammaVisuals() {
+      const gammaOn = isGammaStepActive();
+      frameGridEl.querySelectorAll('.frame-card').forEach(card => {
+        const imgEl = card.querySelector('img');
+        if (!imgEl) return;
+        if (!gammaOn) {
+          imgEl.style.removeProperty('filter');
+          return;
+        }
+        const fid = Number(card.dataset.fid);
+        const gamma = gammaLevelForFrameId(fid);
+        if (Math.abs(gamma - 1.0) < 0.001) {
+          imgEl.style.removeProperty('filter');
+        } else {
+          imgEl.style.filter = `brightness(${gamma.toFixed(3)})`;
+        }
+      });
+
+      if (!flipbookImageEl) return;
+      if (!gammaOn) {
+        flipbookImageEl.style.removeProperty('filter');
+        return;
+      }
+      const frame = sparkPlayFrames[sparkPlayIndex] || null;
+      const fid = Number(frame && frame.fid);
+      const gamma = gammaLevelForFrameId(fid);
+      if (Math.abs(gamma - 1.0) < 0.001) {
+        flipbookImageEl.style.removeProperty('filter');
+      } else {
+        flipbookImageEl.style.filter = `brightness(${gamma.toFixed(3)})`;
+      }
+    }
+
     function themeVar(name, fallback) {
       const raw = getComputedStyle(document.documentElement).getPropertyValue(name);
       const value = String(raw || '').trim();
@@ -1544,6 +1962,91 @@
       }
     }
 
+    function renderGammaSparkline(frames, gammaLevel) {
+      if (!iqrSparkEl || !sparkMetaEl) return;
+      const data = Array.isArray(frames) ? frames : [];
+      if (!data.length) {
+        iqrSparkEl.innerHTML = '';
+        sparkMetaEl.textContent = 'No gamma score data loaded.';
+        state.visibleRange = null;
+        return;
+      }
+
+      const w = Math.max(320, Math.floor(iqrSparkEl.clientWidth || 320));
+      const h = 68;
+      const pad = 6;
+      const sparkHot = themeVar('--spark-hot', '#ff9154');
+      const sparkBase = themeVar('--spark-base', '#48a5bc');
+      const sparkThreshold = themeVar('--spark-threshold', '#ff646e');
+      const sparkWindow = themeVar('--spark-window', '#6ca0ff');
+      const sparkWindowMid = themeVar('--spark-window-mid', '#9dc6ff');
+      const level = normalizeGammaValue(gammaLevel, 1.0);
+      const scores = data.map(f => gammaScoreForFrame(f));
+      const aboveCount = scores.filter(v => Number(v) > level).length;
+      const minV = Math.min(...scores, level);
+      const maxV = Math.max(...scores, level);
+      const span = Math.max(1e-9, maxV - minV);
+
+      const xFor = (i) => {
+        if (scores.length <= 1) return w / 2;
+        return pad + (i * (w - pad * 2)) / (scores.length - 1);
+      };
+      const yFor = (v) => h - pad - ((v - minV) / span) * (h - pad * 2);
+      const points = scores.map((v, i) => `${xFor(i).toFixed(2)},${yFor(v).toFixed(2)}`).join(' ');
+      const yLevel = yFor(level);
+      const yLevelClamped = _clamp(yLevel, 0, h);
+      iqrSparkEl.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+      const hotDotsSvg = data
+        .map((frame, i) => ({ frame, i }))
+        .filter(({ frame }) => gammaScoreForFrame(frame) > level)
+        .map(({ i }) => `<circle cx="${xFor(i).toFixed(2)}" cy="${(h - 2).toFixed(2)}" r="1.8" fill="${sparkHot}" opacity="0.95"></circle>`)
+        .join('');
+
+      let viewportSvg = '';
+      if (state.visibleRange && Number.isFinite(state.visibleRange.start) && Number.isFinite(state.visibleRange.end)) {
+        const startIdx = Math.max(0, Math.min(scores.length - 1, Number(state.visibleRange.start)));
+        const endIdx = Math.max(startIdx, Math.min(scores.length - 1, Number(state.visibleRange.end)));
+        const xStart = xFor(startIdx);
+        const xEnd = xFor(endIdx);
+        const xMid = (xStart + xEnd) / 2;
+        viewportSvg = `
+          <rect x="${Math.min(xStart, xEnd).toFixed(2)}" y="${pad}" width="${Math.max(1, Math.abs(xEnd - xStart)).toFixed(2)}" height="${(h - pad * 2).toFixed(2)}" fill="${sparkWindow}" opacity="0.15"></rect>
+          <line x1="${xStart.toFixed(2)}" y1="${pad}" x2="${xStart.toFixed(2)}" y2="${(h - pad).toFixed(2)}" stroke="${sparkWindow}" stroke-width="1.3" opacity="0.95"></line>
+          <line x1="${xEnd.toFixed(2)}" y1="${pad}" x2="${xEnd.toFixed(2)}" y2="${(h - pad).toFixed(2)}" stroke="${sparkWindow}" stroke-width="1.3" opacity="0.95"></line>
+          <line x1="${xMid.toFixed(2)}" y1="${pad}" x2="${xMid.toFixed(2)}" y2="${(h - pad).toFixed(2)}" stroke="${sparkWindowMid}" stroke-width="1.0" opacity="0.9"></line>
+        `;
+      }
+
+      iqrSparkEl.innerHTML = `
+        <defs>
+          <clipPath id="sparkAboveThresholdClip">
+            <rect x="0" y="0" width="${w}" height="${yLevelClamped.toFixed(2)}"></rect>
+          </clipPath>
+        </defs>
+        <polyline points="${points}" fill="none" stroke="${sparkBase}" stroke-width="1.6" opacity="0.95"></polyline>
+        <polyline points="${points}" fill="none" stroke="${sparkHot}" stroke-width="1.9" opacity="0.98" clip-path="url(#sparkAboveThresholdClip)"></polyline>
+        <line x1="${pad}" y1="${yLevel.toFixed(2)}" x2="${(w - pad).toFixed(2)}" y2="${yLevel.toFixed(2)}" stroke="${sparkThreshold}" stroke-width="1.4" opacity="0.95"></line>
+        ${hotDotsSvg}
+        ${viewportSvg}
+      `;
+      if (state.visibleRange) {
+        const start = Math.max(0, Number(state.visibleRange.start)) + 1;
+        const end = Math.max(start, Number(state.visibleRange.end) + 1);
+        sparkMetaEl.textContent = `Gamma scores: min ${minV.toFixed(2)} | max ${maxV.toFixed(2)} | level ${level.toFixed(2)} | above level ${aboveCount} | view ${start}-${end}/${scores.length}`;
+      } else {
+        sparkMetaEl.textContent = `Gamma scores: min ${minV.toFixed(2)} | max ${maxV.toFixed(2)} | level ${level.toFixed(2)} | above level ${aboveCount}`;
+      }
+    }
+
+    function renderActiveSparkline(frames, threshold) {
+      if (isGammaStepActive()) {
+        renderGammaSparkline(frames, state.gammaProfile && state.gammaProfile.level);
+      } else {
+        renderSparkline(frames, threshold);
+      }
+    }
+
     function _computeVisibleIndexRange() {
       const cards = Array.from(frameGridEl.querySelectorAll('.frame-card'));
       if (!cards.length) return null;
@@ -1568,7 +2071,7 @@
       }
       const range = _computeVisibleIndexRange();
       state.visibleRange = range || { start: 0, end: state.review.frames.length - 1 };
-      renderSparkline(state.review.frames, state.review.threshold || 0);
+      renderActiveSparkline(state.review.frames, state.review.threshold || 0);
     }
 
     function scheduleVisibleRangeRefresh() {
@@ -1582,6 +2085,14 @@
 
     function isReviewStepActive() {
       return page2El && page2El.classList.contains('active');
+    }
+
+    function isBadFrameStepActive() {
+      return isReviewStepActive() && Number(state.wizardStep) === 2;
+    }
+
+    function isGammaStepActive() {
+      return isReviewStepActive() && Number(state.wizardStep) === 3;
     }
 
     function isReviewFullscreenActive() {
@@ -1778,6 +2289,18 @@
         flipbookMetaEl.textContent = `${idx + 1}/${sparkPlayFrames.length}  G:${frame.fid || '?'}  ${statusTag}`;
       }
       sparkPlayIndex = idx;
+      if (flipbookImageEl) {
+        if (isGammaStepActive()) {
+          const gamma = gammaLevelForFrameId(frame.fid);
+          if (Math.abs(gamma - 1.0) < 0.001) {
+            flipbookImageEl.style.removeProperty('filter');
+          } else {
+            flipbookImageEl.style.filter = `brightness(${gamma.toFixed(3)})`;
+          }
+        } else {
+          flipbookImageEl.style.removeProperty('filter');
+        }
+      }
       syncFrameGridPlaybackCursor(idx, keepVisible);
       updateFlipbookControls();
     }
@@ -2250,6 +2773,7 @@
         if (noteEl) noteEl.textContent = state.simulateFreezeFrame ? note : '';
       });
       ensureFlipbookReady(false);
+      refreshGammaVisuals();
     }
 
     function renderReviewFrames(frames) {
@@ -2259,7 +2783,7 @@
       if (!orderedFrames.length) {
         state.freezeReplacementMap = new Map();
         frameGridEl.textContent = 'No frames loaded.';
-        renderSparkline([], 0);
+        renderActiveSparkline([], 0);
         return;
       }
       rememberFrameImages(orderedFrames);
@@ -2279,9 +2803,10 @@
       });
       frameGridEl.appendChild(fragment);
       refreshFreezeSimulation();
-      renderSparkline(orderedFrames, state.review ? state.review.threshold : 0);
+      renderActiveSparkline(orderedFrames, state.review ? state.review.threshold : 0);
       scheduleVisibleRangeRefresh();
       ensureFlipbookReady(true);
+      updateReviewStatsDisplay();
     }
 
     function applyFrameUpdates(updates) {
@@ -2367,13 +2892,16 @@
 
       let loadFailed = false;
       startLoadProgress('Extracting chapter and sampling frames...');
+      state.gammaScores = new Map();
+      state.gammaProfile = normalizeGammaProfile(null);
       state.review = { threshold: 0, stats: { total: 0, bad: 0, good: 0, shown: 0, overrides: 0 }, frames: [] };
-      reviewStatsEl.textContent = statsText(state.review.stats, state.review.threshold);
+      updateReviewStatsDisplay();
       renderReviewFrames([]);
       setStep(2);
       try {
         const result = await api('/api/load_chapter', 'POST', payload, 0);
         state.frameImages = new Map();
+        state.gammaScores = new Map();
         state.freezeReplacementMap = new Map();
         const finalFrames = sortFramesByFid((result.review && result.review.frames) || []);
         state.review = {
@@ -2381,7 +2909,11 @@
           frames: finalFrames,
         };
         state.loadSettings = result.settings || null;
-        reviewStatsEl.textContent = statsText(state.review.stats, state.review.threshold);
+        state.gammaProfile = normalizeGammaProfile(
+          (state.loadSettings && state.loadSettings.gamma_profile) || null
+        );
+        updateGammaControls();
+        updateReviewStatsDisplay();
         renderReviewFrames(state.review.frames);
         iqrEl.value = String(payload.iqr_k);
         iqrLabelEl.textContent = Number(payload.iqr_k).toFixed(2);
@@ -2436,14 +2968,16 @@
         }
         reviewStatsEl.textContent = statsText(review.stats, review.threshold);
         applyFrameUpdates(review.frames);
-        renderSparkline(review.frames, review.threshold);
+        renderActiveSparkline(review.frames, review.threshold);
         state.review = {
           ...state.review,
           stats: review.stats,
           threshold: review.threshold,
           frames: review.frames || [],
         };
+        state.gammaScores = new Map();
         refreshFreezeSimulation();
+        updateReviewStatsDisplay();
         setStatus(`Applied IQR k=${k.toFixed(2)} (${changed} frame(s) changed).`);
       } catch (err) {
         setStatus(err.message, true);
@@ -2460,6 +2994,120 @@
       }
     }
 
+    function gammaSummaryTextBlock() {
+      const ranges = gammaRangesForSave();
+      const mode = String((state.gammaProfile && state.gammaProfile.mode) || 'whole');
+      const defaultGamma = normalizeGammaValue(state.gammaProfile && state.gammaProfile.defaultGamma, 1.0);
+      const level = normalizeGammaValue(state.gammaProfile && state.gammaProfile.level, defaultGamma);
+      const lines = [
+        `Gamma mode: ${mode}`,
+        `Gamma default: ${defaultGamma.toFixed(3)}`,
+        `Gamma level: ${level.toFixed(3)}`,
+      ];
+      if (!ranges.length) {
+        lines.push('Gamma ranges: (none)');
+      } else {
+        lines.push('Gamma ranges:');
+        ranges.forEach(r => {
+          lines.push(`- ${r.start_frame}-${r.end_frame} (end exclusive): gamma ${Number(r.gamma).toFixed(3)}`);
+        });
+      }
+      return lines.join('\n');
+    }
+
+    function visibleGammaRangeFromView() {
+      if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) return null;
+      const range = state.visibleRange || _computeVisibleIndexRange();
+      if (!range) return null;
+      const startIdx = _clamp(Number(range.start || 0), 0, state.review.frames.length - 1);
+      const endIdx = _clamp(Number(range.end || startIdx), startIdx, state.review.frames.length - 1);
+      const startFid = Number(state.review.frames[startIdx] && state.review.frames[startIdx].fid);
+      const endFid = Number(state.review.frames[endIdx] && state.review.frames[endIdx].fid);
+      if (!Number.isFinite(startFid) || !Number.isFinite(endFid)) return null;
+      return {
+        start_frame: Math.trunc(Math.min(startFid, endFid)),
+        end_frame: Math.trunc(Math.max(startFid, endFid)) + 1,
+      };
+    }
+
+    function applyGammaVisibleRange() {
+      if (!isGammaStepActive()) return;
+      if (!state.gammaProfile || state.gammaProfile.mode !== 'regions') {
+        setStatus('Set Gamma mode to "Visible Range Regions" before applying ranges.', true);
+        return;
+      }
+      const range = visibleGammaRangeFromView();
+      if (!range) {
+        setStatus('No visible range found to apply gamma.', true);
+        return;
+      }
+      const gamma = normalizeGammaValue(gammaLevelEl && gammaLevelEl.value, state.gammaProfile.level || 1.0);
+      const next = canonicalizeGammaRanges([...(state.gammaProfile.ranges || []), { ...range, gamma }]);
+      state.gammaProfile = {
+        ...(state.gammaProfile || {}),
+        level: gamma,
+        ranges: next,
+      };
+      updateGammaControls();
+      refreshGammaVisuals();
+      renderActiveSparkline(state.review ? state.review.frames : [], state.review ? state.review.threshold : 0);
+      updateReviewStatsDisplay();
+      setStatus(`Applied gamma ${gamma.toFixed(2)} to visible range ${range.start_frame}-${range.end_frame}.`);
+    }
+
+    function clearGammaRanges() {
+      if (!state.gammaProfile) return;
+      const mode = String(state.gammaProfile.mode || 'whole');
+      if (mode === 'whole') {
+        state.gammaProfile.level = 1.0;
+      } else {
+        state.gammaProfile.ranges = [];
+      }
+      updateGammaControls();
+      refreshGammaVisuals();
+      renderActiveSparkline(state.review ? state.review.frames : [], state.review ? state.review.threshold : 0);
+      updateReviewStatsDisplay();
+      setStatus('Cleared gamma adjustments for current mode.');
+    }
+
+    function setActiveGammaLevel(rawValue) {
+      const level = normalizeGammaValue(rawValue, state.gammaProfile.level || 1.0);
+      state.gammaProfile.level = level;
+      updateGammaControls();
+      if (isGammaStepActive()) {
+        refreshGammaVisuals();
+        renderActiveSparkline(state.review ? state.review.frames : [], state.review ? state.review.threshold : 0);
+        updateReviewStatsDisplay();
+        updateGammaRangeMeta();
+      }
+    }
+
+    async function openGammaStep() {
+      if (isChapterLoadInFlight) {
+        setStatus('Wait until frame loading finishes before entering gamma step.', true);
+        return;
+      }
+      if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) {
+        setStatus('Load and review frames before entering gamma step.', true);
+        return;
+      }
+      if (state.gammaProfile) {
+        state.gammaProfile.level = normalizeGammaValue(
+          gammaLevelEl ? gammaLevelEl.value : state.gammaProfile.level,
+          state.gammaProfile.level || state.gammaProfile.defaultGamma || 1.0,
+        );
+      }
+      setLoading(true, 'Computing gamma scores...');
+      try {
+        await ensureGammaScores();
+      } finally {
+        setLoading(false);
+      }
+      setStep(3);
+      renderActiveSparkline(state.review.frames, state.review.threshold || 0);
+      updateReviewStatsDisplay();
+    }
+
     async function toggleFrame(fid, options = {}) {
       const showOverlay = options && options.showOverlay === false ? false : true;
       if (showOverlay) {
@@ -2470,14 +3118,16 @@
         const frame = result.frame;
         if (frame) applyFrameUpdates([frame]);
         reviewStatsEl.textContent = statsText(result.review.stats, result.review.threshold);
-        renderSparkline(result.review.frames, result.review.threshold);
+        renderActiveSparkline(result.review.frames, result.review.threshold);
         state.review = {
           ...state.review,
           stats: result.review.stats,
           threshold: result.review.threshold,
           frames: result.review.frames || [],
         };
+        state.gammaScores = new Map();
         refreshFreezeSimulation();
+        updateReviewStatsDisplay();
       } catch (err) {
         setStatus(err.message, true);
       } finally {
@@ -2495,8 +3145,8 @@
       setLoading(true, 'Building summary...');
       try {
         const result = await api('/api/summary');
-        summaryBoxEl.textContent = result.summary;
-        setStep(3);
+        summaryBoxEl.textContent = `${String(result.summary || '').trim()}\n\n${gammaSummaryTextBlock()}`;
+        setStep(4);
       } catch (err) {
         setStatus(err.message, true);
       } finally {
@@ -2535,7 +3185,12 @@
       }
       setLoading(true, 'Rendering chapter preview from current frame selections...');
       try {
-        const result = await api('/api/preview_render', 'POST', {}, 0);
+        const result = await api('/api/preview_render', 'POST', {
+          gamma_profile: {
+            default_gamma: normalizeGammaValue(state.gammaProfile && state.gammaProfile.defaultGamma, 1.0),
+            ranges: gammaRangesForSave(),
+          },
+        }, 0);
         const target = result.preview_page_url || result.preview_url || '';
         if (target) {
           window.open(target, '_blank', 'noopener');
@@ -2553,9 +3208,14 @@
         setStatus('Wait until frame loading finishes before saving.', true);
         return;
       }
-      setLoading(true, 'Saving BAD frame selections...');
+      setLoading(true, 'Saving BAD frame and gamma selections...');
       try {
-        const result = await api('/api/save', 'POST', {});
+        const result = await api('/api/save', 'POST', {
+          gamma_profile: {
+            default_gamma: normalizeGammaValue(state.gammaProfile && state.gammaProfile.defaultGamma, 1.0),
+            ranges: gammaRangesForSave(),
+          },
+        });
         setStatus(result.message || 'Saved.');
 
         const st = result.archive_state;
@@ -2589,11 +3249,20 @@
       stopSparkWindowPlayback();
       setStep(1);
     });
+    if (nextToGammaBtnEl) {
+      nextToGammaBtnEl.addEventListener('click', openGammaStep);
+    }
     document.getElementById('nextToSummary').addEventListener('click', loadSummary);
     previewRenderBtnEl.addEventListener('click', previewRender);
+    if (backToReviewFromGammaBtnEl) {
+      backToReviewFromGammaBtnEl.addEventListener('click', () => {
+        stopSparkWindowPlayback();
+        setStep(2);
+      });
+    }
     document.getElementById('backToReview').addEventListener('click', () => {
       stopSparkWindowPlayback();
-      setStep(2);
+      setStep(3);
     });
     document.getElementById('saveAndReturn').addEventListener('click', saveAndReturn);
     fullscreenBtnEl.addEventListener('click', toggleReviewFullscreen);
@@ -2607,11 +3276,40 @@
     });
     iqrEl.addEventListener('input', () => {
       iqrLabelEl.textContent = Number(iqrEl.value || 0).toFixed(2);
-      scheduleAutoApplyIqr();
+      if (isBadFrameStepActive()) {
+        scheduleAutoApplyIqr();
+      }
     });
     iqrEl.addEventListener('change', () => {
-      applyIqr(true);
+      if (isBadFrameStepActive()) {
+        applyIqr(true);
+      }
     });
+    if (gammaLevelEl) {
+      gammaLevelEl.addEventListener('input', () => {
+        setActiveGammaLevel(gammaLevelEl.value);
+      });
+    }
+    if (flipbookGammaLevelEl) {
+      flipbookGammaLevelEl.addEventListener('input', () => {
+        setActiveGammaLevel(flipbookGammaLevelEl.value);
+      });
+    }
+    if (gammaModeEl) {
+      gammaModeEl.addEventListener('change', () => {
+        const mode = String(gammaModeEl.value || 'whole');
+        state.gammaProfile.mode = mode === 'regions' ? 'regions' : 'whole';
+        updateGammaControls();
+        refreshGammaVisuals();
+        updateReviewStatsDisplay();
+      });
+    }
+    if (gammaApplyVisibleBtnEl) {
+      gammaApplyVisibleBtnEl.addEventListener('click', applyGammaVisibleRange);
+    }
+    if (gammaClearBtnEl) {
+      gammaClearBtnEl.addEventListener('click', clearGammaRanges);
+    }
     if (simulateFreezeFrameEl) {
       simulateFreezeFrameEl.addEventListener('change', () => {
         setSimFreezeFrame(Boolean(simulateFreezeFrameEl.checked));
@@ -2633,6 +3331,9 @@
       }
       if (flipbookOn && fid) {
         seekFlipbookToFrameId(fid, { keepVisible: false });
+      }
+      if (isGammaStepActive()) {
+        return;
       }
       const showOverlay = !(page2El && page2El.classList.contains('flipbook-focus'));
       toggleFrame(fid, { showOverlay });
@@ -2693,9 +3394,11 @@
 
     window.addEventListener('load', async () => {
       iqrLabelEl.textContent = Number(iqrEl.value).toFixed(2);
+      if (gammaLabelEl) gammaLabelEl.textContent = Number(gammaLevelEl.value || 1).toFixed(2);
       updateSparkPlayButton();
       updateFullscreenButton();
       updateActionLocks();
+      updateGammaControls();
       setSimFreezeFrame(state.simulateFreezeFrame);
       setStatus('Loading archives...');
       try {
