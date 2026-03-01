@@ -1325,7 +1325,7 @@ def _run_with_args(args):
                     run(make_extract_audio(extracted, audio))
                     transcribe_audio(model, audio, final_srt, final_vtt, final_dir)
                     srt_to_ass(final_srt, final_ass)
-                    subtitle_tracks.append({"path": final_ass, "title": "Dialogue", "forced": True})
+                    subtitle_tracks.append({"path": final_ass, "title": "Dialogue", "forced": False})
                 elif include_audio:
                     print("Skipping dialogue transcription (render_settings transcript=off).")
                 else:
