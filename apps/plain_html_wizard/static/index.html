@@ -1169,6 +1169,7 @@
     let sparkPlayIndex = 0;
     let flipbookGridCursorIndex = -1;
     let flipbookToggleInFlight = false;
+    const pendingToggleRequests = new Set();
 
     function setLoadCancelUi(visible, disabled = false, label = 'Cancel') {
       if (!overlayCancelWrapEl || !overlayCancelBtnEl) return;
@@ -1182,6 +1183,24 @@
       statusEl.textContent = msg;
       statusEl.classList.toggle('error', Boolean(isError));
       statusEl.classList.toggle('hidden', msg.length === 0);
+    }
+
+    function trackPendingToggleRequest(promiseLike) {
+      if (!promiseLike || typeof promiseLike.then !== 'function') return Promise.resolve();
+      const p = Promise.resolve(promiseLike);
+      pendingToggleRequests.add(p);
+      p.finally(() => {
+        pendingToggleRequests.delete(p);
+      });
+      return p;
+    }
+
+    async function flushPendingToggleRequests() {
+      while (pendingToggleRequests.size > 0) {
+        const batch = Array.from(pendingToggleRequests);
+        if (!batch.length) break;
+        await Promise.allSettled(batch);
+      }
     }
 
     function sortFramesByFid(frames) {
@@ -3097,6 +3116,14 @@
           state.gammaProfile.level || state.gammaProfile.defaultGamma || 1.0,
         );
       }
+      if (pendingToggleRequests.size > 0) {
+        setLoading(true, 'Syncing frame edits...');
+        try {
+          await flushPendingToggleRequests();
+        } finally {
+          setLoading(false);
+        }
+      }
       setLoading(true, 'Computing gamma scores...');
       try {
         await ensureGammaScores();
@@ -3110,6 +3137,25 @@
 
     async function toggleFrame(fid, options = {}) {
       const showOverlay = options && options.showOverlay === false ? false : true;
+      const optimistic = options && options.optimistic === true;
+      const fidStr = String(fid);
+      let optimisticSnapshot = null;
+      if (optimistic && isChapterLoadInFlight && state.review && Array.isArray(state.review.frames)) {
+        const idx = state.review.frames.findIndex(f => String(f && f.fid) === fidStr);
+        if (idx >= 0) {
+          const prev = state.review.frames[idx];
+          optimisticSnapshot = { idx, prev: { ...prev } };
+          const nextStatus = prev.status === 'bad' ? 'good' : 'bad';
+          const nextSource = nextStatus === 'bad' ? 'MB' : 'MG';
+          const next = { ...prev, status: nextStatus, source: nextSource };
+          const match = String(prev.label || '').match(/\s(?:MG|MB|AG|AB)\s*$/);
+          if (match) {
+            next.label = String(prev.label || '').replace(/\s(?:MG|MB|AG|AB)\s*$/, ` ${nextSource}`);
+          }
+          state.review.frames[idx] = next;
+          applyFrameUpdates([next]);
+        }
+      }
       if (showOverlay) {
         setLoading(true, `Updating frame ${fid}...`);
       }
@@ -3118,17 +3164,32 @@
         const frame = result.frame;
         if (frame) applyFrameUpdates([frame]);
         reviewStatsEl.textContent = statsText(result.review.stats, result.review.threshold);
-        renderActiveSparkline(result.review.frames, result.review.threshold);
-        state.review = {
-          ...state.review,
-          stats: result.review.stats,
-          threshold: result.review.threshold,
-          frames: result.review.frames || [],
-        };
+        if (!isChapterLoadInFlight || !optimistic) {
+          renderActiveSparkline(result.review.frames, result.review.threshold);
+          state.review = {
+            ...state.review,
+            stats: result.review.stats,
+            threshold: result.review.threshold,
+            frames: result.review.frames || [],
+          };
+        } else if (state.review) {
+          state.review = {
+            ...state.review,
+            stats: result.review.stats,
+            threshold: result.review.threshold,
+          };
+        }
         state.gammaScores = new Map();
         refreshFreezeSimulation();
         updateReviewStatsDisplay();
       } catch (err) {
+        if (optimisticSnapshot && state.review && Array.isArray(state.review.frames)) {
+          const { idx, prev } = optimisticSnapshot;
+          if (idx >= 0 && idx < state.review.frames.length) {
+            state.review.frames[idx] = prev;
+            applyFrameUpdates([prev]);
+          }
+        }
         setStatus(err.message, true);
       } finally {
         if (showOverlay) {
@@ -3141,6 +3202,14 @@
       if (isChapterLoadInFlight) {
         setStatus('Wait until the current chapter load finishes before building summary.', true);
         return;
+      }
+      if (pendingToggleRequests.size > 0) {
+        setLoading(true, 'Syncing frame edits...');
+        try {
+          await flushPendingToggleRequests();
+        } finally {
+          setLoading(false);
+        }
       }
       setLoading(true, 'Building summary...');
       try {
@@ -3165,7 +3234,7 @@
       flipbookToggleInFlight = true;
       updateFlipbookControls();
       try {
-        await toggleFrame(fid, { showOverlay: false });
+        await trackPendingToggleRequest(toggleFrame(fid, { showOverlay: false }));
         syncSparkPlayFramesFromGrid();
         renderSparkPlaybackFrame(sparkPlayIndex, { keepVisible: false });
       } finally {
@@ -3335,8 +3404,8 @@
       if (isGammaStepActive()) {
         return;
       }
-      const showOverlay = !(page2El && page2El.classList.contains('flipbook-focus'));
-      toggleFrame(fid, { showOverlay });
+      const showOverlay = !isChapterLoadInFlight && !(page2El && page2El.classList.contains('flipbook-focus'));
+      trackPendingToggleRequest(toggleFrame(fid, { showOverlay, optimistic: isChapterLoadInFlight }));
     });
     frameGridEl.addEventListener('scroll', () => {
       scheduleVisibleRangeRefresh();

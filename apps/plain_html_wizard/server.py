@@ -662,7 +662,7 @@ class WizardHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/toggle_frame":
-            if not session.fids:
+            if not session.fids and not session.partial_fids:
                 self._send_error_json("No loaded chapter data yet.")
                 return
             try:
@@ -749,7 +749,12 @@ class WizardHandler(BaseHTTPRequestHandler):
         session.fids = []
         session.b64 = []
         session.sigs = {}
-        session.overrides = {}
+        session.overrides = _chapter_bad_overrides(
+            archive=session.archive,
+            chapter_title=session.chapter,
+            ch_start=session.start_frame,
+            ch_end=session.end_frame,
+        )
         session.gamma_default = 1.0
         session.gamma_ranges = []
         session.partial_fids = []
@@ -902,12 +907,6 @@ class WizardHandler(BaseHTTPRequestHandler):
         session.fids = [int(x) for x in fids]
         session.b64 = list(b64)
         session.sigs = dict(sigs)
-        session.overrides = _chapter_bad_overrides(
-            archive=session.archive,
-            chapter_title=session.chapter,
-            ch_start=session.start_frame,
-            ch_end=session.end_frame,
-        )
         gamma_profile = get_gamma_profile_for_chapter(
             archive=session.archive,
             chapter_title=session.chapter,
@@ -963,20 +962,35 @@ class WizardHandler(BaseHTTPRequestHandler):
         self._send_json({"ok": True, "review": review, "settings": details})
 
     def _handle_toggle_frame(self, session: SessionState, fid: int) -> None:
-        if int(fid) not in {int(x) for x in session.fids}:
+        fid_i = int(fid)
+        final_ids = {int(x) for x in session.fids}
+        partial_ids = {int(x) for x in session.partial_fids}
+        if fid_i not in final_ids and fid_i not in partial_ids:
             self._send_error_json("Frame is not in the sampled set.")
             return
 
-        scores = combined_score(session.sigs, session.wc, session.wn, session.wt, session.ww)
-        thr = float(compute_threshold(scores, session.t_mode, session.iqr_k, session.tval, session.bpct))
-        index = {int(x): i for i, x in enumerate(session.fids)}
-        pos = index[int(fid)]
-        score = float(scores[pos])
-        effective, _src = _frame_status(session, int(fid), score, thr)
-        session.overrides[int(fid)] = "good" if effective == "bad" else "bad"
+        if session.fids and session.sigs and fid_i in final_ids:
+            scores = combined_score(session.sigs, session.wc, session.wn, session.wt, session.ww)
+            thr = float(compute_threshold(scores, session.t_mode, session.iqr_k, session.tval, session.bpct))
+            index = {int(x): i for i, x in enumerate(session.fids)}
+            pos = index[fid_i]
+            score = float(scores[pos])
+            effective, _src = _frame_status(session, fid_i, score, thr)
+        else:
+            partial_review = _build_partial_review_payload(session, include_images=False)
+            current = next((f for f in partial_review["frames"] if int(f["fid"]) == fid_i), None)
+            if not current:
+                self._send_error_json("Frame is not available yet.")
+                return
+            effective = "bad" if str(current.get("status")) == "bad" else "good"
 
-        frame_state = _build_review_payload(session, include_images=False)
-        updated = next((f for f in frame_state["frames"] if int(f["fid"]) == int(fid)), None)
+        session.overrides[fid_i] = "good" if effective == "bad" else "bad"
+
+        if session.fids and session.sigs:
+            frame_state = _build_review_payload(session, include_images=False)
+        else:
+            frame_state = _build_partial_review_payload(session, include_images=False)
+        updated = next((f for f in frame_state["frames"] if int(f["fid"]) == fid_i), None)
         self._send_json({"ok": True, "frame": updated, "review": frame_state})
 
     def _run_cmd(self, cmd: list[Any], label: str) -> tuple[bool, str]:

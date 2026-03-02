@@ -8,8 +8,10 @@ from libs.vhs_tuner_core import _chapter_bad_overrides
 from apps.plain_html_wizard.server import (
     SessionState,
     _build_review_payload,
+    _build_partial_review_payload,
     _normalize_iqr_k,
     _set_load_progress,
+    WizardHandler,
 )
 
 
@@ -29,6 +31,20 @@ def _make_session() -> SessionState:
         "wave": np.zeros(n, dtype=np.float64),
     }
     return SessionState(fids=fids, sigs=sigs, overrides={})
+
+
+class _HandlerStub:
+    def __init__(self) -> None:
+        self.payload = None
+        self.error = None
+
+    def _send_json(self, payload, code=200) -> None:
+        _ = code
+        self.payload = payload
+
+    def _send_error_json(self, message, code=400) -> None:
+        _ = code
+        self.error = str(message)
 
 
 def test_normalize_iqr_k_clamps_and_parses() -> None:
@@ -163,3 +179,29 @@ def test_chapter_bad_overrides_load_saved_bad_frames_from_render_settings() -> N
         assert overrides == {100: "bad", 105: "bad"}
     finally:
         shutil.rmtree(archive_meta_dir, ignore_errors=True)
+
+
+def test_toggle_frame_allows_partial_frames_before_full_load() -> None:
+    session = SessionState(
+        start_frame=1000,
+        partial_fids=[1000, 1001, 1002],
+        partial_b64=["", "", ""],
+        partial_sigs={
+            "chroma": [0.1, 10.0, 0.1],
+            "noise": [0.0, 0.0, 0.0],
+            "tear": [0.0, 0.0, 0.0],
+            "wave": [0.0, 0.0, 0.0],
+        },
+    )
+    review_before = _build_partial_review_payload(session, include_images=False)
+    frame_before = next(f for f in review_before["frames"] if int(f["fid"]) == 1001)
+    status_before = str(frame_before["status"])
+
+    handler = _HandlerStub()
+    WizardHandler._handle_toggle_frame(handler, session, 1001)
+
+    assert handler.error is None
+    assert handler.payload is not None
+    frame_after = next(f for f in handler.payload["review"]["frames"] if int(f["fid"]) == 1001)
+    assert str(frame_after["status"]) != status_before
+    assert session.overrides[1001] == ("good" if status_before == "bad" else "bad")
