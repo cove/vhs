@@ -9,8 +9,11 @@ Quick Start
 
 1. Create/install the project environment:
    - `python setup.py`
+   - Windows venv path: `.venv\\Scripts\\python.exe`
 2. Run the unified CLI help:
    - `python vhs.py -h`
+3. Run tests via helper script (auto-picks `.venv` on Windows when present):
+   - `.\scripts\test.ps1 -q`
 
 Main Commands
 -------------

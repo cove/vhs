@@ -903,7 +903,7 @@
               </label>
             </div>
             <div id="gammaControls" class="iqr-box hidden-ui">
-              <label for="gammaLevel">Gamma</label>
+              <label for="gammaLevel">Gamma Correction</label>
               <input id="gammaLevel" type="range" min="0.05" max="8.00" step="0.01" value="1.00">
               <span id="gammaLabel">1.00</span>
               <label for="gammaMode">Mode</label>
@@ -935,7 +935,7 @@
               <button id="flipbookPlayBtn" class="action primary" type="button" title="Play flipbook">&#9654;</button>
               <button id="flipbookFwdBtn" class="action" type="button" title="Next frame">&#9654;&#9654;</button>
               <label id="flipbookGammaControls" class="flipbook-gamma hidden-ui" for="flipbookGammaLevel" title="Adjust gamma while in flipbook">
-                <span>Gamma</span>
+                <span>Gamma Correction</span>
                 <input id="flipbookGammaLevel" type="range" min="0.05" max="8.00" step="0.01" value="1.00">
                 <span id="flipbookGammaLabel">1.00</span>
               </label>
@@ -953,7 +953,7 @@
 
         <div id="reviewActions" class="actions">
           <button id="backToLoad" class="action warn">Back</button>
-          <button id="nextToGamma" class="action primary">Next: Gamma</button>
+          <button id="nextToGamma" class="action primary">Next: Gamma Correction</button>
         </div>
         <div id="gammaActions" class="actions hidden-ui">
           <button id="backToReviewFromGamma" class="action warn">Back: Bad Frames</button>
@@ -966,7 +966,7 @@
       <div class="page-final-layout">
         <div id="summaryBox" class="summary-box">No summary yet.</div>
         <div class="actions">
-          <button id="backToReview" class="action warn">Back: Gamma</button>
+          <button id="backToReview" class="action warn">Back: Gamma Correction</button>
           <button id="saveAndReturn" class="action primary">Save and Return to Chapters</button>
         </div>
       </div>
@@ -1020,7 +1020,7 @@
           <li><code>Preview Render</code> runs a real chapter render preview from the current in-memory bad-frame selections, without writing <code>render_settings.json</code> yet.</li>
         </ul>
 
-        <h3>Step 3: Gamma</h3>
+        <h3>Step 3: Gamma Correction</h3>
         <ul>
           <li>The frame grid and flipbook stay the same, with FreezeFrame simulation applied.</li>
           <li>The sparkline switches to gamma score mode; the horizontal bar is your selected gamma level.</li>
@@ -1083,7 +1083,7 @@
     const STEP_DEFS = [
       { num: 1, label: 'Load Chapter', pageId: 'page1', mode: 'load' },
       { num: 2, label: 'Bad Frames + IQR', pageId: 'page2', mode: 'review' },
-      { num: 3, label: 'Gamma', pageId: 'page2', mode: 'gamma' },
+      { num: 3, label: 'Gamma Correction', pageId: 'page2', mode: 'gamma' },
       { num: 4, label: 'Summary + Save', pageId: 'page3', mode: 'summary' },
     ];
     const STEP_BY_NUM = new Map(STEP_DEFS.map((step) => [step.num, step]));
@@ -1892,7 +1892,7 @@
         const mode = String((state.gammaProfile && state.gammaProfile.mode) || 'whole');
         const ranges = gammaRangesForSave();
         const gammaLevel = normalizeGammaValue(state.gammaProfile && state.gammaProfile.level, 1.0);
-        reviewStatsEl.textContent = `Gamma step | mode ${mode} | level ${gammaLevel.toFixed(3)} | ranges ${ranges.length} | sampled ${state.review.frames.length}`;
+        reviewStatsEl.textContent = `Gamma Correction step | mode ${mode} | level ${gammaLevel.toFixed(3)} | ranges ${ranges.length} | sampled ${state.review.frames.length}`;
         return;
       }
       reviewStatsEl.textContent = statsText(state.review.stats, state.review.threshold);
@@ -3184,7 +3184,7 @@
     function applyGammaVisibleRange() {
       if (!isGammaStepActive()) return;
       if (!state.gammaProfile || state.gammaProfile.mode !== 'regions') {
-        setStatus('Set Gamma mode to "Visible Range Regions" before applying ranges.', true);
+        setStatus('Set Gamma Correction mode to "Visible Range Regions" before applying ranges.', true);
         return;
       }
       const range = visibleGammaRangeFromView();

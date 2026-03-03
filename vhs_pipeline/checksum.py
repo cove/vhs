@@ -82,7 +82,7 @@ def should_ignore_drive_path(path: Path) -> bool:
         LEGACY_ARCHIVE_CHECKSUM_FILE.name,
         LEGACY_DRIVE_CHECKSUM_FILE.name,
         "venv-mac",
-        "venv-win",
+        ".venv",
         ".git",
         ".gitignore",
         "__pycache__",

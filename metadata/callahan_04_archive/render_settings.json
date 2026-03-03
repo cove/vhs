@@ -3,10 +3,14 @@
   "_comments": {
     "archive_settings": "Archive-wide defaults applied to render behavior for all chapters.",
     "chapter_settings": "Optional per-chapter overrides keyed by exact chapter title.",
-    "bad_frames_by_chapter": "Per-chapter BAD frame IDs in global archive frame numbering."
+    "bad_frames_by_chapter": "Per-chapter BAD frame IDs in global archive frame numbering.",
+    "gamma_correction_ranges": "Gamma correction ranges use global frame IDs: start_frame inclusive, end_frame exclusive."
   },
   "archive_settings": {
-    "transcript": "off"
+    "transcript": "off",
+    "inherit_bad_frames_from_overlaps": false,
+    "gamma_correction_default": 1.0,
+    "gamma_correction_ranges": []
   },
   "chapter_settings": {},
   "bad_frames_by_chapter": {}

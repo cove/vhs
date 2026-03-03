@@ -24,8 +24,8 @@ qtgmc_*.avs
 ffmpeg.exe
 temp_*.mkv.ffindex
 venv-mac
-venv-win
 venv-linux
+.venv
 .venv-linux/
 
 ### JetBrains template

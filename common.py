@@ -463,6 +463,9 @@ def format_bad_frames_csv(frame_ids):
 def render_settings_path(archive: str) -> Path:
     return METADATA_DIR / str(archive or "").strip() / "render_settings.json"
 
+GAMMA_CORRECTION_DEFAULT_KEY = "gamma_correction_default"
+GAMMA_CORRECTION_RANGES_KEY = "gamma_correction_ranges"
+
 def _render_settings_template() -> dict:
     return {
         "version": 1,
@@ -476,15 +479,15 @@ def _render_settings_template() -> dict:
             "bad_frames_by_chapter": (
                 "Per-chapter BAD frame IDs in global archive frame numbering."
             ),
-            "gamma_ranges": (
-                "Gamma ranges use global frame IDs: start_frame inclusive, end_frame exclusive."
+            "gamma_correction_ranges": (
+                "Gamma correction ranges use global frame IDs: start_frame inclusive, end_frame exclusive."
             ),
         },
         "archive_settings": {
             "transcript": "off",
             "inherit_bad_frames_from_overlaps": False,
-            "gamma_default": 1.0,
-            "gamma_ranges": [],
+            "gamma_correction_default": 1.0,
+            "gamma_correction_ranges": [],
         },
         "chapter_settings": {},
         "bad_frames_by_chapter": {},
@@ -607,6 +610,20 @@ def _clip_gamma_ranges_to_span(
         clipped.append({"start_frame": int(ra), "end_frame": int(rb), "gamma": float(g)})
     return _canonicalize_gamma_ranges(clipped)
 
+def _gamma_default_from_cfg(cfg: dict, default: float = 1.0) -> float:
+    if not isinstance(cfg, dict):
+        return _normalize_gamma_value(default, default=1.0)
+    if GAMMA_CORRECTION_DEFAULT_KEY in cfg:
+        return _normalize_gamma_value(cfg.get(GAMMA_CORRECTION_DEFAULT_KEY), default=default)
+    return _normalize_gamma_value(default, default=1.0)
+
+def _gamma_ranges_from_cfg(cfg: dict) -> list[dict[str, float | int]]:
+    if not isinstance(cfg, dict):
+        return []
+    if GAMMA_CORRECTION_RANGES_KEY in cfg:
+        return _canonicalize_gamma_ranges(cfg.get(GAMMA_CORRECTION_RANGES_KEY, []))
+    return []
+
 def load_render_settings(archive: str, create: bool = False) -> tuple[Path, dict]:
     path = render_settings_path(archive)
     if path.exists():
@@ -615,6 +632,14 @@ def load_render_settings(archive: str, create: bool = False) -> tuple[Path, dict
             if isinstance(data, dict):
                 out = dict(_render_settings_template())
                 out.update(data)
+                template_comments = dict(_render_settings_template().get("_comments") or {})
+                existing_comments = dict(out.get("_comments") or {})
+                if "gamma_ranges" in existing_comments and "gamma_correction_ranges" not in existing_comments:
+                    existing_comments["gamma_correction_ranges"] = existing_comments.get("gamma_ranges")
+                existing_comments.pop("gamma_ranges", None)
+                merged_comments = dict(template_comments)
+                merged_comments.update(existing_comments)
+                out["_comments"] = merged_comments
                 out["archive_settings"] = dict(out.get("archive_settings") or {})
                 out["chapter_settings"] = dict(out.get("chapter_settings") or {})
                 out["bad_frames_by_chapter"] = dict(out.get("bad_frames_by_chapter") or {})
@@ -626,15 +651,12 @@ def load_render_settings(archive: str, create: bool = False) -> tuple[Path, dict
                     out["archive_settings"].get("inherit_bad_frames_from_overlaps", False),
                     default=False,
                 )
-                out["archive_settings"]["gamma_default"] = _normalize_gamma_value(
-                    out["archive_settings"].get("gamma_default", 1.0),
-                    default=1.0,
-                )
-                out["archive_settings"]["gamma_ranges"] = _canonicalize_gamma_ranges(
-                    out["archive_settings"].get("gamma_ranges", []),
-                )
+                archive_gamma_default = _gamma_default_from_cfg(out["archive_settings"], default=1.0)
+                archive_gamma_ranges = _gamma_ranges_from_cfg(out["archive_settings"])
+                out["archive_settings"][GAMMA_CORRECTION_DEFAULT_KEY] = float(archive_gamma_default)
+                out["archive_settings"][GAMMA_CORRECTION_RANGES_KEY] = archive_gamma_ranges
                 normalized_chapter_settings = {}
-                archive_gamma_default = float(out["archive_settings"]["gamma_default"])
+                archive_gamma_default = float(out["archive_settings"][GAMMA_CORRECTION_DEFAULT_KEY])
                 for raw_title, raw_cfg in dict(out["chapter_settings"] or {}).items():
                     title = str(raw_title or "").strip()
                     if not title:
@@ -645,15 +667,20 @@ def load_render_settings(archive: str, create: bool = False) -> tuple[Path, dict
                             cfg.get("transcript"),
                             default=out["archive_settings"]["transcript"],
                         )
-                    if "gamma_default" in cfg or "gamma_ranges" in cfg:
-                        cfg["gamma_default"] = _normalize_gamma_value(
-                            cfg.get("gamma_default", archive_gamma_default),
+                    has_gamma_default = GAMMA_CORRECTION_DEFAULT_KEY in cfg
+                    has_gamma_ranges = GAMMA_CORRECTION_RANGES_KEY in cfg
+                    if has_gamma_default or has_gamma_ranges:
+                        cfg[GAMMA_CORRECTION_DEFAULT_KEY] = _gamma_default_from_cfg(
+                            cfg,
                             default=archive_gamma_default,
                         )
-                        cfg["gamma_ranges"] = _canonicalize_gamma_ranges(cfg.get("gamma_ranges", []))
-                        if not cfg["gamma_ranges"] and abs(float(cfg["gamma_default"]) - archive_gamma_default) < 1e-6:
-                            cfg.pop("gamma_default", None)
-                            cfg.pop("gamma_ranges", None)
+                        cfg[GAMMA_CORRECTION_RANGES_KEY] = _gamma_ranges_from_cfg(cfg)
+                        if (
+                            not cfg[GAMMA_CORRECTION_RANGES_KEY]
+                            and abs(float(cfg[GAMMA_CORRECTION_DEFAULT_KEY]) - archive_gamma_default) < 1e-6
+                        ):
+                            cfg.pop(GAMMA_CORRECTION_DEFAULT_KEY, None)
+                            cfg.pop(GAMMA_CORRECTION_RANGES_KEY, None)
                     normalized_chapter_settings[title] = cfg
                 out["chapter_settings"] = normalized_chapter_settings
                 return path, out
@@ -669,6 +696,14 @@ def save_render_settings(archive: str, settings: dict) -> Path:
     path = render_settings_path(archive)
     payload = dict(_render_settings_template())
     payload.update(dict(settings or {}))
+    template_comments = dict(_render_settings_template().get("_comments") or {})
+    existing_comments = dict(payload.get("_comments") or {})
+    if "gamma_ranges" in existing_comments and "gamma_correction_ranges" not in existing_comments:
+        existing_comments["gamma_correction_ranges"] = existing_comments.get("gamma_ranges")
+    existing_comments.pop("gamma_ranges", None)
+    merged_comments = dict(template_comments)
+    merged_comments.update(existing_comments)
+    payload["_comments"] = merged_comments
     payload["archive_settings"] = dict(payload.get("archive_settings") or {})
     payload["chapter_settings"] = dict(payload.get("chapter_settings") or {})
     payload["bad_frames_by_chapter"] = dict(payload.get("bad_frames_by_chapter") or {})
@@ -680,15 +715,15 @@ def save_render_settings(archive: str, settings: dict) -> Path:
         payload["archive_settings"].get("inherit_bad_frames_from_overlaps", False),
         default=False,
     )
-    payload["archive_settings"]["gamma_default"] = _normalize_gamma_value(
-        payload["archive_settings"].get("gamma_default", 1.0),
+    payload["archive_settings"][GAMMA_CORRECTION_DEFAULT_KEY] = _gamma_default_from_cfg(
+        payload["archive_settings"],
         default=1.0,
     )
-    payload["archive_settings"]["gamma_ranges"] = _canonicalize_gamma_ranges(
-        payload["archive_settings"].get("gamma_ranges", []),
+    payload["archive_settings"][GAMMA_CORRECTION_RANGES_KEY] = _gamma_ranges_from_cfg(
+        payload["archive_settings"],
     )
 
-    archive_gamma_default = float(payload["archive_settings"]["gamma_default"])
+    archive_gamma_default = float(payload["archive_settings"][GAMMA_CORRECTION_DEFAULT_KEY])
     cleaned_chapter_settings = {}
     for raw_title, raw_cfg in dict(payload.get("chapter_settings") or {}).items():
         title = str(raw_title or "").strip()
@@ -700,15 +735,20 @@ def save_render_settings(archive: str, settings: dict) -> Path:
                 cfg.get("transcript"),
                 default=payload["archive_settings"]["transcript"],
             )
-        if "gamma_default" in cfg or "gamma_ranges" in cfg:
-            cfg["gamma_default"] = _normalize_gamma_value(
-                cfg.get("gamma_default", archive_gamma_default),
+        has_gamma_default = GAMMA_CORRECTION_DEFAULT_KEY in cfg
+        has_gamma_ranges = GAMMA_CORRECTION_RANGES_KEY in cfg
+        if has_gamma_default or has_gamma_ranges:
+            cfg[GAMMA_CORRECTION_DEFAULT_KEY] = _gamma_default_from_cfg(
+                cfg,
                 default=archive_gamma_default,
             )
-            cfg["gamma_ranges"] = _canonicalize_gamma_ranges(cfg.get("gamma_ranges", []))
-            if not cfg["gamma_ranges"] and abs(float(cfg["gamma_default"]) - archive_gamma_default) < 1e-6:
-                cfg.pop("gamma_default", None)
-                cfg.pop("gamma_ranges", None)
+            cfg[GAMMA_CORRECTION_RANGES_KEY] = _gamma_ranges_from_cfg(cfg)
+            if (
+                not cfg[GAMMA_CORRECTION_RANGES_KEY]
+                and abs(float(cfg[GAMMA_CORRECTION_DEFAULT_KEY]) - archive_gamma_default) < 1e-6
+            ):
+                cfg.pop(GAMMA_CORRECTION_DEFAULT_KEY, None)
+                cfg.pop(GAMMA_CORRECTION_RANGES_KEY, None)
         cleaned_chapter_settings[title] = cfg
     payload["chapter_settings"] = cleaned_chapter_settings
 
@@ -806,24 +846,21 @@ def get_gamma_profile_for_chapter(
     chapter_settings = dict(settings.get("chapter_settings") or {})
     title = str(chapter_title or "").strip()
 
-    archive_default = _normalize_gamma_value(archive_settings.get("gamma_default", 1.0), default=1.0)
-    archive_ranges = _canonicalize_gamma_ranges(archive_settings.get("gamma_ranges", []))
+    archive_default = _gamma_default_from_cfg(archive_settings, default=1.0)
+    archive_ranges = _gamma_ranges_from_cfg(archive_settings)
     effective_default = float(archive_default)
     effective_ranges = list(archive_ranges)
     source = "archive"
 
     chapter_cfg = chapter_settings.get(title) if title else None
     if isinstance(chapter_cfg, dict):
-        has_gamma_default = "gamma_default" in chapter_cfg
-        has_gamma_ranges = "gamma_ranges" in chapter_cfg
+        has_gamma_default = GAMMA_CORRECTION_DEFAULT_KEY in chapter_cfg
+        has_gamma_ranges = GAMMA_CORRECTION_RANGES_KEY in chapter_cfg
         if has_gamma_default:
-            effective_default = _normalize_gamma_value(
-                chapter_cfg.get("gamma_default", archive_default),
-                default=archive_default,
-            )
+            effective_default = _gamma_default_from_cfg(chapter_cfg, default=archive_default)
             source = "chapter"
         if has_gamma_ranges:
-            effective_ranges = _canonicalize_gamma_ranges(chapter_cfg.get("gamma_ranges", []))
+            effective_ranges = _gamma_ranges_from_cfg(chapter_cfg)
             source = "chapter"
 
     if ch_start is not None and ch_end is not None:
@@ -857,28 +894,28 @@ def update_chapter_gamma_in_render_settings(
         return save_render_settings(archive, settings)
 
     archive_settings = dict(settings.get("archive_settings") or {})
-    archive_default = _normalize_gamma_value(archive_settings.get("gamma_default", 1.0), default=1.0)
+    archive_default = _gamma_default_from_cfg(archive_settings, default=1.0)
     chapter_settings = dict(settings.get("chapter_settings") or {})
     chapter_cfg = dict(chapter_settings.get(title) or {})
 
     normalized_ranges = _canonicalize_gamma_ranges(gamma_ranges)
     if default_gamma is None:
-        if "gamma_default" in chapter_cfg:
-            next_default = _normalize_gamma_value(chapter_cfg.get("gamma_default"), default=archive_default)
+        if GAMMA_CORRECTION_DEFAULT_KEY in chapter_cfg:
+            next_default = _gamma_default_from_cfg(chapter_cfg, default=archive_default)
         else:
             next_default = float(archive_default)
     else:
         next_default = _normalize_gamma_value(default_gamma, default=archive_default)
 
     if normalized_ranges:
-        chapter_cfg["gamma_ranges"] = normalized_ranges
+        chapter_cfg[GAMMA_CORRECTION_RANGES_KEY] = normalized_ranges
     else:
-        chapter_cfg.pop("gamma_ranges", None)
+        chapter_cfg.pop(GAMMA_CORRECTION_RANGES_KEY, None)
 
     if abs(float(next_default) - float(archive_default)) < 1e-6:
-        chapter_cfg.pop("gamma_default", None)
+        chapter_cfg.pop(GAMMA_CORRECTION_DEFAULT_KEY, None)
     else:
-        chapter_cfg["gamma_default"] = float(next_default)
+        chapter_cfg[GAMMA_CORRECTION_DEFAULT_KEY] = float(next_default)
 
     if chapter_cfg:
         chapter_settings[title] = chapter_cfg

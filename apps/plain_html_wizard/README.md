@@ -9,7 +9,7 @@ Run (Windows venv example)
 
 1. Activate your environment.
 2. Start the server:
-   `venv-win\\Scripts\\python apps\\plain_html_wizard\\server.py`
+   `.venv\\Scripts\\python apps\\plain_html_wizard\\server.py`
 3. Open:
    `http://127.0.0.1:8092`
 

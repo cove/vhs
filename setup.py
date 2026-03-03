@@ -15,7 +15,7 @@ from pathlib import Path
 BASE = Path(__file__).parent.resolve()
 
 if sys.platform == "win32":
-    VENV_DIR = BASE / "venv-win"
+    VENV_DIR = BASE / ".venv"
 elif sys.platform == "darwin":
     VENV_DIR = BASE / "venv-mac"
 elif sys.platform.startswith("linux"):
