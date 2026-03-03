@@ -851,12 +851,7 @@
       <button id="helpBtn" class="action help-btn" type="button">Help</button>
     </div>
     <div id="status" class="status"></div>
-    <div class="steps">
-      <div id="stepPill1" class="step-pill active">1/4 Load Chapter</div>
-      <div id="stepPill2" class="step-pill">2/4 Bad Frames + IQR</div>
-      <div id="stepPill3" class="step-pill">3/4 Gamma</div>
-      <div id="stepPill4" class="step-pill">4/4 Summary + Save</div>
-    </div>
+    <div id="stepPills" class="steps"></div>
 
     <section id="page1" class="page active">
       <div class="page-load-layout">
@@ -1085,12 +1080,31 @@
       },
     };
 
+    const STEP_DEFS = [
+      { num: 1, label: 'Load Chapter', pageId: 'page1', mode: 'load' },
+      { num: 2, label: 'Bad Frames + IQR', pageId: 'page2', mode: 'review' },
+      { num: 3, label: 'Gamma', pageId: 'page2', mode: 'gamma' },
+      { num: 4, label: 'Summary + Save', pageId: 'page3', mode: 'summary' },
+    ];
+    const STEP_BY_NUM = new Map(STEP_DEFS.map((step) => [step.num, step]));
+    const STEP_INDEX_BY_NUM = new Map(STEP_DEFS.map((step, index) => [step.num, index]));
+    const STEP_COUNT = STEP_DEFS.length;
+    const STEP_FIRST = STEP_DEFS[0];
+    const STEP_PAGE_IDS = Array.from(new Set(STEP_DEFS.map((step) => step.pageId)));
+    const STEP_MODE_TO_FIRST = new Map();
+    STEP_DEFS.forEach((step) => {
+      if (!STEP_MODE_TO_FIRST.has(step.mode)) {
+        STEP_MODE_TO_FIRST.set(step.mode, step);
+      }
+    });
+
     const FREEZE_BRIDGE_ALWAYS_GAP = 0;
     const FREEZE_BRIDGE_SINGLETON_GAP = 0;
     const FREEZE_SINGLE_FRAME_SOURCE_SKIP = 0;
     const FREEZE_SOURCE_CLEARANCE = 0;
 
     const statusEl = document.getElementById('status');
+    const stepPillsEl = document.getElementById('stepPills');
     const overlayEl = document.getElementById('overlay');
     const overlayMsgEl = document.getElementById('overlayMsg');
     const overlayProgressFillEl = document.getElementById('overlayProgressFill');
@@ -1145,13 +1159,6 @@
     const flipbookPlayBtnEl = document.getElementById('flipbookPlayBtn');
     const flipbookFwdBtnEl = document.getElementById('flipbookFwdBtn');
     const flipbookCloseBtnEl = document.getElementById('flipbookCloseBtn');
-    const nextToReviewBtnEl = document.getElementById('nextToReview');
-    const nextToGammaBtnEl = document.getElementById('nextToGamma');
-    const nextToSummaryBtnEl = document.getElementById('nextToSummary');
-    const saveAndReturnBtnEl = document.getElementById('saveAndReturn');
-    const backToLoadBtnEl = document.getElementById('backToLoad');
-    const backToReviewFromGammaBtnEl = document.getElementById('backToReviewFromGamma');
-    const backToReviewBtnEl = document.getElementById('backToReview');
 
     let autoIqrTimer = null;
     let visibleRangeRefreshPending = false;
@@ -1169,6 +1176,8 @@
     let flipbookGridCursorIndex = -1;
     let flipbookToggleInFlight = false;
     const pendingToggleRequests = new Set();
+    const navActionButtons = new Map();
+    const lockExtraButtons = [previewRenderBtnEl, gammaApplyVisibleBtnEl, gammaClearBtnEl].filter((el) => Boolean(el));
     let shiftRangeAnchorFid = null;
 
     function setLoadCancelUi(visible, disabled = false, label = 'Cancel') {
@@ -1361,16 +1370,12 @@
 
     function updateActionLocks() {
       const locked = Boolean(isChapterLoadInFlight);
-      if (nextToReviewBtnEl) nextToReviewBtnEl.disabled = locked;
-      if (nextToGammaBtnEl) nextToGammaBtnEl.disabled = locked;
-      if (nextToSummaryBtnEl) nextToSummaryBtnEl.disabled = locked;
-      if (saveAndReturnBtnEl) saveAndReturnBtnEl.disabled = locked;
-      if (previewRenderBtnEl) previewRenderBtnEl.disabled = locked;
-      if (backToLoadBtnEl) backToLoadBtnEl.disabled = locked;
-      if (backToReviewFromGammaBtnEl) backToReviewFromGammaBtnEl.disabled = locked;
-      if (backToReviewBtnEl) backToReviewBtnEl.disabled = locked;
-      if (gammaApplyVisibleBtnEl) gammaApplyVisibleBtnEl.disabled = locked;
-      if (gammaClearBtnEl) gammaClearBtnEl.disabled = locked;
+      navActionButtons.forEach((el) => {
+        if (el) el.disabled = locked;
+      });
+      lockExtraButtons.forEach((el) => {
+        if (el) el.disabled = locked;
+      });
     }
 
     function startLoadProgress(message) {
@@ -1457,15 +1462,74 @@
       return payload;
     }
 
-    function setStep(step) {
-      const target = Math.trunc(_clamp(Number(step || 1), 1, 4));
-      const previousStep = Number(state.wizardStep || 1);
-      state.wizardStep = target;
+    function stepDef(rawStep) {
+      const n = Math.trunc(Number(rawStep));
+      return STEP_BY_NUM.get(n) || STEP_FIRST;
+    }
 
-      const pageForStep = target === 1 ? 1 : (target === 4 ? 3 : 2);
-      const pages = ['page1', 'page2', 'page3'];
-      const pills = ['stepPill1', 'stepPill2', 'stepPill3', 'stepPill4'];
-      const reviewStage = target === 2 || target === 3;
+    function stepNumForMode(mode, fallbackStep = STEP_FIRST.num) {
+      const key = String(mode || '').trim();
+      const def = STEP_MODE_TO_FIRST.get(key);
+      return def ? def.num : stepDef(fallbackStep).num;
+    }
+
+    function stepIndex(rawStep) {
+      const def = stepDef(rawStep);
+      const idx = Number(STEP_INDEX_BY_NUM.get(def.num));
+      if (Number.isFinite(idx) && idx >= 0) return idx;
+      return 0;
+    }
+
+    function stepAtOffset(rawStep, offset = 0) {
+      const base = stepIndex(rawStep);
+      const delta = Math.trunc(Number(offset || 0));
+      const idx = _clamp(base + delta, 0, STEP_COUNT - 1);
+      return STEP_DEFS[idx] || STEP_FIRST;
+    }
+
+    function setStepByMode(mode, fallbackStep = STEP_FIRST.num) {
+      setStep(stepNumForMode(mode, fallbackStep));
+    }
+
+    function isReviewMode(mode) {
+      return mode === 'review' || mode === 'gamma';
+    }
+
+    function renderStepPills() {
+      if (!stepPillsEl) return;
+      stepPillsEl.innerHTML = '';
+      const activeStepNum = stepDef(state.wizardStep).num;
+      STEP_DEFS.forEach((step, index) => {
+        const pill = document.createElement('div');
+        pill.id = `stepPill${step.num}`;
+        pill.className = 'step-pill';
+        pill.dataset.step = String(step.num);
+        pill.textContent = `${index + 1}/${STEP_COUNT} ${step.label}`;
+        if (step.num === activeStepNum) {
+          pill.classList.add('active');
+        }
+        stepPillsEl.appendChild(pill);
+      });
+    }
+
+    function updateStepPillActive(stepNum) {
+      if (!stepPillsEl || !stepPillsEl.children.length) {
+        renderStepPills();
+        return;
+      }
+      const target = Number(stepNum);
+      stepPillsEl.querySelectorAll('.step-pill').forEach((el) => {
+        const n = Number(el.dataset.step || 0);
+        el.classList.toggle('active', n === target);
+      });
+    }
+
+    function setStep(step) {
+      const previousStep = stepDef(state.wizardStep);
+      const previousGammaMode = previousStep.mode === 'gamma';
+      const targetStep = stepDef(step);
+      state.wizardStep = targetStep.num;
+      const reviewStage = isReviewMode(targetStep.mode);
       if (!reviewStage) {
         setFlipbookFocusMode(false);
         stopSparkWindowPlayback();
@@ -1473,15 +1537,13 @@
       if (!reviewStage && isReviewFullscreenActive()) {
         exitReviewFullscreenIfActive();
       }
-      pages.forEach((id, i) => {
-        document.getElementById(id).classList.toggle('active', i + 1 === pageForStep);
+      STEP_PAGE_IDS.forEach((id) => {
+        const page = document.getElementById(id);
+        if (!page) return;
+        page.classList.toggle('active', id === targetStep.pageId);
       });
-      pills.forEach((id, i) => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        el.classList.toggle('active', i + 1 === target);
-      });
-      const gammaMode = target === 3;
+      updateStepPillActive(targetStep.num);
+      const gammaMode = targetStep.mode === 'gamma';
       if (reviewControlsEl) reviewControlsEl.classList.toggle('hidden-ui', gammaMode);
       if (gammaControlsEl) gammaControlsEl.classList.toggle('hidden-ui', !gammaMode);
       if (reviewActionsEl) reviewActionsEl.classList.toggle('hidden-ui', gammaMode);
@@ -1490,10 +1552,10 @@
       if (flipbookGammaControlsEl) flipbookGammaControlsEl.classList.toggle('hidden-ui', !gammaMode);
       if (flipbookSimFreezeWrapEl) flipbookSimFreezeWrapEl.classList.toggle('hidden-ui', gammaMode);
 
-      if (gammaMode && previousStep !== 3) {
+      if (gammaMode && !previousGammaMode) {
         state.simulateFreezeFrameReviewPref = Boolean(state.simulateFreezeFrame);
         setSimFreezeFrame(true);
-      } else if (!gammaMode && previousStep === 3) {
+      } else if (!gammaMode && previousGammaMode) {
         setSimFreezeFrame(Boolean(state.simulateFreezeFrameReviewPref));
       }
 
@@ -2115,15 +2177,15 @@
     }
 
     function isReviewStepActive() {
-      return page2El && page2El.classList.contains('active');
+      return isReviewMode(stepDef(state.wizardStep).mode);
     }
 
     function isBadFrameStepActive() {
-      return isReviewStepActive() && Number(state.wizardStep) === 2;
+      return stepDef(state.wizardStep).mode === 'review';
     }
 
     function isGammaStepActive() {
-      return isReviewStepActive() && Number(state.wizardStep) === 3;
+      return stepDef(state.wizardStep).mode === 'gamma';
     }
 
     function isReviewFullscreenActive() {
@@ -2928,7 +2990,7 @@
       state.review = { threshold: 0, stats: { total: 0, bad: 0, good: 0, shown: 0, overrides: 0 }, frames: [] };
       updateReviewStatsDisplay();
       renderReviewFrames([]);
-      setStep(2);
+      setStepByMode('review');
       try {
         const result = await api('/api/load_chapter', 'POST', payload, 0);
         state.frameImages = new Map();
@@ -2955,7 +3017,7 @@
         setStatus(
           `Loaded ${sampledCount} sampled frame(s) of ${chapterTotal} total for ${state.chapter} (stride ${strideText}).`
         );
-        setStep(2);
+        setStepByMode('review');
       } catch (err) {
         loadFailed = true;
         const msg = String(err?.message || err || 'Load failed.');
@@ -3142,7 +3204,7 @@
       } finally {
         setLoading(false);
       }
-      setStep(3);
+      setStepByMode('gamma', stepNumForMode('review'));
       renderActiveSparkline(state.review.frames, state.review.threshold || 0);
       updateReviewStatsDisplay();
     }
@@ -3272,7 +3334,7 @@
       try {
         const result = await api('/api/summary');
         summaryBoxEl.textContent = `${String(result.summary || '').trim()}\n\n${gammaSummaryTextBlock()}`;
-        setStep(4);
+        setStepByMode('summary', stepNumForMode('gamma', stepNumForMode('review')));
       } catch (err) {
         setStatus(err.message, true);
       } finally {
@@ -3353,7 +3415,7 @@
 
         renderArchives();
         renderChapters();
-        setStep(1);
+        setStepByMode('load');
       } catch (err) {
         setStatus(err.message, true);
       } finally {
@@ -3370,27 +3432,72 @@
         .replace(/'/g, '&#39;');
     }
 
-    document.getElementById('nextToReview').addEventListener('click', loadFrames);
-    document.getElementById('backToLoad').addEventListener('click', () => {
-      stopSparkWindowPlayback();
-      setStep(1);
-    });
-    if (nextToGammaBtnEl) {
-      nextToGammaBtnEl.addEventListener('click', openGammaStep);
-    }
-    document.getElementById('nextToSummary').addEventListener('click', loadSummary);
-    previewRenderBtnEl.addEventListener('click', previewRender);
-    if (backToReviewFromGammaBtnEl) {
-      backToReviewFromGammaBtnEl.addEventListener('click', () => {
-        stopSparkWindowPlayback();
-        setStep(2);
+    const NAV_ACTIONS = [
+      {
+        id: 'nextToReview',
+        run: () => loadFrames(),
+        lockOnLoad: true,
+      },
+      {
+        id: 'backToLoad',
+        run: () => {
+          stopSparkWindowPlayback();
+          setStep(stepAtOffset(state.wizardStep, -1).num);
+        },
+        lockOnLoad: true,
+      },
+      {
+        id: 'nextToGamma',
+        run: () => openGammaStep(),
+        lockOnLoad: true,
+      },
+      {
+        id: 'nextToSummary',
+        run: () => loadSummary(),
+        lockOnLoad: true,
+      },
+      {
+        id: 'backToReviewFromGamma',
+        run: () => {
+          stopSparkWindowPlayback();
+          setStep(stepAtOffset(state.wizardStep, -1).num);
+        },
+        lockOnLoad: true,
+      },
+      {
+        id: 'backToReview',
+        run: () => {
+          stopSparkWindowPlayback();
+          setStep(stepAtOffset(state.wizardStep, -1).num);
+        },
+        lockOnLoad: true,
+      },
+      {
+        id: 'saveAndReturn',
+        run: () => saveAndReturn(),
+        lockOnLoad: true,
+      },
+    ];
+
+    function bindWizardNavigation() {
+      navActionButtons.clear();
+      NAV_ACTIONS.forEach((entry) => {
+        const el = document.getElementById(entry.id);
+        if (!el) return;
+        if (entry.lockOnLoad) {
+          navActionButtons.set(entry.id, el);
+        }
+        el.addEventListener('click', () => {
+          const result = entry.run();
+          if (result && typeof result.then === 'function') {
+            void result;
+          }
+        });
       });
     }
-    document.getElementById('backToReview').addEventListener('click', () => {
-      stopSparkWindowPlayback();
-      setStep(3);
-    });
-    document.getElementById('saveAndReturn').addEventListener('click', saveAndReturn);
+
+    bindWizardNavigation();
+    previewRenderBtnEl.addEventListener('click', previewRender);
     fullscreenBtnEl.addEventListener('click', toggleReviewFullscreen);
     document.addEventListener('fullscreenchange', () => {
       if (page2El && page2El.classList.contains('flipbook-focus') && !isReviewFullscreenActive()) {
@@ -3536,6 +3643,8 @@
     window.addEventListener('load', async () => {
       iqrLabelEl.textContent = Number(iqrEl.value).toFixed(2);
       if (gammaLabelEl) gammaLabelEl.textContent = Number(gammaLevelEl.value || 1).toFixed(2);
+      renderStepPills();
+      setStep(state.wizardStep || STEP_FIRST.num);
       updateSparkPlayButton();
       updateFullscreenButton();
       updateActionLocks();
