@@ -91,6 +91,11 @@ class SessionState:
     load_sample_done: int = 0
     load_sample_total: int = 0
     load_cancel_requested: bool = False
+    preview_running: bool = False
+    preview_progress: float = 0.0
+    preview_message: str = ""
+    preview_frame_done: int = 0
+    preview_frame_total: int = 0
     preview_video_path: str = ""
     gamma_default: float = 1.0
     gamma_ranges: list[dict[str, Any]] = field(default_factory=list)
@@ -124,6 +129,27 @@ def _set_load_progress(
         session.load_sample_done = max(0, int(sample_done))
     if sample_total is not None:
         session.load_sample_total = max(0, int(sample_total))
+
+
+def _set_preview_progress(
+    session: SessionState,
+    *,
+    running: bool | None = None,
+    progress: float | None = None,
+    message: str | None = None,
+    frame_done: int | None = None,
+    frame_total: int | None = None,
+) -> None:
+    if running is not None:
+        session.preview_running = bool(running)
+    if progress is not None:
+        session.preview_progress = max(0.0, min(100.0, float(progress)))
+    if message is not None:
+        session.preview_message = str(message)
+    if frame_done is not None:
+        session.preview_frame_done = max(0, int(frame_done))
+    if frame_total is not None:
+        session.preview_frame_total = max(0, int(frame_total))
 
 
 def _normalize_iqr_k(raw: Any, default: float = 3.5) -> float:
@@ -606,6 +632,19 @@ class WizardHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if parsed.path == "/api/preview_progress":
+            self._send_json(
+                {
+                    "ok": True,
+                    "running": bool(session.preview_running),
+                    "progress": float(session.preview_progress),
+                    "message": str(session.preview_message or ""),
+                    "frame_done": int(session.preview_frame_done),
+                    "frame_total": int(session.preview_frame_total),
+                }
+            )
+            return
+
         if parsed.path == "/api/load_review":
             self._send_json(
                 {
@@ -1062,15 +1101,89 @@ class WizardHandler(BaseHTTPRequestHandler):
             detail = f"{label} failed: {detail}"
         return False, detail
 
+    def _run_cmd_with_progress(
+        self,
+        cmd: list[Any],
+        label: str,
+        *,
+        on_frame: Any | None = None,
+    ) -> tuple[bool, str]:
+        parts = [str(x) for x in cmd]
+        if parts:
+            ffmpeg_name = Path(parts[0]).name.lower()
+            if ffmpeg_name in {"ffmpeg", "ffmpeg.exe"} and "-progress" not in parts:
+                parts = [
+                    parts[0],
+                    "-progress",
+                    "pipe:2",
+                    "-stats_period",
+                    "0.5",
+                    *parts[1:],
+                ]
+
+        proc = subprocess.Popen(
+            parts,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+        err_lines: list[str] = []
+        try:
+            if proc.stderr is not None:
+                for raw in proc.stderr:
+                    line = str(raw or "").strip()
+                    if line:
+                        err_lines.append(line)
+                        if len(err_lines) > 80:
+                            err_lines = err_lines[-80:]
+                    m = re.match(r"^frame\s*=\s*(\d+)$", line)
+                    if m and on_frame is not None:
+                        try:
+                            on_frame(int(m.group(1)))
+                        except Exception:
+                            pass
+        finally:
+            rc = proc.wait()
+
+        if rc == 0:
+            return True, ""
+        detail = "\n".join(err_lines).strip()
+        if not detail:
+            detail = f"{label} failed with exit code {int(rc)}."
+        else:
+            detail = f"{label} failed: {detail}"
+        return False, detail
+
     def _handle_preview_render(self, session: SessionState, payload: dict[str, Any] | None = None) -> None:
+        def fail(message: str) -> None:
+            _set_preview_progress(
+                session,
+                running=False,
+                progress=0.0,
+                message=str(message),
+            )
+            self._send_error_json(message)
+
         if not session.fids or not session.sigs:
-            self._send_error_json("No loaded chapter data yet.")
+            fail("No loaded chapter data yet.")
             return
         if not session.archive or not session.chapter:
-            self._send_error_json("Archive and chapter context are missing.")
+            fail("Archive and chapter context are missing.")
             return
 
         payload = payload or {}
+        preview_mode = str(payload.get("preview_mode", "") or "").strip().lower()
+        apply_freeze = True
+        apply_gamma = True
+        if preview_mode == "review":
+            apply_gamma = False
+        elif preview_mode == "gamma":
+            apply_freeze = False
+        elif preview_mode == "summary":
+            apply_freeze = True
+            apply_gamma = True
+
         raw_gamma_profile = payload.get("gamma_profile")
         if raw_gamma_profile is None:
             raw_gamma_profile = payload.get("gamma")
@@ -1094,10 +1207,11 @@ class WizardHandler(BaseHTTPRequestHandler):
                 make_deinterlace,
                 make_deinterlace_ffmpeg_fallback,
                 make_freeze_only_avs,
+                make_gamma_only_avs,
                 make_render_avs_ffv1,
             )
         except Exception as exc:
-            self._send_error_json(f"Preview render is unavailable: {type(exc).__name__}: {exc}")
+            fail(f"Preview render is unavailable: {type(exc).__name__}: {exc}")
             return
 
         proxy_video = ARCHIVE_DIR / f"{session.archive}_proxy.mp4"
@@ -1109,7 +1223,7 @@ class WizardHandler(BaseHTTPRequestHandler):
             source_video = archive_video
             source_label = "archive (proxy missing)"
         else:
-            self._send_error_json(f"No source video found for '{session.archive}'.")
+            fail(f"No source video found for '{session.archive}'.")
             return
 
         start_frame, end_frame = _normalize_frame_span(session.start_frame, session.end_frame)
@@ -1126,7 +1240,7 @@ class WizardHandler(BaseHTTPRequestHandler):
             debug_overlay=debug_overlay,
         )
         if ex_err or extracted is None:
-            self._send_error_json(ex_err or "Failed to extract preview chapter segment.")
+            fail(ex_err or "Failed to extract preview chapter segment.")
             return
 
         bad_global = [
@@ -1134,7 +1248,7 @@ class WizardHandler(BaseHTTPRequestHandler):
             for fid in _selected_bad_frame_ids(session)
             if int(start_frame) <= int(fid) < int(end_frame)
         ]
-        local_bad = [int(fid) - int(start_frame) for fid in bad_global]
+        local_bad = [int(fid) - int(start_frame) for fid in bad_global] if apply_freeze else []
         local_repairs = local_bad_frames_to_repairs(local_bad) if local_bad else []
 
         preview_root = PROJECT_ROOT / "tmp" / "plain_html_wizard_preview"
@@ -1156,10 +1270,53 @@ class WizardHandler(BaseHTTPRequestHandler):
 
         freeze_input = extracted
         used_non_windows_fallback = False
+        gamma_only_mode = preview_mode == "gamma"
+        windows_filter = bool(
+            sys.platform == "win32"
+            and apply_gamma
+            and (gamma_only_mode or filter_script.exists())
+        )
+        windows_freeze = bool(sys.platform == "win32" and bool(local_bad))
+        stage_names: list[str] = []
+        if windows_freeze:
+            stage_names.append("Applying FreezeFrame repairs")
+        if windows_filter:
+            stage_names.append("Applying gamma correction" if gamma_only_mode else "Deinterlacing/filtering")
+        elif sys.platform != "win32":
+            stage_names.append("Fallback deinterlacing")
+        stage_names.append("Encoding preview")
+        total_stages = max(1, len(stage_names))
+        total_frames_all = max(1, chapter_len * total_stages)
+
+        _set_preview_progress(
+            session,
+            running=True,
+            progress=1.0,
+            message="Preparing preview render...",
+            frame_done=0,
+            frame_total=total_frames_all,
+        )
+
+        def _set_stage_progress(stage_idx: int, frame_done: int, stage_label: str) -> None:
+            done = max(0, min(chapter_len, int(frame_done)))
+            overall_done = min(total_frames_all, (stage_idx * chapter_len) + done)
+            frac = float(done) / float(max(1, chapter_len))
+            pct = ((float(stage_idx) + frac) / float(total_stages)) * 100.0
+            _set_preview_progress(
+                session,
+                running=True,
+                progress=max(1.0, min(99.5, pct)),
+                message=f"{stage_label}... ({done}/{chapter_len} frames)",
+                frame_done=overall_done,
+                frame_total=total_frames_all,
+            )
+
+        stage_idx = 0
 
         try:
             if sys.platform == "win32":
                 if local_bad:
+                    stage_label = stage_names[stage_idx]
                     freeze_script = make_freeze_only_avs(
                         extracted,
                         bad_source_frames=local_bad,
@@ -1169,13 +1326,16 @@ class WizardHandler(BaseHTTPRequestHandler):
                         source_clearance=BADFRAME_SOURCE_CLEARANCE,
                     )
                     freeze_avs.write_text(freeze_script, encoding="ascii")
-                    ok, detail = self._run_cmd(
+                    ok, detail = self._run_cmd_with_progress(
                         make_render_avs_ffv1(freeze_avs, extracted, repaired_extracted),
                         "Preview freeze stage",
+                        on_frame=lambda n: _set_stage_progress(stage_idx, n, stage_label),
                     )
                     if not ok:
-                        self._send_error_json(detail)
+                        fail(detail)
                         return
+                    _set_stage_progress(stage_idx, chapter_len, stage_label)
+                    stage_idx += 1
                     assert_expected_frame_count(
                         repaired_extracted,
                         chapter_len,
@@ -1183,44 +1343,62 @@ class WizardHandler(BaseHTTPRequestHandler):
                     )
                     freeze_input = repaired_extracted
 
-                if filter_script.exists():
+                if windows_filter:
+                    stage_label = stage_names[stage_idx]
                     gamma_default = _normalize_gamma_value(session.gamma_default, default=1.0)
                     gamma_ranges = _normalize_gamma_ranges_payload(
                         session.gamma_ranges,
                         ch_start=start_frame,
                         ch_end=end_frame,
                     )
-                    script_text = make_create_avs(
-                        freeze_input,
-                        filter_script,
-                        bad_source_frames=[],
-                        bad_repair_ranges=[],
-                        chapter_start_frame=start_frame,
-                        chapter_end_frame=end_frame,
-                        gamma_default=gamma_default,
-                        gamma_ranges=gamma_ranges,
-                        no_bob=False,
-                        source_clearance=0,
-                    )
+                    if gamma_only_mode:
+                        script_text = make_gamma_only_avs(
+                            freeze_input,
+                            chapter_start_frame=start_frame,
+                            chapter_end_frame=end_frame,
+                            gamma_default=gamma_default,
+                            gamma_ranges=gamma_ranges,
+                        )
+                    else:
+                        script_text = make_create_avs(
+                            freeze_input,
+                            filter_script,
+                            bad_source_frames=[],
+                            bad_repair_ranges=[],
+                            chapter_start_frame=start_frame,
+                            chapter_end_frame=end_frame,
+                            gamma_default=gamma_default,
+                            gamma_ranges=gamma_ranges,
+                            no_bob=False,
+                            source_clearance=0,
+                        )
                     filter_avs.write_text(script_text, encoding="ascii")
-                    ok, detail = self._run_cmd(
+                    stage_cmd_label = "Preview gamma stage" if gamma_only_mode else "Preview deinterlace stage"
+                    ok, detail = self._run_cmd_with_progress(
                         make_deinterlace(filter_avs, freeze_input, qtgmc),
-                        "Preview deinterlace stage",
+                        stage_cmd_label,
+                        on_frame=lambda n: _set_stage_progress(stage_idx, n, stage_label),
                     )
                     if not ok:
-                        self._send_error_json(detail)
+                        fail(detail)
                         return
+                    _set_stage_progress(stage_idx, chapter_len, stage_label)
+                    stage_idx += 1
                 else:
                     shutil.copy2(freeze_input, qtgmc)
             else:
                 used_non_windows_fallback = True
-                ok, detail = self._run_cmd(
+                stage_label = stage_names[stage_idx]
+                ok, detail = self._run_cmd_with_progress(
                     make_deinterlace_ffmpeg_fallback(extracted, qtgmc, no_bob=False),
                     "Preview fallback deinterlace stage",
+                    on_frame=lambda n: _set_stage_progress(stage_idx, n, stage_label),
                 )
                 if not ok:
-                    self._send_error_json(detail)
+                    fail(detail)
                     return
+                _set_stage_progress(stage_idx, chapter_len, stage_label)
+                stage_idx += 1
 
             assert_expected_frame_count(
                 qtgmc,
@@ -1228,10 +1406,11 @@ class WizardHandler(BaseHTTPRequestHandler):
                 f"preview qtgmc chapter '{session.chapter}'",
             )
         except Exception as exc:
-            self._send_error_json(f"Preview render failed: {type(exc).__name__}: {exc}")
+            fail(f"Preview render failed: {type(exc).__name__}: {exc}")
             return
 
-        ok, detail = self._run_cmd(
+        stage_label = stage_names[stage_idx if stage_idx < len(stage_names) else (len(stage_names) - 1)]
+        ok, detail = self._run_cmd_with_progress(
             [
                 FFMPEG_BIN,
                 "-nostdin",
@@ -1267,19 +1446,31 @@ class WizardHandler(BaseHTTPRequestHandler):
                 str(preview_video),
             ],
             "Preview encode stage",
+            on_frame=lambda n: _set_stage_progress(stage_idx, n, stage_label),
         )
         if not ok:
-            self._send_error_json(detail)
+            fail(detail)
             return
+        _set_stage_progress(stage_idx, chapter_len, stage_label)
 
         session.preview_video_path = str(preview_video.resolve())
+        mode_desc = preview_mode if preview_mode in {"review", "gamma", "summary"} else "combined"
         msg = (
             f"Preview render ready for {session.chapter}: "
+            f"mode={mode_desc}, freeze={'on' if apply_freeze else 'off'}, gamma={'on' if apply_gamma else 'off'}. "
             f"{len(local_bad)} sampled bad frame(s) applied from current review state. "
             f"Source: {source_label}."
         )
         if used_non_windows_fallback and local_bad:
             msg += " Note: non-Windows fallback cannot apply AviSynth FreezeFrame repair logic."
+        _set_preview_progress(
+            session,
+            running=False,
+            progress=100.0,
+            message="Preview render complete.",
+            frame_done=total_frames_all,
+            frame_total=total_frames_all,
+        )
         self._send_json(
             {
                 "ok": True,

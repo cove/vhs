@@ -864,6 +864,30 @@ chapter_end_frame = {int(chapter_end_frame)}
 {freeze_text}
 '''
 
+def make_gamma_only_avs(
+    temp_extracted: str,
+    chapter_start_frame=0,
+    chapter_end_frame=0,
+    gamma_default=GAMMA_DEFAULT,
+    gamma_ranges=None,
+):
+    gamma_adjust_text = _build_gamma_adjustment_lines(
+        chapter_start_frame=chapter_start_frame,
+        chapter_end_frame=chapter_end_frame,
+        gamma_default=gamma_default,
+        gamma_ranges=gamma_ranges,
+    )
+    if not gamma_adjust_text:
+        gamma_adjust_text = "c = last\nc\n"
+    return f'''
+LoadPlugin("{QTGMC_DIR}/ffms2.dll")
+LoadPlugin("{QTGMC_DIR}/SmoothAdjust.dll")
+FFmpegSource2("{temp_extracted}", atrack=-1)
+chapter_start_frame = {int(chapter_start_frame)}
+chapter_end_frame = {int(chapter_end_frame)}
+{gamma_adjust_text}
+'''
+
 def make_extract_audio(temp_extracted, temp_transcript):
     return [FFMPEG_BIN,
         "-nostdin", "-v", "error",

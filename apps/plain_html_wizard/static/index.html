@@ -1163,10 +1163,12 @@
     let autoIqrTimer = null;
     let visibleRangeRefreshPending = false;
     let loadProgressPollTimer = null;
+    let previewProgressPollTimer = null;
     let loadSampleTimingStartAt = 0;
     let loadSampleTimingStartDone = 0;
     let progressiveReviewFrameCount = 0;
     let isChapterLoadInFlight = false;
+    let isPreviewRenderInFlight = false;
     let sparkDragPointerId = null;
     let sparkDragRaf = null;
     let sparkDragClientX = 0;
@@ -1369,7 +1371,7 @@
     }
 
     function updateActionLocks() {
-      const locked = Boolean(isChapterLoadInFlight);
+      const locked = Boolean(isChapterLoadInFlight || isPreviewRenderInFlight);
       navActionButtons.forEach((el) => {
         if (el) el.disabled = locked;
       });
@@ -1460,6 +1462,62 @@
         throw new Error((payload && payload.error) || `HTTP ${res.status}`);
       }
       return payload;
+    }
+
+    async function pollPreviewProgressOnce() {
+      try {
+        const p = await api('/api/preview_progress');
+        const done = Number(p.frame_done || 0);
+        const total = Number(p.frame_total || 0);
+        const msg = String(p.message || '');
+        if (msg) {
+          if (total > 0) {
+            overlayMsgEl.textContent = `${msg} (${done}/${total})`;
+          } else {
+            overlayMsgEl.textContent = msg;
+          }
+        }
+        setOverlayProgress(Number(p.progress || 0));
+        renderReadyAtFromSamples(done, total);
+      } catch (_err) {
+        // Ignore transient polling errors while main request is in-flight.
+      }
+    }
+
+    function startPreviewProgress(message) {
+      if (previewProgressPollTimer) {
+        window.clearInterval(previewProgressPollTimer);
+        previewProgressPollTimer = null;
+      }
+      setLoading(true, message || 'Rendering chapter preview...');
+      isPreviewRenderInFlight = true;
+      updateActionLocks();
+      loadSampleTimingStartAt = 0;
+      loadSampleTimingStartDone = 0;
+      setOverlayProgress(1);
+      renderReadyAtFromSamples(0, 0);
+      pollPreviewProgressOnce();
+      previewProgressPollTimer = window.setInterval(pollPreviewProgressOnce, 220);
+    }
+
+    function finishPreviewProgress(success = true) {
+      if (previewProgressPollTimer) {
+        window.clearInterval(previewProgressPollTimer);
+        previewProgressPollTimer = null;
+      }
+      if (success) {
+        setOverlayProgress(100);
+        renderReadyAtFromSamples(1, 1);
+        window.setTimeout(() => {
+          setLoading(false);
+        }, 180);
+      } else {
+        setLoading(false);
+      }
+      loadSampleTimingStartAt = 0;
+      loadSampleTimingStartDone = 0;
+      isPreviewRenderInFlight = false;
+      updateActionLocks();
     }
 
     function stepDef(rawStep) {
@@ -3363,7 +3421,7 @@
     }
 
     async function previewRender() {
-      if (isChapterLoadInFlight) {
+      if (isChapterLoadInFlight || isPreviewRenderInFlight) {
         setStatus('Wait until frame loading finishes before preview render.', true);
         return;
       }
@@ -3371,9 +3429,11 @@
         setStatus('Load and review a chapter before running preview render.', true);
         return;
       }
-      setLoading(true, 'Rendering chapter preview from current frame selections...');
+      startPreviewProgress('Rendering chapter preview from current frame selections...');
+      let ok = false;
       try {
         const result = await api('/api/preview_render', 'POST', {
+          preview_mode: stepDef(state.wizardStep).mode,
           gamma_profile: {
             default_gamma: normalizeGammaValue(state.gammaProfile && state.gammaProfile.defaultGamma, 1.0),
             ranges: gammaRangesForSave(),
@@ -3384,10 +3444,11 @@
           window.open(target, '_blank', 'noopener');
         }
         setStatus(result.message || 'Preview render ready.');
+        ok = true;
       } catch (err) {
         setStatus(err.message, true);
       } finally {
-        setLoading(false);
+        finishPreviewProgress(ok);
       }
     }
 
