@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import base64
+import gzip
+import hashlib
 import io
+import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -24,9 +28,14 @@ ARCHIVE_DIR  = PROJECT_ROOT / "../Archive"
 METADATA_DIR = PROJECT_ROOT / "metadata"
 FPS          = 30000 / 1001
 BORDER       = 3
-TUNER_EXTRACT_DIR = PROJECT_ROOT / "tmp" / "vhs_tuner_extracts"
+TUNER_CACHE_ROOT = Path(os.environ.get("VHS_TUNER_CACHE_DIR") or (Path(tempfile.gettempdir()) / "vhs_tuner_cache"))
+TUNER_EXTRACT_DIR = TUNER_CACHE_ROOT / "extracts"
+TUNER_FRAME_CACHE_DIR = TUNER_CACHE_ROOT / "frame_samples"
 TUNER_DEBUG_EXTRACT_ENV = "VHS_TUNER_DEBUG_EXTRACT_FRAMES"
 RENDER_DEBUG_EXTRACT_FRAME_NUMBERS_ENV = "RENDER_DEBUG_EXTRACT_FRAME_NUMBERS"
+TUNER_FRAME_CACHE_VERSION = 1
+_CACHE_SIGNAL_KEYS = ("chroma", "noise", "tear", "wave")
+_LAST_CACHE_CLEANUP_TS = 0.0
 
 try:
     from tracking_loss import TrackingLossConfig, run_tracking_loss_classification
@@ -91,16 +100,98 @@ def _env_truthy(name: str) -> bool:
     raw = str(os.environ.get(name, "")).strip().lower()
     return raw in {"1", "true", "yes", "on"}
 
+def _env_int(name: str, default: int, minimum: int) -> int:
+    raw = str(os.environ.get(name, "")).strip()
+    if not raw:
+        return max(minimum, int(default))
+    try:
+        val = int(raw)
+    except Exception:
+        return max(minimum, int(default))
+    return max(minimum, val)
+
+def _source_signature_token(source: str | Path | None) -> str:
+    if source is None:
+        return "nosrc"
+    p = Path(source)
+    try:
+        resolved = p.resolve()
+    except Exception:
+        resolved = p
+    try:
+        st = p.stat()
+        marker = f"{resolved}|{int(st.st_size)}|{int(st.st_mtime_ns)}"
+    except Exception:
+        marker = f"{resolved}|missing"
+    return hashlib.blake2b(marker.encode("utf-8"), digest_size=8).hexdigest()
+
+def _cleanup_tuner_cache(force: bool = False) -> None:
+    global _LAST_CACHE_CLEANUP_TS
+    now = time.time()
+    interval_sec = _env_int("VHS_TUNER_CACHE_CLEANUP_INTERVAL_SEC", default=300, minimum=30)
+    if not force and (now - _LAST_CACHE_CLEANUP_TS) < float(interval_sec):
+        return
+    _LAST_CACHE_CLEANUP_TS = now
+
+    root = TUNER_CACHE_ROOT
+    if not root.exists():
+        return
+
+    ttl_days = _env_int("VHS_TUNER_CACHE_TTL_DAYS", default=14, minimum=1)
+    max_bytes = _env_int("VHS_TUNER_CACHE_MAX_BYTES", default=2 * 1024 * 1024 * 1024, minimum=64 * 1024 * 1024)
+    cutoff = now - (float(ttl_days) * 86400.0)
+
+    files: list[tuple[float, int, Path]] = []
+    total_bytes = 0
+    for p in root.rglob("*"):
+        if not p.is_file():
+            continue
+        try:
+            st = p.stat()
+        except Exception:
+            continue
+        mtime = float(st.st_mtime)
+        size = int(max(0, st.st_size))
+        if mtime < cutoff:
+            try:
+                p.unlink()
+            except Exception:
+                pass
+            continue
+        files.append((mtime, size, p))
+        total_bytes += size
+
+    if total_bytes > max_bytes:
+        files.sort(key=lambda x: x[0])
+        for _mtime, size, p in files:
+            if total_bytes <= max_bytes:
+                break
+            try:
+                p.unlink()
+                total_bytes -= size
+            except Exception:
+                continue
+
+    dirs = [p for p in root.rglob("*") if p.is_dir()]
+    dirs.sort(key=lambda p: len(p.parts), reverse=True)
+    for d in dirs:
+        try:
+            d.rmdir()
+        except Exception:
+            continue
+
 def _chapter_extract_cache_path(
     archive: str,
     chapter_title: str,
     ch_start: int,
     ch_end: int,
     debug_overlay: bool,
+    source_video: str | Path | None = None,
 ) -> Path:
     start_i, end_i = _normalize_frame_span(ch_start, ch_end)
     mode = "debug" if bool(debug_overlay) else "clean"
-    stem = f"{archive}__{slugify(chapter_title)}__{start_i}_{end_i}__{mode}"
+    source_sig = _source_signature_token(source_video)
+    stem = f"{archive}__{slugify(chapter_title)}__{start_i}_{end_i}__{mode}__{source_sig}"
     return TUNER_EXTRACT_DIR / stem / "extracted.mkv"
 
 def _video_frame_count(path: Path) -> int:
@@ -121,6 +212,7 @@ def _ensure_render_chapter_extract(
     ch_end: int,
     debug_overlay: bool,
 ) -> tuple[Path | None, str]:
+    _cleanup_tuner_cache()
     start_i, end_i = _normalize_frame_span(ch_start, ch_end)
     expected_frames = max(1, end_i - start_i)
     out_path = _chapter_extract_cache_path(
@@ -129,6 +221,7 @@ def _ensure_render_chapter_extract(
         ch_start=start_i,
         ch_end=end_i,
         debug_overlay=debug_overlay,
+        source_video=source_video,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -295,12 +388,174 @@ def persist_bad_frames_for_chapter(
     )
     return path, int(count), analyzed, ""
 
-def load_cached_signals(archive: str, ch_title: str) -> tuple[list[int] | None, dict | None]:
-    return None, None
+def _signals_cache_path(
+    archive: str,
+    ch_title: str,
+    video_path: str | Path,
+    start_frame: int,
+    end_frame: int,
+    frame_read_offset: int = 0,
+) -> Path:
+    s, e = _normalize_frame_span(start_frame, end_frame)
+    source_sig = _source_signature_token(video_path)
+    key_raw = "|".join(
+        [
+            str(int(TUNER_FRAME_CACHE_VERSION)),
+            str(archive or "").strip(),
+            str(ch_title or "").strip(),
+            str(int(s)),
+            str(int(e)),
+            str(int(frame_read_offset)),
+            str(source_sig),
+        ]
+    )
+    key = hashlib.sha256(key_raw.encode("utf-8")).hexdigest()[:24]
+    stem = f"{slugify(archive) or 'archive'}__{slugify(ch_title) or 'chapter'}__{key}"
+    return TUNER_FRAME_CACHE_DIR / f"{stem}.json.gz"
 
-def save_cached_signals(archive: str, ch_title: str,
-                        fids: list[int], sigs: dict) -> None:
-    return None
+def load_cached_signals(
+    archive: str,
+    ch_title: str,
+    *,
+    video_path: str | Path,
+    start_frame: int,
+    end_frame: int,
+    frame_read_offset: int = 0,
+) -> tuple[list[int] | None, dict | None, dict[int, str] | None]:
+    path = _signals_cache_path(
+        archive=archive,
+        ch_title=ch_title,
+        video_path=video_path,
+        start_frame=start_frame,
+        end_frame=end_frame,
+        frame_read_offset=frame_read_offset,
+    )
+    if not path.exists():
+        return None, None, None
+    try:
+        with gzip.open(path, "rt", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except Exception:
+        return None, None, None
+
+    try:
+        version = int(payload.get("version", -1))
+    except Exception:
+        return None, None, None
+    if version != int(TUNER_FRAME_CACHE_VERSION):
+        return None, None, None
+
+    fids_raw = payload.get("fids", [])
+    sigs_raw = payload.get("signals", {})
+    thumbs_raw = payload.get("thumbs", {})
+
+    if not isinstance(fids_raw, list) or not isinstance(sigs_raw, dict):
+        return None, None, None
+    try:
+        fids = [int(x) for x in fids_raw]
+    except Exception:
+        return None, None, None
+
+    out_sigs: dict[str, np.ndarray] = {}
+    for key in _CACHE_SIGNAL_KEYS:
+        vals = sigs_raw.get(key)
+        if not isinstance(vals, list) or len(vals) != len(fids):
+            return None, None, None
+        try:
+            out_sigs[key] = np.asarray([float(v) for v in vals], dtype=np.float64)
+        except Exception:
+            return None, None, None
+
+    thumbs: dict[int, str] = {}
+    if isinstance(thumbs_raw, dict):
+        for raw_fid, raw_b64 in thumbs_raw.items():
+            if not isinstance(raw_b64, str):
+                continue
+            try:
+                fid_i = int(raw_fid)
+            except Exception:
+                continue
+            thumbs[fid_i] = raw_b64
+
+    try:
+        path.touch()
+    except Exception:
+        pass
+    return fids, out_sigs, thumbs
+
+def save_cached_signals(
+    archive: str,
+    ch_title: str,
+    *,
+    video_path: str | Path,
+    start_frame: int,
+    end_frame: int,
+    frame_read_offset: int = 0,
+    fids: list[int],
+    sigs: dict,
+    thumbs_by_fid: dict[int, str] | None = None,
+) -> None:
+    if not fids or not sigs:
+        return
+
+    fids_out = [int(x) for x in fids]
+    n = len(fids_out)
+    sigs_out: dict[str, list[float]] = {}
+    for key in _CACHE_SIGNAL_KEYS:
+        arr = np.asarray(sigs.get(key, []), dtype=np.float64)
+        if int(arr.shape[0]) != n:
+            return
+        sigs_out[key] = [float(v) for v in arr.tolist()]
+
+    fid_set = set(fids_out)
+    thumbs_out: dict[str, str] = {}
+    for raw_fid, raw_b64 in dict(thumbs_by_fid or {}).items():
+        try:
+            fid_i = int(raw_fid)
+        except Exception:
+            continue
+        if fid_i not in fid_set:
+            continue
+        b64 = str(raw_b64 or "")
+        if b64:
+            thumbs_out[str(fid_i)] = b64
+
+    s, e = _normalize_frame_span(start_frame, end_frame)
+    path = _signals_cache_path(
+        archive=archive,
+        ch_title=ch_title,
+        video_path=video_path,
+        start_frame=s,
+        end_frame=e,
+        frame_read_offset=frame_read_offset,
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": int(TUNER_FRAME_CACHE_VERSION),
+        "archive": str(archive or ""),
+        "chapter": str(ch_title or ""),
+        "start_frame": int(s),
+        "end_frame": int(e),
+        "frame_read_offset": int(frame_read_offset),
+        "source_sig": _source_signature_token(video_path),
+        "updated_at": float(time.time()),
+        "fids": fids_out,
+        "signals": sigs_out,
+        "thumbs": thumbs_out,
+    }
+
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    try:
+        with gzip.open(tmp_path, "wt", encoding="utf-8") as fh:
+            json.dump(payload, fh, separators=(",", ":"))
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            tmp_path.unlink()
+        except Exception:
+            pass
+        return
+    _cleanup_tuner_cache()
 
 def load_overrides(archive: str, ch_title: str) -> dict[int, str]:
     return {}
@@ -360,42 +615,69 @@ def extract_frames(
             frame_ids = np.linspace(start_i, end_i - 1, target_n, dtype=int).tolist()
     frame_set             = set(frame_ids)
 
-    cached_fids, cached_sigs = load_cached_signals(archive, ch_title)
+    cached_fids, cached_sigs, cached_thumbs = load_cached_signals(
+        archive,
+        ch_title,
+        video_path=video_path,
+        start_frame=start_i,
+        end_frame=end_i,
+        frame_read_offset=frame_read_offset,
+    )
     cached_lookup: dict[int, dict[str, float]] = {}
     if cached_fids and cached_sigs:
         for i, fid in enumerate(cached_fids):
             cached_lookup[fid] = {k: float(v[i]) for k, v in cached_sigs.items()}
+    thumb_lookup: dict[int, str] = dict(cached_thumbs or {})
 
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        return None, None, None, f"Cannot open video: {video_path}"
+    cap: cv2.VideoCapture | None = None
 
     frames_b64: list[str] = []
     chroma_s, noise_s, tear_s, wave_s = [], [], [], []
 
     read_offset = int(frame_read_offset)
+    n_total = max(1, len(frame_ids))
     for idx, fid in enumerate(frame_ids):
         if callable(should_cancel) and bool(should_cancel()):
-            cap.release()
+            if cap is not None:
+                cap.release()
             return None, None, None, "Load cancelled."
         read_fid = int(fid) - read_offset
         if progress is not None:
-            progress(idx / len(frame_ids), desc=f"Frame {fid}...")
-        if read_fid < 0:
-            bgr = np.zeros((240, 320, 3), dtype=np.uint8)
-        else:
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(read_fid))
-            ok, bgr = cap.read()
-            if not ok or bgr is None:
+            progress(idx / n_total, desc=f"Frame {fid}...")
+
+        c = cached_lookup.get(int(fid))
+        cached_thumb = thumb_lookup.get(int(fid), "")
+        need_decode = c is None or (include_thumbs and not cached_thumb)
+
+        bgr = None
+        if need_decode:
+            if read_fid < 0:
                 bgr = np.zeros((240, 320, 3), dtype=np.uint8)
+            else:
+                if cap is None:
+                    cap = cv2.VideoCapture(str(video_path))
+                    if not cap.isOpened():
+                        cap.release()
+                        cap = None
+                        return None, None, None, f"Cannot open video: {video_path}"
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(read_fid))
+                ok, read_bgr = cap.read()
+                if not ok or read_bgr is None:
+                    bgr = np.zeros((240, 320, 3), dtype=np.uint8)
+                else:
+                    bgr = read_bgr
+
         if include_thumbs:
-            frames_b64.append(_bgr_to_jpeg_b64(bgr))
-            frame_thumb = frames_b64[-1]
+            if cached_thumb:
+                frame_thumb = cached_thumb
+            else:
+                frame_thumb = _bgr_to_jpeg_b64(bgr if bgr is not None else np.zeros((240, 320, 3), dtype=np.uint8))
+                thumb_lookup[int(fid)] = frame_thumb
+            frames_b64.append(frame_thumb)
         else:
             frame_thumb = ""
 
-        if fid in cached_lookup:
-            c = cached_lookup[fid]
+        if c is not None:
             ch = float(c["chroma"])
             no = float(c["noise"])
             te = float(c["tear"])
@@ -403,7 +685,8 @@ def extract_frames(
             chroma_s.append(ch); noise_s.append(no)
             tear_s.append(te);   wave_s.append(wa)
         else:
-            ch, no, te, wa = _compute_signals(bgr)
+            compute_bgr = bgr if bgr is not None else np.zeros((240, 320, 3), dtype=np.uint8)
+            ch, no, te, wa = _compute_signals(compute_bgr)
             chroma_s.append(ch); noise_s.append(no)
             tear_s.append(te);   wave_s.append(wa)
         if callable(frame_callback):
@@ -418,7 +701,8 @@ def extract_frames(
                 len(frame_ids),
             )
 
-    cap.release()
+    if cap is not None:
+        cap.release()
 
     sigs: dict[str, np.ndarray] = {
         "chroma": np.array(chroma_s, dtype=np.float64),
@@ -439,7 +723,17 @@ def extract_frames(
     order       = list(np.argsort(all_fids_l))
     sorted_fids = [all_fids_l[i] for i in order]
     sorted_sigs = {k: np.array([v[i] for i in order]) for k, v in all_sigs_l.items()}
-    save_cached_signals(archive, ch_title, sorted_fids, sorted_sigs)
+    save_cached_signals(
+        archive,
+        ch_title,
+        video_path=video_path,
+        start_frame=start_i,
+        end_frame=end_i,
+        frame_read_offset=frame_read_offset,
+        fids=sorted_fids,
+        sigs=sorted_sigs,
+        thumbs_by_fid=thumb_lookup if include_thumbs else None,
+    )
 
     return frame_ids, frames_b64, sigs, ""
 

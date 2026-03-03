@@ -953,6 +953,7 @@ class WizardHandler(BaseHTTPRequestHandler):
                     ch_start=session.start_frame,
                     ch_end=session.end_frame,
                     debug_overlay=debug_overlay,
+                    source_video=video,
                 ).parent.name
             )
             if bool(session.exact_extract)

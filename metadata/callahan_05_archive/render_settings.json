@@ -6,7 +6,7 @@
     "bad_frames_by_chapter": "Per-chapter BAD frame IDs in global archive frame numbering."
   },
   "archive_settings": {
-    "transcript": "off"
+    "transcript": "on"
   },
   "chapter_settings": {},
   "bad_frames_by_chapter": {}

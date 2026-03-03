@@ -365,7 +365,6 @@
       color: var(--text-muted);
       min-height: 12px;
     }
-
     .frame-grid {
       border: 1px solid var(--line);
       border-radius: 2px;
@@ -1466,11 +1465,12 @@
       const pageForStep = target === 1 ? 1 : (target === 4 ? 3 : 2);
       const pages = ['page1', 'page2', 'page3'];
       const pills = ['stepPill1', 'stepPill2', 'stepPill3', 'stepPill4'];
-      if (target !== 2 && target !== 3) {
+      const reviewStage = target === 2 || target === 3;
+      if (!reviewStage) {
         setFlipbookFocusMode(false);
         stopSparkWindowPlayback();
       }
-      if (target !== 2 && target !== 3 && isReviewFullscreenActive()) {
+      if (!reviewStage && isReviewFullscreenActive()) {
         exitReviewFullscreenIfActive();
       }
       pages.forEach((id, i) => {
@@ -1504,7 +1504,7 @@
       updateFullscreenButton();
       refreshGammaVisuals();
       updateReviewStatsDisplay();
-      if ((target === 2 || target === 3) && state.review && Array.isArray(state.review.frames) && state.review.frames.length) {
+      if (reviewStage && state.review && Array.isArray(state.review.frames) && state.review.frames.length) {
         window.requestAnimationFrame(() => {
           scheduleVisibleRangeRefresh();
           ensureFlipbookReady(false);
@@ -3460,7 +3460,7 @@
       if (flipbookOn && fid) {
         seekFlipbookToFrameId(fid, { keepVisible: false });
       }
-      if (isGammaStepActive()) {
+      if (!isBadFrameStepActive()) {
         return;
       }
       if (event.shiftKey) {
