@@ -673,6 +673,21 @@ class WizardHandler(BaseHTTPRequestHandler):
             self._handle_toggle_frame(session, fid)
             return
 
+        if parsed.path == "/api/set_frame_range":
+            if not session.fids and not session.partial_fids:
+                self._send_error_json("No loaded chapter data yet.")
+                return
+            try:
+                start_fid = int(payload.get("start_fid"))
+                end_fid = int(payload.get("end_fid"))
+            except Exception:
+                self._send_error_json("Missing or invalid range frame ids.")
+                return
+            status_raw = str(payload.get("status", "bad") or "bad").strip().lower()
+            status = "good" if status_raw == "good" else "bad"
+            self._handle_set_frame_range(session, start_fid, end_fid, status)
+            return
+
         if parsed.path == "/api/preview_render":
             self._handle_preview_render(session, payload)
             return
@@ -992,6 +1007,44 @@ class WizardHandler(BaseHTTPRequestHandler):
             frame_state = _build_partial_review_payload(session, include_images=False)
         updated = next((f for f in frame_state["frames"] if int(f["fid"]) == fid_i), None)
         self._send_json({"ok": True, "frame": updated, "review": frame_state})
+
+    def _handle_set_frame_range(self, session: SessionState, start_fid: int, end_fid: int, status: str) -> None:
+        lo = int(min(int(start_fid), int(end_fid)))
+        hi = int(max(int(start_fid), int(end_fid)))
+        target_status = "good" if str(status).strip().lower() == "good" else "bad"
+        if session.fids and session.sigs:
+            current = _build_review_payload(session, include_images=False)
+        else:
+            current = _build_partial_review_payload(session, include_images=False)
+
+        changed = 0
+        for frame in list(current.get("frames", [])):
+            try:
+                fid_i = int(frame.get("fid"))
+            except Exception:
+                continue
+            if fid_i < lo or fid_i > hi:
+                continue
+            session.overrides[fid_i] = target_status
+            changed += 1
+
+        if changed <= 0:
+            self._send_error_json("No sampled frames are currently available in that range.")
+            return
+
+        if session.fids and session.sigs:
+            review = _build_review_payload(session, include_images=False)
+        else:
+            review = _build_partial_review_payload(session, include_images=False)
+        self._send_json(
+            {
+                "ok": True,
+                "review": review,
+                "range": {"start_fid": lo, "end_fid": hi},
+                "status": target_status,
+                "updated_count": int(changed),
+            }
+        )
 
     def _run_cmd(self, cmd: list[Any], label: str) -> tuple[bool, str]:
         proc = subprocess.run(

@@ -1170,6 +1170,7 @@
     let flipbookGridCursorIndex = -1;
     let flipbookToggleInFlight = false;
     const pendingToggleRequests = new Set();
+    let shiftRangeAnchorFid = null;
 
     function setLoadCancelUi(visible, disabled = false, label = 'Cancel') {
       if (!overlayCancelWrapEl || !overlayCancelBtnEl) return;
@@ -1183,6 +1184,17 @@
       statusEl.textContent = msg;
       statusEl.classList.toggle('error', Boolean(isError));
       statusEl.classList.toggle('hidden', msg.length === 0);
+    }
+
+    function reviewHasFrameFid(fid) {
+      const target = Math.trunc(Number(fid));
+      if (!Number.isFinite(target)) return false;
+      const frames = (state.review && Array.isArray(state.review.frames)) ? state.review.frames : [];
+      for (const frame of frames) {
+        const fidVal = Math.trunc(Number(frame && frame.fid));
+        if (Number.isFinite(fidVal) && fidVal === target) return true;
+      }
+      return false;
     }
 
     function trackPendingToggleRequest(promiseLike) {
@@ -3198,6 +3210,51 @@
       }
     }
 
+    async function setFrameRangeStatus(startFid, endFid, status = 'bad', options = {}) {
+      const showOverlay = options && options.showOverlay === false ? false : true;
+      const lo = Math.trunc(Math.min(Number(startFid), Number(endFid)));
+      const hi = Math.trunc(Math.max(Number(startFid), Number(endFid)));
+      if (!Number.isFinite(lo) || !Number.isFinite(hi)) {
+        setStatus('Invalid frame range.', true);
+        return;
+      }
+      if (showOverlay) {
+        setLoading(true, `Updating frames ${lo}-${hi}...`);
+      }
+      try {
+        const result = await api('/api/set_frame_range', 'POST', {
+          start_fid: lo,
+          end_fid: hi,
+          status: String(status || 'bad'),
+        });
+        const review = {
+          ...result.review,
+          frames: sortFramesByFid((result.review && result.review.frames) || []),
+        };
+        reviewStatsEl.textContent = statsText(review.stats, review.threshold);
+        if (!isChapterLoadInFlight) {
+          renderActiveSparkline(review.frames, review.threshold);
+        }
+        applyFrameUpdates(review.frames);
+        state.review = {
+          ...state.review,
+          stats: review.stats,
+          threshold: review.threshold,
+          frames: review.frames || [],
+        };
+        state.gammaScores = new Map();
+        refreshFreezeSimulation();
+        updateReviewStatsDisplay();
+        setStatus(`Marked ${Number(result.updated_count || 0)} frame(s) as ${String(result.status || status)} in ${lo}-${hi}.`);
+      } catch (err) {
+        setStatus(err.message, true);
+      } finally {
+        if (showOverlay) {
+          setLoading(false);
+        }
+      }
+    }
+
     async function loadSummary() {
       if (isChapterLoadInFlight) {
         setStatus('Wait until the current chapter load finishes before building summary.', true);
@@ -3394,6 +3451,8 @@
       const card = event.target.closest('.frame-card');
       if (!card) return;
       const fid = String(card.dataset.fid || '').trim();
+      const fidNum = Math.trunc(Number(fid));
+      if (!Number.isFinite(fidNum)) return;
       const flipbookOn = Boolean(flipbookPreviewEl && flipbookPreviewEl.classList.contains('active'));
       if (sparkPlayTimer) {
         _pauseSparkWindowPlayback();
@@ -3404,6 +3463,19 @@
       if (isGammaStepActive()) {
         return;
       }
+      if (event.shiftKey) {
+        if (shiftRangeAnchorFid === null || !reviewHasFrameFid(shiftRangeAnchorFid)) {
+          shiftRangeAnchorFid = fidNum;
+          setStatus(`Range anchor set at frame ${fidNum}. Shift+click another frame to mark the range bad.`);
+          return;
+        }
+        const anchor = Math.trunc(Number(shiftRangeAnchorFid));
+        shiftRangeAnchorFid = fidNum;
+        const showOverlay = !isChapterLoadInFlight && !(page2El && page2El.classList.contains('flipbook-focus'));
+        trackPendingToggleRequest(setFrameRangeStatus(anchor, fidNum, 'bad', { showOverlay }));
+        return;
+      }
+      shiftRangeAnchorFid = fidNum;
       const showOverlay = !isChapterLoadInFlight && !(page2El && page2El.classList.contains('flipbook-focus'));
       trackPendingToggleRequest(toggleFrame(fid, { showOverlay, optimistic: isChapterLoadInFlight }));
     });

@@ -205,3 +205,25 @@ def test_toggle_frame_allows_partial_frames_before_full_load() -> None:
     frame_after = next(f for f in handler.payload["review"]["frames"] if int(f["fid"]) == 1001)
     assert str(frame_after["status"]) != status_before
     assert session.overrides[1001] == ("good" if status_before == "bad" else "bad")
+
+
+def test_set_frame_range_marks_partial_frames_bad() -> None:
+    session = SessionState(
+        start_frame=1000,
+        partial_fids=[1000, 1001, 1002, 1003, 1004],
+        partial_b64=["", "", "", "", ""],
+        partial_sigs={
+            "chroma": [0.1, 0.2, 0.3, 0.4, 0.5],
+            "noise": [0.0, 0.0, 0.0, 0.0, 0.0],
+            "tear": [0.0, 0.0, 0.0, 0.0, 0.0],
+            "wave": [0.0, 0.0, 0.0, 0.0, 0.0],
+        },
+    )
+    handler = _HandlerStub()
+    WizardHandler._handle_set_frame_range(handler, session, 1001, 1003, "bad")
+
+    assert handler.error is None
+    assert handler.payload is not None
+    assert int(handler.payload.get("updated_count", 0)) == 3
+    for fid in (1001, 1002, 1003):
+        assert session.overrides[fid] == "bad"
