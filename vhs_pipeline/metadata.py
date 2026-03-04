@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from fractions import Fraction
 from pathlib import Path
 
 from common import (
@@ -16,19 +17,30 @@ from common import (
     write_sha3_manifest,
 )
 
+def _chapter_seconds(chapter: dict, boundary: str) -> float:
+    raw_key = f"{boundary}_raw"
+    try:
+        raw = chapter.get(raw_key)
+        tb_num = chapter.get("timebase_num")
+        tb_den = chapter.get("timebase_den")
+        if raw is not None and tb_num is not None and tb_den is not None:
+            return float(Fraction(int(raw), 1) * Fraction(int(tb_num), int(tb_den)))
+    except Exception:
+        pass
+    try:
+        return float(chapter.get(f"{boundary}_seconds"))
+    except Exception:
+        pass
+    return float(chapter.get(boundary, 0.0) or 0.0)
+
 
 def generate_tsv_metadata(ffmetadata_path: Path, out_path: Path):
     ffmeta, chapters = parse_chapters(ffmetadata_path)
     lines = ["Title\tAuthor\tChapterTitle\tStartSeconds\tEndSeconds\tLocation"]
 
     for chapter in chapters:
-        start = chapter.get("start_seconds")
-        end = chapter.get("end_seconds")
-        if start is None or end is None:
-            timebase = chapter.get("timebase", "1/1")
-            num, den = timebase.split("/", 1)
-            start = round(int(chapter["start"]) * (int(num) / int(den)), 3)
-            end = round(int(chapter["end"]) * (int(num) / int(den)), 3)
+        start = round(_chapter_seconds(chapter, "start"), 3)
+        end = round(_chapter_seconds(chapter, "end"), 3)
 
         lines.append(
             "\t".join(
@@ -60,13 +72,8 @@ def generate_mkv_chapters_xml(ffmetadata_path: Path, out_path: Path):
     edition = ET.SubElement(root, "EditionEntry")
 
     for chapter in chapters:
-        start = chapter.get("start_seconds")
-        end = chapter.get("end_seconds")
-        if start is None or end is None:
-            timebase = chapter.get("timebase", "1/1")
-            num, den = map(int, timebase.split("/", 1))
-            start = round(int(chapter["start"]) * (num / den), 3)
-            end = round(int(chapter["end"]) * (num / den), 3)
+        start = round(_chapter_seconds(chapter, "start"), 3)
+        end = round(_chapter_seconds(chapter, "end"), 3)
 
         atom = ET.SubElement(edition, "ChapterAtom")
         ET.SubElement(atom, "ChapterTimeStart").text = _fmt(start)

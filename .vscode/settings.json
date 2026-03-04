@@ -1,5 +1,13 @@
 {
-    "python.defaultInterpreterPath": "${workspaceFolder}\\venv-win\\Scripts\\python.exe",
+    "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+    "python.testing.pytestPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
     "python.terminal.activateEnvironment": true,
-    "python-envs.pythonProjects": []
+    "python-envs.pythonProjects": [],
+    "python.testing.pytestArgs": [
+        "-m",
+        "pytest",
+        "test"
+    ],
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestEnabled": true
 }

@@ -23,9 +23,15 @@ Wizard Flow
    - all sampled frames are shown in a grid
    - adjust IQR `k` to change the automatic threshold
    - click any frame to flip its manual good/bad override
-3. Summary and save
+3. Gamma Correction
+   - set chapter-wide gamma or visible-range gamma regions
+4. People Subtitles
+   - add people subtitle ranges from the currently visible frame window
+   - entries are editable as chapter-local `HH:MM:SS.mmm` rows
+5. Summary and save
    - review settings/stats
-   - save BAD frame selections to `render_settings.json`
+   - save BAD frames + gamma to `render_settings.json`
+   - save people subtitle rows to `people.tsv`
 
 How To Use The Tuner
 --------------------
@@ -56,14 +62,27 @@ Step 2: Review frames + threshold
   - use the play button to auto-advance the current viewport
 - Use `Fullscreen` when you need a larger review area.
 
-Step 3: Summary + save
+Step 3: Gamma Correction
+
+- Use chapter-wide gamma for one value across the chapter, or region mode for visible-range bands.
+- Save progress at this stage if you want to resume later.
+
+Step 4: People Subtitles
+
+- Scroll the frame grid to the time window where people appear.
+- Enter names (for example `Jim | Linda`) and click `Add Visible Range`.
+- Edit rows directly in the people editor:
+  - `start<TAB>end<TAB>people`
+  - times are chapter-local `HH:MM:SS.mmm`.
+
+Step 5: Summary + save
 
 1. Click `Next: Summary`.
-2. Confirm counts and settings.
+2. Confirm bad-frame, gamma, and people subtitle settings.
 3. Click `Save and Return to Chapters`.
-4. The tuner saves updated `BAD_FRAMES` to:
-   - `metadata/<archive>/render_settings.json`
-   - the render pipeline then uses AviSynth `FreezeFrame` to replace those bad frames with nearby good frames.
+4. The tuner saves:
+   - `metadata/<archive>/render_settings.json` (`BAD_FRAMES` + gamma)
+   - `metadata/<archive>/people.tsv` (people subtitle ranges)
 
 How `BAD_FRAMES` maps to AviSynth `FreezeFrame`
 -----------------------------------------------

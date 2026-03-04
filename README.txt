@@ -25,6 +25,9 @@ Convert source media into archive MKV:
 Build metadata + archive checksums:
 - `python vhs.py metadata build`
 
+Lint metadata and simulate TIMEBASE conversion safety:
+- `python scripts/lint_metadata.py --glob "metadata/bennett*_archive" --simulate-timebase-conversion`
+
 Embed ffmetadata into existing archive MKVs (no re-encode):
 - `python vhs.py metadata embed <archive1.mkv> <archive2.mkv> ...`
 
@@ -35,7 +38,7 @@ Verify manifests:
 Generate proxies:
 - `python vhs.py proxy`
 
-Launch the plain HTML bad-frame tuner:
+Launch the plain HTML tuner wizard (bad frames + gamma + people subtitles):
 - `python vhs.py tuner`
 
 Render delivery clips/videos (forwards args to render pipeline):
@@ -50,7 +53,7 @@ Generate drive-level checksum manifest:
 Interactive Tools
 -----------------
 
-Bad-frame tuner (plain HTML web UI):
+Tuner wizard (plain HTML web UI):
 - `python vhs.py tuner`
 - optional: `python vhs.py tuner --host 127.0.0.1 --port 8092`
 - usage guide: `apps/plain_html_wizard/README.md`
@@ -61,7 +64,7 @@ Tracking-loss classifier utility:
 Directory Notes
 ---------------
 
-- `metadata/` contains per-archive metadata (`chapters.ffmetadata` chapter timing/title data, `render_settings.json` bad-frame + transcript settings, markers, etc.).
+- `metadata/` contains per-archive metadata (`chapters.ffmetadata`, `render_settings.json`, `people.tsv`, markers, etc.).
 - `vhs_pipeline/` contains command implementations used by `vhs.py`.
 - `legacy_steps/` contains legacy `step_*` entrypoints and historical step docs.
 - `models/`, `software/`, `manuals/`, `screenshots/` contain model/data/tool references.

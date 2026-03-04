@@ -402,7 +402,7 @@ def build_badframe_postfilter_lines(bad_source_frames=None, bad_repair_ranges=No
         frame_multiplier=BADFRAME_POST_QTGMC_MULTIPLIER,
     )
 
-def cleanup_stale_dialogue_files(*paths):
+def cleanup_stale_subtitle_files(label, *paths):
     removed = []
     for path in paths:
         p = Path(path)
@@ -410,7 +410,11 @@ def cleanup_stale_dialogue_files(*paths):
             p.unlink()
             removed.append(p.name)
     if removed:
-        print("Removed stale dialogue transcript files: " + ", ".join(removed))
+        tag = str(label or "subtitle").strip() or "subtitle"
+        print(f"Removed stale {tag} subtitle files: " + ", ".join(removed))
+
+def cleanup_stale_dialogue_files(*paths):
+    cleanup_stale_subtitle_files("dialogue", *paths)
 
 def srt_to_ass(srt_path, ass_path, font="Calibri", fontsize=40):
     srt_path = Path(srt_path)
@@ -647,6 +651,126 @@ def load_badframe_ranges(tsv_path, chapter_title=None, chapter_start_frame=None)
     )
     return [(int(a), int(b)) for a, b, _src in repairs]
 
+def _parse_subtitle_ts(raw):
+    text = str(raw or "").strip().replace(",", ".")
+    if not text:
+        return None
+    parts = text.split(":")
+    try:
+        if len(parts) == 1:
+            value = float(parts[0])
+        elif len(parts) == 2:
+            value = float(int(parts[0]) * 60 + float(parts[1]))
+        elif len(parts) == 3:
+            value = float(int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2]))
+        else:
+            return None
+    except Exception:
+        return None
+    if not (value == value):
+        return None
+    return max(0.0, float(value))
+
+def _to_ass_time(seconds):
+    secs = max(0.0, float(seconds))
+    h = int(secs // 3600)
+    m = int((secs % 3600) // 60)
+    s = secs % 60
+    ss = int(s)
+    cs = int(round((s - ss) * 100))
+    if cs == 100:
+        ss += 1
+        cs = 0
+    return f"{h}:{m:02d}:{ss:02d}.{cs:02d}"
+
+def _to_srt_time(seconds):
+    total_ms = int(round(max(0.0, float(seconds)) * 1000.0))
+    h, rem = divmod(total_ms, 3_600_000)
+    m, rem = divmod(rem, 60_000)
+    s, ms = divmod(rem, 1000)
+    return f"{int(h):02d}:{int(m):02d}:{int(s):02d},{int(ms):03d}"
+
+def _to_vtt_time(seconds):
+    return _to_srt_time(seconds).replace(",", ".")
+
+def _load_people_tsv_entries(tsv_path):
+    rows = []
+    raw = Path(tsv_path).read_text(encoding="utf-8-sig", errors="ignore").splitlines()
+    for line in raw:
+        text = str(line or "").strip()
+        if not text:
+            continue
+        if text.lower().startswith("start"):
+            continue
+        parts = text.split("\t") if "\t" in text else text.split(",")
+        if len(parts) < 3:
+            continue
+        start = _parse_subtitle_ts(parts[0])
+        end = _parse_subtitle_ts(parts[1])
+        people = ",".join(parts[2:]).strip()
+        if start is None or end is None or end <= start or not people:
+            continue
+        rows.append((float(start), float(end), str(people)))
+    return rows
+
+def _clip_people_entries(entries, clip_start=None, clip_end=None):
+    out = []
+    for start_sec, end_sec, people in list(entries or []):
+        start = float(start_sec)
+        end = float(end_sec)
+        if clip_start is not None:
+            start -= float(clip_start)
+            end -= float(clip_start)
+        if clip_start is not None and clip_end is not None:
+            duration = float(clip_end) - float(clip_start)
+            if end <= 0 or start >= duration:
+                continue
+            if start < 0:
+                start = 0.0
+            if end > duration:
+                end = duration
+        if end <= start:
+            continue
+        out.append((float(start), float(end), str(people)))
+    return out
+
+def tsv_people_to_srt_vtt(tsv_path, srt_path, vtt_path, clip_start=None, clip_end=None):
+    tsv_path = Path(tsv_path)
+    srt_path = Path(srt_path)
+    vtt_path = Path(vtt_path)
+    entries = _clip_people_entries(
+        _load_people_tsv_entries(tsv_path),
+        clip_start=clip_start,
+        clip_end=clip_end,
+    )
+    if not entries:
+        return False
+
+    srt_lines = []
+    vtt_lines = ["WEBVTT", ""]
+    for i, (start_sec, end_sec, people) in enumerate(entries, start=1):
+        text = str(people).replace("|", "\n")
+        srt_lines.extend(
+            [
+                str(i),
+                f"{_to_srt_time(start_sec)} --> {_to_srt_time(end_sec)}",
+                text,
+                "",
+            ]
+        )
+        vtt_lines.extend(
+            [
+                str(i),
+                f"{_to_vtt_time(start_sec)} --> {_to_vtt_time(end_sec)}",
+                text,
+                "",
+            ]
+        )
+
+    srt_path.write_text("\n".join(srt_lines).rstrip() + "\n", encoding="utf-8")
+    vtt_path.write_text("\n".join(vtt_lines).rstrip() + "\n", encoding="utf-8")
+    return True
+
 def tsv_people_to_ass(tsv_path, ass_path, font="Calibri", fontsize=36, clip_start=None, clip_end=None):
     tsv_path = Path(tsv_path)
     ass_path = Path(ass_path)
@@ -667,79 +791,15 @@ Style: People,{font},{fontsize},&H00FFFFFF,&H000000FF,&H00000000,&H64000000,0,1,
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
-    def parse_ts(ts):
-        ts = ts.strip().replace(",", ".")
-        parts = ts.split(":")
-        if len(parts) == 1:
-            h = 0
-            m = 0
-            s = float(parts[0])
-        elif len(parts) == 2:
-            h = 0
-            m = int(parts[0])
-            s = float(parts[1])
-        else:
-            h = int(parts[0])
-            m = int(parts[1])
-            s = float(parts[2])
-        return h * 3600 + m * 60 + s
-
-    def to_ass_time(seconds):
-        if seconds < 0:
-            seconds = 0.0
-        h = int(seconds // 3600)
-        m = int((seconds % 3600) // 60)
-        s = seconds % 60
-        ss = int(s)
-        cs = int(round((s - ss) * 100))
-        if cs == 100:
-            ss += 1
-            cs = 0
-        return f"{h}:{m:02d}:{ss:02d}.{cs:02d}"
-
-    lines = []
-    # utf-8-sig strips BOM that can appear on the header line
-    raw = tsv_path.read_text(encoding="utf-8-sig").splitlines()
-    for line in raw:
-        if not line.strip():
-            continue
-        if line.lower().startswith("start"):
-            continue
-        if "\t" in line:
-            parts = line.split("\t")
-        else:
-            parts = line.split(",")
-        if len(parts) < 3:
-            continue
-        start = parts[0].strip()
-        end = parts[1].strip()
-        people = ",".join(parts[2:]).strip()
-        if not start or not end or not people:
-            continue
-        lines.append((start, end, people))
-
-    if not lines:
-        return False
-
+    entries = _clip_people_entries(
+        _load_people_tsv_entries(tsv_path),
+        clip_start=clip_start,
+        clip_end=clip_end,
+    )
     events = []
-    for start, end, people in lines:
-        start_sec = parse_ts(start)
-        end_sec = parse_ts(end)
-        if clip_start is not None:
-            start_sec -= float(clip_start)
-            end_sec -= float(clip_start)
-
-        if clip_start is not None and clip_end is not None:
-            duration = float(clip_end) - float(clip_start)
-            if end_sec <= 0 or start_sec >= duration:
-                continue
-            if start_sec < 0:
-                start_sec = 0.0
-            if end_sec > duration:
-                end_sec = duration
-
+    for start_sec, end_sec, people in entries:
         events.append(
-            f"Dialogue: 0,{to_ass_time(start_sec)},{to_ass_time(end_sec)},People,,0,0,0,,{people.replace('|', ASS_NEWLINE)}"
+            f"Dialogue: 0,{_to_ass_time(start_sec)},{_to_ass_time(end_sec)},People,,0,0,0,,{str(people).replace('|', ASS_NEWLINE)}"
         )
 
     if not events:
@@ -747,6 +807,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
     ass_path.write_text(ass_header + "\n".join(events), encoding="utf-8")
     return True
+
 def make_create_avs(
     temp_extracted: str,
     avs_filter_path: Path,
@@ -1157,6 +1218,8 @@ def _run_with_args(args):
             final_srt = final_dir / f"{safe(title)}.srt"
             final_vtt = final_dir / f"{safe(title)}.vtt"
             final_ass = final_dir / f"{safe(title)}.ass"
+            people_srt = final_dir / f"{safe(title)}.people.srt"
+            people_vtt = final_dir / f"{safe(title)}.people.vtt"
             people_ass = final_dir / f"{safe(title)}.people.ass"
             people_tsv = find_people_tsv(archive_name)
             include_audio = audio_mode(ch) == "on"
@@ -1356,10 +1419,26 @@ def _run_with_args(args):
                     print("Skipping audio and transcription (AUDIO=off).")
 
                 if people_tsv:
-                    if tsv_people_to_ass(people_tsv, people_ass, clip_start=start_sec, clip_end=end_sec):
+                    wrote_people_text = tsv_people_to_srt_vtt(
+                        people_tsv,
+                        people_srt,
+                        people_vtt,
+                        clip_start=extract_start_sec,
+                        clip_end=extract_end_sec,
+                    )
+                    wrote_people_ass = tsv_people_to_ass(
+                        people_tsv,
+                        people_ass,
+                        clip_start=extract_start_sec,
+                        clip_end=extract_end_sec,
+                    )
+                    if wrote_people_text and wrote_people_ass:
                         subtitle_tracks.append({"path": people_ass, "title": "People", "forced": False})
                     else:
+                        cleanup_stale_subtitle_files("people", people_srt, people_vtt, people_ass)
                         print(f"People TSV had no entries: {people_tsv}")
+                else:
+                    cleanup_stale_subtitle_files("people", people_srt, people_vtt, people_ass)
 
                 print(f"Final encoding...")
                 author = ch.get("author", ffm.get("author"))

@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(.venv/Scripts/python -m pytest test/ -v)",
+      "Bash(git filter-repo:*)",
+      "Bash(git add:*)"
     ]
   }
 }

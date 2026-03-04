@@ -304,6 +304,16 @@
     }
 
     .iqr-box input[type="range"] { width: 220px; }
+    .iqr-box input[type="text"] {
+      border: 1px solid var(--line);
+      border-radius: 2px;
+      background: var(--bg-alt);
+      color: var(--text-strong);
+      padding: 6px 8px;
+      min-width: 130px;
+      font-family: inherit;
+      font-size: 12px;
+    }
     .iqr-box select {
       border: 1px solid var(--line);
       border-radius: 2px;
@@ -364,6 +374,19 @@
       font-size: 10px;
       color: var(--text-muted);
       min-height: 12px;
+    }
+    .people-editor {
+      width: 100%;
+      min-height: 108px;
+      border: 1px solid var(--line);
+      border-radius: 2px;
+      background: var(--bg-alt);
+      color: var(--text-strong);
+      padding: 8px;
+      resize: vertical;
+      font-family: "Consolas", "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.35;
     }
     .frame-grid {
       border: 1px solid var(--line);
@@ -846,7 +869,7 @@
           <rect x="6" y="8" width="3" height="28" fill="var(--line)"/>
           <rect x="59" y="8" width="3" height="28" fill="var(--line)"/>
         </svg>
-        <span>VHS Frame Tuner</span>
+        <span>VHS Tuner Wizard</span>
       </div>
       <button id="helpBtn" class="action help-btn" type="button">Help</button>
     </div>
@@ -914,7 +937,14 @@
               <button id="gammaApplyVisible" class="action" type="button">Apply Visible Range</button>
               <button id="gammaClear" class="action warn" type="button">Clear</button>
             </div>
+            <div id="peopleControls" class="iqr-box hidden-ui">
+              <label for="peopleNames">People</label>
+              <input id="peopleNames" type="text" placeholder="Name1 | Name2">
+              <button id="peopleAddVisible" class="action" type="button">Add Visible Range</button>
+              <button id="peopleClear" class="action warn" type="button">Clear Entries</button>
+            </div>
             <button id="previewRender" class="action">Preview Render</button>
+            <button id="saveProgressDraft" class="action">Save Progress</button>
             <button id="toggleFullscreen" class="action">Fullscreen</button>
           </div>
         </div>
@@ -922,6 +952,8 @@
           <svg id="iqrSpark" class="iqr-spark" viewBox="0 0 320 68" preserveAspectRatio="none"></svg>
           <div id="sparkMeta" class="spark-meta"></div>
           <div id="gammaRangeMeta" class="spark-meta hidden-ui"></div>
+          <div id="peopleMeta" class="spark-meta hidden-ui"></div>
+          <textarea id="peopleEditor" class="people-editor hidden-ui" spellcheck="false" placeholder="00:00:05.000\t00:00:10.000\tJim | Linda"></textarea>
         </div>
 
         <div id="flipbookPreview" class="flipbook-preview" aria-hidden="true">
@@ -957,6 +989,10 @@
         </div>
         <div id="gammaActions" class="actions hidden-ui">
           <button id="backToReviewFromGamma" class="action warn">Back: Bad Frames</button>
+          <button id="nextToPeople" class="action primary">Next: People Subtitles</button>
+        </div>
+        <div id="peopleActions" class="actions hidden-ui">
+          <button id="backToGammaFromPeople" class="action warn">Back: Gamma Correction</button>
           <button id="nextToSummary" class="action primary">Next: Summary</button>
         </div>
       </div>
@@ -966,7 +1002,7 @@
       <div class="page-final-layout">
         <div id="summaryBox" class="summary-box">No summary yet.</div>
         <div class="actions">
-          <button id="backToReview" class="action warn">Back: Gamma Correction</button>
+          <button id="backToReview" class="action warn">Back: People Subtitles</button>
           <button id="saveAndReturn" class="action primary">Save and Return to Chapters</button>
         </div>
       </div>
@@ -998,7 +1034,7 @@
         <button id="helpCloseBtn" class="action warn" type="button">Close</button>
       </div>
       <div class="help-body">
-        <p>This wizard lets you mark bad sampled frames and tune gamma. On save, it writes <code>BAD_FRAMES</code> and gamma range metadata to <code>metadata/&lt;archive&gt;/render_settings.json</code>. During render, the AviSynth filter stage reads that metadata and applies <code>FreezeFrame</code> and gamma correction ranges.</p>
+        <p>This wizard lets you mark bad sampled frames, tune gamma, and author people subtitle ranges. Progress saves write <code>BAD_FRAMES</code> + gamma metadata to <code>metadata/&lt;archive&gt;/render_settings.json</code> and people subtitle ranges to <code>metadata/&lt;archive&gt;/people.tsv</code>. During render, subtitle files are generated from that data.</p>
 
         <h3>Step 1: Load Chapter</h3>
         <ol>
@@ -1028,10 +1064,18 @@
           <li>Use <code>Mode = Visible Range Regions</code> then click <code>Apply Visible Range</code> to add per-range gamma values.</li>
         </ul>
 
-        <h3>Step 4: Summary + Save</h3>
+        <h3>Step 4: People Subtitles</h3>
+        <ul>
+          <li>Scroll the frame grid to the visible frame range where people appear.</li>
+          <li>Enter one or more names (for example <code>Jim | Linda</code>) and click <code>Add Visible Range</code>.</li>
+          <li>Each entry is written in chapter-local time format: <code>HH:MM:SS.mmm</code>.</li>
+          <li>Use <code>Save Progress</code> anytime to persist wizard progress and resume later.</li>
+        </ul>
+
+        <h3>Step 5: Summary + Save</h3>
         <ol>
-          <li>Click <code>Next: Summary</code> to verify bad-frame and gamma settings.</li>
-          <li>Click <code>Save and Return to Chapters</code> to persist selected bad frames and gamma ranges.</li>
+          <li>Click <code>Next: Summary</code> to verify bad-frame, gamma, and people subtitle settings.</li>
+          <li>Click <code>Save and Return to Chapters</code> to persist selected bad frames, gamma ranges, and people subtitle entries.</li>
           <li>The chapter list refreshes with updated BAD counts after save.</li>
         </ol>
 
@@ -1078,13 +1122,18 @@
         ranges: [],
         source: 'default',
       },
+      peopleProfile: {
+        entries: [],
+        source: 'default',
+      },
     };
 
     const STEP_DEFS = [
       { num: 1, label: 'Load Chapter', pageId: 'page1', mode: 'load' },
       { num: 2, label: 'Bad Frames + IQR', pageId: 'page2', mode: 'review' },
       { num: 3, label: 'Gamma Correction', pageId: 'page2', mode: 'gamma' },
-      { num: 4, label: 'Summary + Save', pageId: 'page3', mode: 'summary' },
+      { num: 4, label: 'People Subtitles', pageId: 'page2', mode: 'people' },
+      { num: 5, label: 'Summary + Save', pageId: 'page3', mode: 'summary' },
     ];
     const STEP_BY_NUM = new Map(STEP_DEFS.map((step) => [step.num, step]));
     const STEP_INDEX_BY_NUM = new Map(STEP_DEFS.map((step, index) => [step.num, index]));
@@ -1134,6 +1183,12 @@
     const gammaModeEl = document.getElementById('gammaMode');
     const gammaApplyVisibleBtnEl = document.getElementById('gammaApplyVisible');
     const gammaClearBtnEl = document.getElementById('gammaClear');
+    const peopleControlsEl = document.getElementById('peopleControls');
+    const peopleNamesEl = document.getElementById('peopleNames');
+    const peopleAddVisibleBtnEl = document.getElementById('peopleAddVisible');
+    const peopleClearBtnEl = document.getElementById('peopleClear');
+    const peopleMetaEl = document.getElementById('peopleMeta');
+    const peopleEditorEl = document.getElementById('peopleEditor');
     const reviewStatsEl = document.getElementById('reviewStats');
     const frameGridEl = document.getElementById('frameGrid');
     const summaryBoxEl = document.getElementById('summaryBox');
@@ -1147,6 +1202,7 @@
     const gammaControlsEl = document.getElementById('gammaControls');
     const reviewActionsEl = document.getElementById('reviewActions');
     const gammaActionsEl = document.getElementById('gammaActions');
+    const peopleActionsEl = document.getElementById('peopleActions');
     const simulateFreezeFrameEl = document.getElementById('simulateFreezeFrame');
     const flipbookSimFreezeFrameEl = document.getElementById('flipbookSimFreezeFrame');
     const flipbookSimFreezeWrapEl = flipbookSimFreezeFrameEl ? flipbookSimFreezeFrameEl.closest('label.sim-freeze') : null;
@@ -1159,6 +1215,7 @@
     const flipbookPlayBtnEl = document.getElementById('flipbookPlayBtn');
     const flipbookFwdBtnEl = document.getElementById('flipbookFwdBtn');
     const flipbookCloseBtnEl = document.getElementById('flipbookCloseBtn');
+    const saveProgressDraftBtnEl = document.getElementById('saveProgressDraft');
 
     let autoIqrTimer = null;
     let visibleRangeRefreshPending = false;
@@ -1179,7 +1236,14 @@
     let flipbookToggleInFlight = false;
     const pendingToggleRequests = new Set();
     const navActionButtons = new Map();
-    const lockExtraButtons = [previewRenderBtnEl, gammaApplyVisibleBtnEl, gammaClearBtnEl].filter((el) => Boolean(el));
+    const lockExtraButtons = [
+      previewRenderBtnEl,
+      gammaApplyVisibleBtnEl,
+      gammaClearBtnEl,
+      peopleAddVisibleBtnEl,
+      peopleClearBtnEl,
+      saveProgressDraftBtnEl,
+    ].filter((el) => Boolean(el));
     let shiftRangeAnchorFid = null;
 
     function setLoadCancelUi(visible, disabled = false, label = 'Cancel') {
@@ -1550,7 +1614,7 @@
     }
 
     function isReviewMode(mode) {
-      return mode === 'review' || mode === 'gamma';
+      return mode === 'review' || mode === 'gamma' || mode === 'people';
     }
 
     function renderStepPills() {
@@ -1602,11 +1666,16 @@
       });
       updateStepPillActive(targetStep.num);
       const gammaMode = targetStep.mode === 'gamma';
-      if (reviewControlsEl) reviewControlsEl.classList.toggle('hidden-ui', gammaMode);
+      const peopleMode = targetStep.mode === 'people';
+      if (reviewControlsEl) reviewControlsEl.classList.toggle('hidden-ui', gammaMode || peopleMode);
       if (gammaControlsEl) gammaControlsEl.classList.toggle('hidden-ui', !gammaMode);
-      if (reviewActionsEl) reviewActionsEl.classList.toggle('hidden-ui', gammaMode);
+      if (peopleControlsEl) peopleControlsEl.classList.toggle('hidden-ui', !peopleMode);
+      if (reviewActionsEl) reviewActionsEl.classList.toggle('hidden-ui', targetStep.mode !== 'review');
       if (gammaActionsEl) gammaActionsEl.classList.toggle('hidden-ui', !gammaMode);
+      if (peopleActionsEl) peopleActionsEl.classList.toggle('hidden-ui', !peopleMode);
       if (gammaRangeMetaEl) gammaRangeMetaEl.classList.toggle('hidden-ui', !gammaMode);
+      if (peopleMetaEl) peopleMetaEl.classList.toggle('hidden-ui', !peopleMode);
+      if (peopleEditorEl) peopleEditorEl.classList.toggle('hidden-ui', !peopleMode);
       if (flipbookGammaControlsEl) flipbookGammaControlsEl.classList.toggle('hidden-ui', !gammaMode);
       if (flipbookSimFreezeWrapEl) flipbookSimFreezeWrapEl.classList.toggle('hidden-ui', gammaMode);
 
@@ -1620,6 +1689,9 @@
       if (gammaMode) {
         updateGammaControls();
         updateGammaRangeMeta();
+      }
+      if (peopleMode) {
+        updatePeopleMeta();
       }
       updateFullscreenButton();
       refreshGammaVisuals();
@@ -1826,6 +1898,202 @@
       };
     }
 
+    function chapterDurationSeconds() {
+      const span = chapterFrameSpan();
+      return Math.max(0, (Math.max(span.end, span.start + 1) - span.start) * (1001 / 30000));
+    }
+
+    function formatTimestampSeconds(rawSeconds) {
+      const sec = Math.max(0, Number(rawSeconds || 0));
+      const totalMs = Math.round(sec * 1000);
+      const hours = Math.floor(totalMs / 3600000);
+      const minutes = Math.floor((totalMs % 3600000) / 60000);
+      const seconds = Math.floor((totalMs % 60000) / 1000);
+      const millis = Math.max(0, totalMs % 1000);
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(millis).padStart(3, '0')}`;
+    }
+
+    function parseTimestampSeconds(raw) {
+      const text = String(raw || '').trim();
+      if (!text) return null;
+      const cleaned = text.replace(',', '.');
+      const parts = cleaned.split(':');
+      let seconds = NaN;
+      if (parts.length === 1) {
+        seconds = Number(parts[0]);
+      } else if (parts.length === 2) {
+        seconds = (Number(parts[0]) * 60) + Number(parts[1]);
+      } else if (parts.length === 3) {
+        seconds = (Number(parts[0]) * 3600) + (Number(parts[1]) * 60) + Number(parts[2]);
+      }
+      if (!Number.isFinite(seconds) || Number.isNaN(seconds)) return null;
+      return Math.max(0, seconds);
+    }
+
+    function canonicalizePeopleEntries(rawEntries) {
+      const duration = chapterDurationSeconds();
+      const rows = [];
+      (Array.isArray(rawEntries) ? rawEntries : []).forEach((item, idx) => {
+        const startRaw = item && Object.prototype.hasOwnProperty.call(item, 'start_seconds')
+          ? item.start_seconds
+          : (item ? item.start : null);
+        const endRaw = item && Object.prototype.hasOwnProperty.call(item, 'end_seconds')
+          ? item.end_seconds
+          : (item ? item.end : null);
+        const start = parseTimestampSeconds(startRaw);
+        const end = parseTimestampSeconds(endRaw);
+        const people = String((item && item.people) || '').replace(/\s+/g, ' ').trim();
+        if (!people) return;
+        if (start === null || end === null || end <= start) return;
+        const a = _clamp(start, 0, duration);
+        const b = _clamp(end, 0, duration);
+        if (b <= a) return;
+        rows.push({ start: Number(a.toFixed(3)), end: Number(b.toFixed(3)), people, idx });
+      });
+      if (!rows.length) return [];
+      rows.sort((a, b) => {
+        if (a.start !== b.start) return a.start - b.start;
+        if (a.end !== b.end) return a.end - b.end;
+        return a.idx - b.idx;
+      });
+      const out = [];
+      rows.forEach((row) => {
+        if (!out.length) {
+          out.push({
+            start_seconds: row.start,
+            end_seconds: row.end,
+            start: formatTimestampSeconds(row.start),
+            end: formatTimestampSeconds(row.end),
+            people: row.people,
+          });
+          return;
+        }
+        const prev = out[out.length - 1];
+        if (String(prev.people) === row.people && Number(prev.end_seconds) + 0.001 >= row.start) {
+          prev.end_seconds = Number(Math.max(Number(prev.end_seconds), row.end).toFixed(3));
+          prev.end = formatTimestampSeconds(prev.end_seconds);
+          return;
+        }
+        out.push({
+          start_seconds: row.start,
+          end_seconds: row.end,
+          start: formatTimestampSeconds(row.start),
+          end: formatTimestampSeconds(row.end),
+          people: row.people,
+        });
+      });
+      return out;
+    }
+
+    function normalizePeopleProfile(rawProfile) {
+      const raw = (rawProfile && typeof rawProfile === 'object') ? rawProfile : {};
+      return {
+        entries: canonicalizePeopleEntries(raw.entries || []),
+        source: String(raw.source || 'default'),
+      };
+    }
+
+    function peopleEntriesToEditorText(entries) {
+      const rows = canonicalizePeopleEntries(entries);
+      if (!rows.length) return '';
+      return rows
+        .map((row) => `${row.start}\t${row.end}\t${row.people}`)
+        .join('\n');
+    }
+
+    function parsePeopleEditorText(rawText) {
+      const entries = [];
+      const errors = [];
+      const lines = String(rawText || '').split(/\r?\n/);
+      lines.forEach((line, idx) => {
+        const text = String(line || '').trim();
+        if (!text) return;
+        if (/^start\s*[\t,]/i.test(text)) return;
+        const parts = text.includes('\t') ? text.split('\t') : text.split(',');
+        if (parts.length < 3) {
+          errors.push(`Line ${idx + 1}: expected "start<TAB>end<TAB>people".`);
+          return;
+        }
+        entries.push({
+          start: String(parts[0] || '').trim(),
+          end: String(parts[1] || '').trim(),
+          people: String(parts.slice(2).join(',') || '').trim(),
+        });
+      });
+      return { entries: canonicalizePeopleEntries(entries), errors };
+    }
+
+    function refreshPeopleEditorFromState() {
+      if (!peopleEditorEl) return;
+      peopleEditorEl.value = peopleEntriesToEditorText((state.peopleProfile && state.peopleProfile.entries) || []);
+      updatePeopleMeta();
+    }
+
+    function syncPeopleProfileFromEditor(showErrors = true) {
+      if (!peopleEditorEl) {
+        state.peopleProfile = normalizePeopleProfile(state.peopleProfile || null);
+        return true;
+      }
+      const parsed = parsePeopleEditorText(peopleEditorEl.value || '');
+      if (parsed.errors.length) {
+        if (showErrors) {
+          setStatus(parsed.errors[0], true);
+        }
+        return false;
+      }
+      state.peopleProfile = {
+        ...(state.peopleProfile || {}),
+        entries: parsed.entries,
+      };
+      peopleEditorEl.value = peopleEntriesToEditorText(parsed.entries);
+      updatePeopleMeta();
+      return true;
+    }
+
+    function visiblePeopleEntryFromRange(peopleText) {
+      const names = String(peopleText || '').replace(/\s+/g, ' ').trim();
+      if (!names) return null;
+      if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) return null;
+      const range = state.visibleRange || _computeVisibleIndexRange();
+      if (!range) return null;
+      const startIdx = _clamp(Number(range.start || 0), 0, state.review.frames.length - 1);
+      const endIdx = _clamp(Number(range.end || startIdx), startIdx, state.review.frames.length - 1);
+      const startFid = Number(state.review.frames[startIdx] && state.review.frames[startIdx].fid);
+      const endFid = Number(state.review.frames[endIdx] && state.review.frames[endIdx].fid);
+      if (!Number.isFinite(startFid) || !Number.isFinite(endFid)) return null;
+      const span = chapterFrameSpan();
+      const localStartFrame = Math.max(0, Math.trunc(Math.min(startFid, endFid) - span.start));
+      const localEndFrameExclusive = Math.max(localStartFrame + 1, Math.trunc(Math.max(startFid, endFid) - span.start + 1));
+      const startSeconds = localStartFrame * (1001 / 30000);
+      const endSeconds = localEndFrameExclusive * (1001 / 30000);
+      return {
+        start_seconds: Number(startSeconds.toFixed(3)),
+        end_seconds: Number(endSeconds.toFixed(3)),
+        start: formatTimestampSeconds(startSeconds),
+        end: formatTimestampSeconds(endSeconds),
+        people: names,
+      };
+    }
+
+    function updatePeopleMeta() {
+      if (!peopleMetaEl) return;
+      if (!isPeopleStepActive()) {
+        peopleMetaEl.textContent = '';
+        return;
+      }
+      const entries = canonicalizePeopleEntries((state.peopleProfile && state.peopleProfile.entries) || []);
+      if (!entries.length) {
+        peopleMetaEl.textContent = 'People subtitles: no entries yet.';
+        return;
+      }
+      const preview = entries
+        .slice(0, 3)
+        .map((row) => `${row.start}-${row.end} ${row.people}`)
+        .join(' | ');
+      const suffix = entries.length > 3 ? ` | +${entries.length - 3} more` : '';
+      peopleMetaEl.textContent = `People subtitles: ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} | ${preview}${suffix}`;
+    }
+
     function gammaRangesForSave() {
       const span = chapterFrameSpan();
       if (!state.gammaProfile || typeof state.gammaProfile !== 'object') return [];
@@ -1886,6 +2154,11 @@
       if (!reviewStatsEl) return;
       if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) {
         reviewStatsEl.textContent = 'No frames loaded.';
+        return;
+      }
+      if (isPeopleStepActive()) {
+        const entries = canonicalizePeopleEntries((state.peopleProfile && state.peopleProfile.entries) || []);
+        reviewStatsEl.textContent = `People Subtitles step | entries ${entries.length} | sampled ${state.review.frames.length}`;
         return;
       }
       if (isGammaStepActive()) {
@@ -2244,6 +2517,10 @@
 
     function isGammaStepActive() {
       return stepDef(state.wizardStep).mode === 'gamma';
+    }
+
+    function isPeopleStepActive() {
+      return stepDef(state.wizardStep).mode === 'people';
     }
 
     function isReviewFullscreenActive() {
@@ -3002,6 +3279,8 @@
         state.chapters = st.chapters || [];
         startFrameEl.value = st.start_frame;
         endFrameEl.value = st.end_frame;
+        state.peopleProfile = normalizePeopleProfile(null);
+        refreshPeopleEditorFromState();
         renderArchives();
         renderChapters();
         setStatus(st.status || '');
@@ -3045,9 +3324,12 @@
       startLoadProgress('Extracting chapter and sampling frames...');
       state.gammaScores = new Map();
       state.gammaProfile = normalizeGammaProfile(null);
+      state.peopleProfile = normalizePeopleProfile(null);
+      if (peopleNamesEl) peopleNamesEl.value = '';
       state.review = { threshold: 0, stats: { total: 0, bad: 0, good: 0, shown: 0, overrides: 0 }, frames: [] };
       updateReviewStatsDisplay();
       renderReviewFrames([]);
+      refreshPeopleEditorFromState();
       setStepByMode('review');
       try {
         const result = await api('/api/load_chapter', 'POST', payload, 0);
@@ -3063,7 +3345,11 @@
         state.gammaProfile = normalizeGammaProfile(
           (state.loadSettings && state.loadSettings.gamma_profile) || null
         );
+        state.peopleProfile = normalizePeopleProfile(
+          (state.loadSettings && state.loadSettings.people_profile) || null
+        );
         updateGammaControls();
+        refreshPeopleEditorFromState();
         updateReviewStatsDisplay();
         renderReviewFrames(state.review.frames);
         iqrEl.value = String(payload.iqr_k);
@@ -3145,25 +3431,42 @@
       }
     }
 
-    function gammaSummaryTextBlock() {
-      const ranges = gammaRangesForSave();
-      const mode = String((state.gammaProfile && state.gammaProfile.mode) || 'whole');
-      const defaultGamma = normalizeGammaValue(state.gammaProfile && state.gammaProfile.defaultGamma, 1.0);
-      const level = normalizeGammaValue(state.gammaProfile && state.gammaProfile.level, defaultGamma);
-      const lines = [
-        `Gamma mode: ${mode}`,
-        `Gamma default: ${defaultGamma.toFixed(3)}`,
-        `Gamma level: ${level.toFixed(3)}`,
-      ];
-      if (!ranges.length) {
-        lines.push('Gamma ranges: (none)');
-      } else {
-        lines.push('Gamma ranges:');
-        ranges.forEach(r => {
-          lines.push(`- ${r.start_frame}-${r.end_frame} (end exclusive): gamma ${Number(r.gamma).toFixed(3)}`);
-        });
+    function addVisiblePeopleEntry() {
+      const names = String((peopleNamesEl && peopleNamesEl.value) || '').trim();
+      if (!names) {
+        setStatus('Enter people names before adding a visible range entry.', true);
+        return;
       }
-      return lines.join('\n');
+      const visibleEntry = visiblePeopleEntryFromRange(names);
+      if (!visibleEntry) {
+        setStatus('No visible frame range found for people subtitle entry.', true);
+        return;
+      }
+      if (!syncPeopleProfileFromEditor(true)) return;
+      const next = canonicalizePeopleEntries([
+        ...((state.peopleProfile && state.peopleProfile.entries) || []),
+        visibleEntry,
+      ]);
+      state.peopleProfile = {
+        ...(state.peopleProfile || {}),
+        entries: next,
+      };
+      refreshPeopleEditorFromState();
+      updateReviewStatsDisplay();
+      setStatus(`Added people subtitle: ${visibleEntry.start} - ${visibleEntry.end} | ${visibleEntry.people}`);
+    }
+
+    function clearPeopleEntries() {
+      state.peopleProfile = {
+        ...(state.peopleProfile || {}),
+        entries: [],
+      };
+      if (peopleEditorEl) {
+        peopleEditorEl.value = '';
+      }
+      updatePeopleMeta();
+      updateReviewStatsDisplay();
+      setStatus('Cleared people subtitle entries for this chapter draft.');
     }
 
     function visibleGammaRangeFromView() {
@@ -3264,6 +3567,21 @@
       }
       setStepByMode('gamma', stepNumForMode('review'));
       renderActiveSparkline(state.review.frames, state.review.threshold || 0);
+      updateReviewStatsDisplay();
+    }
+
+    async function openPeopleStep() {
+      if (isChapterLoadInFlight) {
+        setStatus('Wait until frame loading finishes before entering people subtitles step.', true);
+        return;
+      }
+      if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) {
+        setStatus('Load and review frames before entering people subtitles step.', true);
+        return;
+      }
+      if (!syncPeopleProfileFromEditor(true)) return;
+      refreshPeopleEditorFromState();
+      setStepByMode('people', stepNumForMode('gamma', stepNumForMode('review')));
       updateReviewStatsDisplay();
     }
 
@@ -3380,6 +3698,7 @@
         setStatus('Wait until the current chapter load finishes before building summary.', true);
         return;
       }
+      if (!syncPeopleProfileFromEditor(true)) return;
       if (pendingToggleRequests.size > 0) {
         setLoading(true, 'Syncing frame edits...');
         try {
@@ -3388,11 +3707,13 @@
           setLoading(false);
         }
       }
+      const saved = await saveProgress({ showOverlay: true, loadingText: 'Saving wizard progress...', silent: true });
+      if (!saved) return;
       setLoading(true, 'Building summary...');
       try {
         const result = await api('/api/summary');
-        summaryBoxEl.textContent = `${String(result.summary || '').trim()}\n\n${gammaSummaryTextBlock()}`;
-        setStepByMode('summary', stepNumForMode('gamma', stepNumForMode('review')));
+        summaryBoxEl.textContent = String(result.summary || '').trim();
+        setStepByMode('summary', stepNumForMode('people', stepNumForMode('gamma', stepNumForMode('review'))));
       } catch (err) {
         setStatus(err.message, true);
       } finally {
@@ -3452,17 +3773,73 @@
       }
     }
 
+    async function saveProgress(options = {}) {
+      if (isChapterLoadInFlight) {
+        setStatus('Wait until frame loading finishes before saving progress.', true);
+        return false;
+      }
+      if (!state.review || !Array.isArray(state.review.frames) || !state.review.frames.length) {
+        setStatus('Load a chapter before saving progress.', true);
+        return false;
+      }
+      if (pendingToggleRequests.size > 0) {
+        await flushPendingToggleRequests();
+      }
+      if (!syncPeopleProfileFromEditor(Boolean(options.showErrors !== false))) {
+        return false;
+      }
+      const peopleEntries = canonicalizePeopleEntries((state.peopleProfile && state.peopleProfile.entries) || []);
+      const showOverlay = options.showOverlay !== false;
+      const loadingText = String(options.loadingText || 'Saving wizard progress...');
+      const silent = Boolean(options.silent);
+      if (showOverlay) {
+        setLoading(true, loadingText);
+      }
+      try {
+        const result = await api('/api/save_progress', 'POST', {
+          gamma_profile: {
+            default_gamma: normalizeGammaValue(state.gammaProfile && state.gammaProfile.defaultGamma, 1.0),
+            ranges: gammaRangesForSave(),
+          },
+          people_profile: {
+            entries: peopleEntries,
+          },
+        });
+        if (!silent) {
+          setStatus(result.message || 'Progress saved.');
+        }
+        return true;
+      } catch (err) {
+        if (!silent) {
+          setStatus(err.message, true);
+        }
+        return false;
+      } finally {
+        if (showOverlay) {
+          setLoading(false);
+        }
+      }
+    }
+
     async function saveAndReturn() {
       if (isChapterLoadInFlight) {
         setStatus('Wait until frame loading finishes before saving.', true);
         return;
       }
-      setLoading(true, 'Saving BAD frame and gamma selections...');
+      if (pendingToggleRequests.size > 0) {
+        await flushPendingToggleRequests();
+      }
+      if (!syncPeopleProfileFromEditor(true)) return;
+      const peopleEntries = canonicalizePeopleEntries((state.peopleProfile && state.peopleProfile.entries) || []);
+      setLoading(true, 'Saving BAD frame, gamma, and people subtitle selections...');
       try {
         const result = await api('/api/save', 'POST', {
           gamma_profile: {
             default_gamma: normalizeGammaValue(state.gammaProfile && state.gammaProfile.defaultGamma, 1.0),
             ranges: gammaRangesForSave(),
+          },
+          people_profile: {
+            entries: peopleEntries,
           },
         });
         setStatus(result.message || 'Saved.');
@@ -3509,7 +3886,28 @@
       },
       {
         id: 'nextToGamma',
-        run: () => openGammaStep(),
+        run: async () => {
+          const saved = await saveProgress({
+            showOverlay: true,
+            loadingText: 'Saving review progress...',
+            silent: true,
+          });
+          if (!saved) return;
+          await openGammaStep();
+        },
+        lockOnLoad: true,
+      },
+      {
+        id: 'nextToPeople',
+        run: async () => {
+          const saved = await saveProgress({
+            showOverlay: true,
+            loadingText: 'Saving gamma progress...',
+            silent: true,
+          });
+          if (!saved) return;
+          await openPeopleStep();
+        },
         lockOnLoad: true,
       },
       {
@@ -3519,6 +3917,14 @@
       },
       {
         id: 'backToReviewFromGamma',
+        run: () => {
+          stopSparkWindowPlayback();
+          setStep(stepAtOffset(state.wizardStep, -1).num);
+        },
+        lockOnLoad: true,
+      },
+      {
+        id: 'backToGammaFromPeople',
         run: () => {
           stopSparkWindowPlayback();
           setStep(stepAtOffset(state.wizardStep, -1).num);
@@ -3603,6 +4009,25 @@
     }
     if (gammaClearBtnEl) {
       gammaClearBtnEl.addEventListener('click', clearGammaRanges);
+    }
+    if (peopleAddVisibleBtnEl) {
+      peopleAddVisibleBtnEl.addEventListener('click', addVisiblePeopleEntry);
+    }
+    if (peopleClearBtnEl) {
+      peopleClearBtnEl.addEventListener('click', clearPeopleEntries);
+    }
+    if (peopleEditorEl) {
+      peopleEditorEl.addEventListener('change', () => {
+        syncPeopleProfileFromEditor(false);
+      });
+      peopleEditorEl.addEventListener('blur', () => {
+        syncPeopleProfileFromEditor(false);
+      });
+    }
+    if (saveProgressDraftBtnEl) {
+      saveProgressDraftBtnEl.addEventListener('click', async () => {
+        await saveProgress({ showOverlay: true, loadingText: 'Saving wizard progress...', silent: false });
+      });
     }
     if (simulateFreezeFrameEl) {
       simulateFreezeFrameEl.addEventListener('change', () => {
@@ -3710,6 +4135,7 @@
       updateFullscreenButton();
       updateActionLocks();
       updateGammaControls();
+      refreshPeopleEditorFromState();
       setSimFreezeFrame(state.simulateFreezeFrame);
       setStatus('Loading archives...');
       try {

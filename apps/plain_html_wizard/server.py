@@ -54,6 +54,9 @@ from libs.vhs_tuner_core import (
 STATIC_DIR = _HERE / "static"
 INDEX_HTML = STATIC_DIR / "index.html"
 SESSION_COOKIE = "vhs_plain_wizard_sid"
+FPS_NUM = 30000
+FPS_DEN = 1001
+PEOPLE_TSV_HEADER = "start\tend\tpeople"
 
 
 @dataclass
@@ -99,6 +102,7 @@ class SessionState:
     preview_video_path: str = ""
     gamma_default: float = 1.0
     gamma_ranges: list[dict[str, Any]] = field(default_factory=list)
+    people_entries: list[dict[str, Any]] = field(default_factory=list)
     partial_fids: list[int] = field(default_factory=list)
     partial_b64: list[str] = field(default_factory=list)
     partial_sigs: dict[str, list[float]] = field(
@@ -229,6 +233,327 @@ def _normalize_gamma_ranges_payload(
         for a, b, g in out
         if int(b) > int(a)
     ]
+
+
+def _frame_to_seconds(frame_id: int) -> float:
+    return float(int(frame_id) * FPS_DEN) / float(FPS_NUM)
+
+
+def _seconds_to_timestamp(seconds: float) -> str:
+    secs = max(0.0, float(seconds))
+    total_ms = int(round(secs * 1000.0))
+    hours, rem = divmod(total_ms, 3_600_000)
+    minutes, rem = divmod(rem, 60_000)
+    whole_seconds, millis = divmod(rem, 1000)
+    return f"{int(hours):02d}:{int(minutes):02d}:{int(whole_seconds):02d}.{int(millis):03d}"
+
+
+def _parse_timestamp_seconds(raw: Any) -> float | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    text = text.replace(",", ".")
+    parts = text.split(":")
+    try:
+        if len(parts) == 1:
+            value = float(parts[0])
+        elif len(parts) == 2:
+            mins = int(parts[0])
+            secs = float(parts[1])
+            value = float((mins * 60) + secs)
+        elif len(parts) == 3:
+            hours = int(parts[0])
+            mins = int(parts[1])
+            secs = float(parts[2])
+            value = float((hours * 3600) + (mins * 60) + secs)
+        else:
+            return None
+    except Exception:
+        return None
+    if not (value == value):
+        return None
+    return max(0.0, float(value))
+
+
+def _normalize_people_entries_payload(
+    raw_entries: Any,
+    *,
+    chapter_duration_seconds: float | None = None,
+) -> list[dict[str, Any]]:
+    rows: list[tuple[float, float, str, int]] = []
+    duration = None
+    if chapter_duration_seconds is not None:
+        try:
+            duration = max(0.0, float(chapter_duration_seconds))
+        except Exception:
+            duration = None
+
+    for idx, item in enumerate(list(raw_entries or [])):
+        start_raw = end_raw = people_raw = None
+        if isinstance(item, dict):
+            start_raw = item.get("start_seconds", item.get("start"))
+            end_raw = item.get("end_seconds", item.get("end"))
+            people_raw = item.get("people")
+        elif isinstance(item, (list, tuple)) and len(item) >= 3:
+            start_raw, end_raw, people_raw = item[0], item[1], item[2]
+        start = _parse_timestamp_seconds(start_raw)
+        end = _parse_timestamp_seconds(end_raw)
+        if start is None or end is None or end <= start:
+            continue
+        if duration is not None:
+            start = max(0.0, min(duration, float(start)))
+            end = max(0.0, min(duration, float(end)))
+            if end <= start:
+                continue
+        people = re.sub(r"\s+", " ", str(people_raw or "")).strip()
+        if not people:
+            continue
+        rows.append((float(start), float(end), people, int(idx)))
+
+    if not rows:
+        return []
+
+    rows.sort(key=lambda item: (item[0], item[1], item[3]))
+    out: list[dict[str, Any]] = []
+    for start, end, people, _idx in rows:
+        start_s = round(float(start), 3)
+        end_s = round(float(end), 3)
+        if out:
+            prev = out[-1]
+            if (
+                str(prev["people"]) == people
+                and float(prev["end_seconds"]) + 0.001 >= start_s
+            ):
+                prev["end_seconds"] = max(float(prev["end_seconds"]), end_s)
+                prev["end"] = _seconds_to_timestamp(float(prev["end_seconds"]))
+                continue
+        out.append(
+            {
+                "start_seconds": start_s,
+                "end_seconds": end_s,
+                "start": _seconds_to_timestamp(start_s),
+                "end": _seconds_to_timestamp(end_s),
+                "people": people,
+            }
+        )
+    return out
+
+
+def _read_people_tsv_rows(path: Path) -> list[tuple[float, float, str]]:
+    rows: list[tuple[float, float, str]] = []
+    p = Path(path)
+    if not p.exists():
+        return rows
+    for raw in p.read_text(encoding="utf-8-sig", errors="ignore").splitlines():
+        line = str(raw or "").strip()
+        if not line or line.startswith("#"):
+            continue
+        lower = line.lower()
+        if lower.startswith("start\t") or lower.startswith("start,end"):
+            continue
+        parts = line.split("\t") if "\t" in line else line.split(",")
+        if len(parts) < 3:
+            continue
+        start = _parse_timestamp_seconds(parts[0])
+        end = _parse_timestamp_seconds(parts[1])
+        people = re.sub(r"\s+", " ", ",".join(parts[2:]).strip())
+        if start is None or end is None or end <= start or not people:
+            continue
+        rows.append((float(start), float(end), str(people)))
+    return rows
+
+
+def _canonicalize_people_tsv_rows(
+    rows: list[tuple[float, float, str]],
+) -> list[tuple[float, float, str]]:
+    items = []
+    for start, end, people in list(rows or []):
+        try:
+            a = float(start)
+            b = float(end)
+        except Exception:
+            continue
+        if not (a == a and b == b):
+            continue
+        if b <= a:
+            continue
+        text = re.sub(r"\s+", " ", str(people or "")).strip()
+        if not text:
+            continue
+        items.append((max(0.0, a), max(0.0, b), text))
+    if not items:
+        return []
+    items.sort(key=lambda item: (item[0], item[1], item[2].lower()))
+    out: list[tuple[float, float, str]] = []
+    for start, end, people in items:
+        if out:
+            prev_start, prev_end, prev_people = out[-1]
+            if prev_people == people and prev_end + 0.001 >= start:
+                out[-1] = (prev_start, max(prev_end, end), prev_people)
+                continue
+        out.append((start, end, people))
+    return out
+
+
+def _write_people_tsv_rows(path: Path, rows: list[tuple[float, float, str]]) -> None:
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    lines = [PEOPLE_TSV_HEADER]
+    for start, end, people in list(rows or []):
+        lines.append(
+            f"{_seconds_to_timestamp(float(start))}\t{_seconds_to_timestamp(float(end))}\t{str(people)}"
+        )
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _load_people_entries_for_chapter(archive: str, ch_start: int, ch_end: int) -> list[dict[str, Any]]:
+    archive_name = str(archive or "").strip()
+    if not archive_name:
+        return []
+    path = METADATA_DIR / archive_name / "people.tsv"
+    if not path.exists():
+        return []
+    chapter_start = _frame_to_seconds(ch_start)
+    chapter_end = _frame_to_seconds(ch_end)
+    if chapter_end <= chapter_start:
+        return []
+    local_entries = []
+    for start, end, people in _read_people_tsv_rows(path):
+        lo = max(float(start), float(chapter_start))
+        hi = min(float(end), float(chapter_end))
+        if hi <= lo:
+            continue
+        local_entries.append(
+            {
+                "start_seconds": max(0.0, lo - chapter_start),
+                "end_seconds": max(0.0, hi - chapter_start),
+                "people": people,
+            }
+        )
+    return _normalize_people_entries_payload(
+        local_entries,
+        chapter_duration_seconds=max(0.0, chapter_end - chapter_start),
+    )
+
+
+def _save_people_entries_for_chapter(
+    archive: str,
+    ch_start: int,
+    ch_end: int,
+    local_entries: list[dict[str, Any]],
+) -> tuple[Path, int]:
+    archive_name = str(archive or "").strip()
+    path = METADATA_DIR / archive_name / "people.tsv"
+    chapter_start = _frame_to_seconds(ch_start)
+    chapter_end = _frame_to_seconds(ch_end)
+    if chapter_end <= chapter_start:
+        _write_people_tsv_rows(path, _canonicalize_people_tsv_rows(_read_people_tsv_rows(path)))
+        return path, 0
+
+    existing = _read_people_tsv_rows(path)
+    kept: list[tuple[float, float, str]] = []
+    for start, end, people in existing:
+        if end <= chapter_start or start >= chapter_end:
+            kept.append((float(start), float(end), str(people)))
+            continue
+        if start < chapter_start:
+            kept.append((float(start), float(chapter_start), str(people)))
+        if end > chapter_end:
+            kept.append((float(chapter_end), float(end), str(people)))
+
+    normalized_local = _normalize_people_entries_payload(
+        local_entries,
+        chapter_duration_seconds=max(0.0, chapter_end - chapter_start),
+    )
+    chapter_rows: list[tuple[float, float, str]] = []
+    for item in normalized_local:
+        start_local = _parse_timestamp_seconds(item.get("start_seconds", item.get("start")))
+        end_local = _parse_timestamp_seconds(item.get("end_seconds", item.get("end")))
+        if start_local is None or end_local is None or end_local <= start_local:
+            continue
+        people = re.sub(r"\s+", " ", str(item.get("people", "")).strip())
+        if not people:
+            continue
+        chapter_rows.append(
+            (
+                float(chapter_start + start_local),
+                float(chapter_start + end_local),
+                str(people),
+            )
+        )
+
+    merged = _canonicalize_people_tsv_rows([*kept, *chapter_rows])
+    _write_people_tsv_rows(path, merged)
+    return path, len(chapter_rows)
+
+
+def _apply_profiles_from_payload(session: SessionState, payload: dict[str, Any] | None) -> None:
+    payload = payload or {}
+    raw_gamma_profile = payload.get("gamma_profile")
+    if raw_gamma_profile is None:
+        raw_gamma_profile = payload.get("gamma")
+    if isinstance(raw_gamma_profile, dict):
+        session.gamma_default = _normalize_gamma_value(
+            raw_gamma_profile.get("default_gamma", session.gamma_default),
+            default=session.gamma_default,
+        )
+        session.gamma_ranges = _normalize_gamma_ranges_payload(
+            raw_gamma_profile.get("ranges", session.gamma_ranges),
+            ch_start=session.start_frame,
+            ch_end=session.end_frame,
+        )
+
+    chapter_duration = max(0.0, _frame_to_seconds(session.end_frame) - _frame_to_seconds(session.start_frame))
+    raw_people_profile = payload.get("people_profile")
+    if raw_people_profile is None:
+        raw_people_profile = payload.get("people")
+    if isinstance(raw_people_profile, dict):
+        session.people_entries = _normalize_people_entries_payload(
+            raw_people_profile.get("entries", session.people_entries),
+            chapter_duration_seconds=chapter_duration,
+        )
+    elif isinstance(raw_people_profile, list):
+        session.people_entries = _normalize_people_entries_payload(
+            raw_people_profile,
+            chapter_duration_seconds=chapter_duration,
+        )
+
+
+def _persist_session_progress(session: SessionState) -> tuple[Path | None, Path, int, int, int]:
+    out_path, count, analyzed, err = persist_bad_frames_for_chapter(
+        archive=session.archive,
+        chapter_title=session.chapter,
+        ch_start=session.start_frame,
+        ch_end=session.end_frame,
+        fids=session.fids,
+        sigs=session.sigs,
+        overrides=session.overrides,
+        wc=session.wc,
+        wn=session.wn,
+        wt=session.wt,
+        ww=session.ww,
+        tm=session.t_mode,
+        ik=session.iqr_k,
+        tv=session.tval,
+        bp=session.bpct,
+        progress=None,
+    )
+    if err:
+        raise RuntimeError(str(err))
+
+    gamma_path = update_chapter_gamma_in_render_settings(
+        archive=session.archive,
+        chapter_title=session.chapter,
+        gamma_ranges=session.gamma_ranges,
+        default_gamma=session.gamma_default,
+    )
+    people_path, people_count = _save_people_entries_for_chapter(
+        archive=session.archive,
+        ch_start=session.start_frame,
+        ch_end=session.end_frame,
+        local_entries=session.people_entries,
+    )
+    return out_path, gamma_path, int(count), int(analyzed), int(people_count)
 
 
 def _details_text(chapter_row: dict[str, Any] | None) -> str:
@@ -406,6 +731,22 @@ def _summary_payload(session: SessionState) -> dict[str, Any]:
     else:
         gamma_lines.append("Gamma ranges: (none)")
     gamma_text = "\n".join(gamma_lines)
+
+    people_entries = _normalize_people_entries_payload(
+        session.people_entries,
+        chapter_duration_seconds=max(0.0, _frame_to_seconds(session.end_frame) - _frame_to_seconds(session.start_frame)),
+    )
+    people_lines = []
+    if people_entries:
+        people_lines.append(f"People subtitle entries: {len(people_entries)}")
+        for item in people_entries:
+            people_lines.append(
+                f"- {item['start']} - {item['end']}: {item['people']}"
+            )
+    else:
+        people_lines.append("People subtitle entries: (none)")
+    people_text = "\n".join(people_lines)
+
     summary_text = (
         f"Archive: {session.archive}\n"
         f"Chapter: {session.chapter}\n"
@@ -419,7 +760,8 @@ def _summary_payload(session: SessionState) -> dict[str, Any]:
         f"Marked good: {review['stats']['good']}\n"
         f"Manual overrides: {review['stats']['overrides']}\n"
         f"Gamma default: {float(session.gamma_default):.3f}\n"
-        f"{gamma_text}\n\n"
+        f"{gamma_text}\n"
+        f"{people_text}\n\n"
         f"BAD frame IDs (sampled set):\n{preview or '(none)'}"
     )
     return {"summary": summary_text, "review": review}
@@ -736,6 +1078,10 @@ class WizardHandler(BaseHTTPRequestHandler):
             self._handle_save(session, payload)
             return
 
+        if parsed.path == "/api/save_progress":
+            self._handle_save_progress(session, payload)
+            return
+
         self._send_error_json("Not found", code=HTTPStatus.NOT_FOUND)
 
     def _handle_load_chapter(self, session: SessionState, payload: dict[str, Any]) -> None:
@@ -812,6 +1158,7 @@ class WizardHandler(BaseHTTPRequestHandler):
         )
         session.gamma_default = 1.0
         session.gamma_ranges = []
+        session.people_entries = []
         session.partial_fids = []
         session.partial_b64 = []
         session.partial_sigs = {"chroma": [], "noise": [], "tear": [], "wave": []}
@@ -974,6 +1321,11 @@ class WizardHandler(BaseHTTPRequestHandler):
             ch_start=session.start_frame,
             ch_end=session.end_frame,
         )
+        session.people_entries = _load_people_entries_for_chapter(
+            archive=session.archive,
+            ch_start=session.start_frame,
+            ch_end=session.end_frame,
+        )
 
         details = {
             "archive": session.archive,
@@ -1002,6 +1354,10 @@ class WizardHandler(BaseHTTPRequestHandler):
                 "default_gamma": float(session.gamma_default),
                 "ranges": list(session.gamma_ranges),
                 "source": str(gamma_profile.get("source", "default")),
+            },
+            "people_profile": {
+                "entries": list(session.people_entries),
+                "source": "people_tsv",
             },
         }
 
@@ -1455,7 +1811,7 @@ class WizardHandler(BaseHTTPRequestHandler):
         _set_stage_progress(stage_idx, chapter_len, stage_label)
 
         session.preview_video_path = str(preview_video.resolve())
-        mode_desc = preview_mode if preview_mode in {"review", "gamma", "summary"} else "combined"
+        mode_desc = preview_mode if preview_mode in {"review", "gamma", "people", "summary"} else "combined"
         msg = (
             f"Preview render ready for {session.chapter}: "
             f"mode={mode_desc}, freeze={'on' if apply_freeze else 'off'}, gamma={'on' if apply_gamma else 'off'}. "
@@ -1488,50 +1844,14 @@ class WizardHandler(BaseHTTPRequestHandler):
             self._send_error_json("No loaded chapter data yet.")
             return
 
-        payload = payload or {}
-        raw_gamma_profile = payload.get("gamma_profile")
-        if raw_gamma_profile is None:
-            raw_gamma_profile = payload.get("gamma")
-        if isinstance(raw_gamma_profile, dict):
-            session.gamma_default = _normalize_gamma_value(
-                raw_gamma_profile.get("default_gamma", session.gamma_default),
-                default=session.gamma_default,
-            )
-            session.gamma_ranges = _normalize_gamma_ranges_payload(
-                raw_gamma_profile.get("ranges", session.gamma_ranges),
-                ch_start=session.start_frame,
-                ch_end=session.end_frame,
-            )
-
-        out_path, count, analyzed, err = persist_bad_frames_for_chapter(
-            archive=session.archive,
-            chapter_title=session.chapter,
-            ch_start=session.start_frame,
-            ch_end=session.end_frame,
-            fids=session.fids,
-            sigs=session.sigs,
-            overrides=session.overrides,
-            wc=session.wc,
-            wn=session.wn,
-            wt=session.wt,
-            ww=session.ww,
-            tm=session.t_mode,
-            ik=session.iqr_k,
-            tv=session.tval,
-            bp=session.bpct,
-            progress=None,
-        )
-        if err:
-            self._send_error_json(err)
+        _apply_profiles_from_payload(session, payload)
+        try:
+            out_path, gamma_path, count, analyzed, people_count = _persist_session_progress(session)
+        except Exception as exc:
+            self._send_error_json(str(exc))
             return
-
-        gamma_path = update_chapter_gamma_in_render_settings(
-            archive=session.archive,
-            chapter_title=session.chapter,
-            gamma_ranges=session.gamma_ranges,
-            default_gamma=session.gamma_default,
-        )
         gamma_count = len(session.gamma_ranges)
+        people_path = METADATA_DIR / str(session.archive or "").strip() / "people.tsv"
 
         archive_state = _archive_state(session, session.archive, selected_title=session.chapter)
         self._send_json(
@@ -1540,10 +1860,34 @@ class WizardHandler(BaseHTTPRequestHandler):
                 "message": (
                     f"Saved BAD_FRAMES for {session.chapter} "
                     f"({int(analyzed)} analyzed, {int(count)} bad). "
-                    f"Saved gamma ranges: {int(gamma_count)}."
+                    f"Saved gamma ranges: {int(gamma_count)}. "
+                    f"Saved people entries: {int(people_count)}."
                 ),
-                "metadata_path": str(gamma_path or out_path) if (gamma_path or out_path) else "",
+                "metadata_path": str(gamma_path or out_path or people_path) if (gamma_path or out_path or people_path) else "",
                 "archive_state": archive_state,
+            }
+        )
+
+    def _handle_save_progress(self, session: SessionState, payload: dict[str, Any] | None = None) -> None:
+        if not session.fids:
+            self._send_error_json("No loaded chapter data yet.")
+            return
+        _apply_profiles_from_payload(session, payload)
+        try:
+            out_path, gamma_path, count, analyzed, people_count = _persist_session_progress(session)
+        except Exception as exc:
+            self._send_error_json(str(exc))
+            return
+        self._send_json(
+            {
+                "ok": True,
+                "message": (
+                    f"Progress saved for {session.chapter}: "
+                    f"BAD_FRAMES {int(count)}/{int(analyzed)}, "
+                    f"gamma ranges {int(len(session.gamma_ranges))}, "
+                    f"people entries {int(people_count)}."
+                ),
+                "metadata_path": str(gamma_path or out_path or (METADATA_DIR / str(session.archive or '').strip() / 'people.tsv')),
             }
         )
 
